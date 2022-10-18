@@ -1,0 +1,27 @@
+VER_1.0{
+global:
+    tGetVersion;
+	tInitialize;
+    tUninitialize;
+    tGetMemoryPlan;
+    tModelInit;
+    tModelFini;
+    tGetInputCount;
+    tGetInputName;
+    tGetOutputCount;
+    tGetOutputName;
+    tGetInputDataType;
+    tGetOutputDataType;
+    tGetInputShape;
+    tGetOutputShape;
+    tCreateExecutor;
+    tReleaseExecutor;
+    tSetInput;
+    tSetInputByName;
+    tGetOutput;
+    tGetOutputByName;
+    tForward;
+    thinkerGetApi;
+	
+local:*;
+};
