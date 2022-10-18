@@ -1,0 +1,13 @@
+include LICENSE
+include requirements.txt
+include thinker/__init__.py
+include thinker/executor/bin/*.so
+include thinker/executor/c_api/*.
+include thinker/executor/core/operator_attrs.h
+include thinker/executor/include/thinker/thinker*
+
+include thinker/*thinker*
+
+exclude Makefile
+exclude .*
+exclude *.sh
