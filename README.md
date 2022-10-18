@@ -1,6 +1,11 @@
 ![thinker_logo](thinker/docs/images/Thinker_logo.png)
-
 #### [English](./README_EH.md) | 简体中文
+
+[![PyPI - Python Version](https://img.shields.io/pypi/pyversions/thinker.svg)](https://pypi.org/project/thinker)
+[![PyPI](https://badge.fury.io/py/thinker.svg)](https://badge.fury.io/py/thinker)
+[![Downloads](https://pepy.tech/badge/thinker)](https://pepy.tech/project/thinker)
+[![DockerHub](https://img.shields.io/docker/pulls/thinker/thinker-cpu.svg)](https://hub.docker.com/r/thinker/thinker-cpu)
+[![LICENSE](https://img.shields.io/github/license/thinker-ai/thinker.svg?style=flat-square)](https://github.com/LISTENAI/thinker/blob/main/LICENSE)
 
 # 欢迎使用聆思科技芯片专用推理引擎框架Thinker
 * Thinker是基于聆思科技自主研发的AIOT芯片CSK60xx，专门定制的轻量级神经网络推理框架，结合另一个开源量化训练工具Linger可实现产业级深度学习平台，集深度学习量化训练和引擎推理、LUNA器件库和丰富的工具组件于一体。
