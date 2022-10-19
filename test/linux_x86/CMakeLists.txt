@@ -1,0 +1,25 @@
+CMAKE_MINIMUM_REQUIRED( VERSION 2.8 FATAL_ERROR )
+set(CMAKE_CXX_STANDARD 11)
+project(test_x86)
+
+set (ROOT_THINKER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../..")
+
+if(CMAKE_COMPILER_IS_GNUCXX)
+    set(CMAKE_CXX_FLAGS "-O2 -g -Wall -std=c++11 -fPIC  ${CMAKE_CXX_FLAGS}")
+endif(CMAKE_COMPILER_IS_GNUCXX)
+SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -ggdb3 -O0")
+SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -ggdb3 -O0")
+set (CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/bin)
+
+include_directories(${ROOT_THINKER_DIR}/thinker/executor/include   ${CMAKE_CURRENT_SOURCE_DIR}/../include)
+
+aux_source_directory(. SRC_LIST)
+
+link_directories(${ROOT_THINKER_DIR}/bin)
+
+ADD_EXECUTABLE(test_x86 "${SRC_LIST}")
+TARGET_LINK_LIBRARIES(test_x86 thinker -pthread)
+
+
+
+
