@@ -1,10 +1,9 @@
 set -e
-module load gcc/7.3.0-os7.2
+module load gcc/5.4.0
 CMAKE_ROOT=/home/bitbrain/bzcai/anaconda3/bin
 pushd ./
 rm -rf build && mkdir -p build && cd build
 cmake -DCMAKE_BUILD_TYPE="Debug"   \
-    -DARCH="x86_64"                \
     -DTHINKER_SHARED_LIB=ON        \
     -DTHINKER_PROFILE=OFF          \
     -DTHINKER_DUMP=OFF             \

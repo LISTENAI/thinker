@@ -9,7 +9,7 @@ setup(
 	description="A DeepLearning inference framework for venus",
 	author="thinker",
 	author_email="listener@iflytek.com",
-	url="https://git-in.iflytek.com/RS_RDG_AI_Group/bitbrain/thinker",
+	url="https://github.com/LISTENAI/thinker",
 	packages=find_packages(),
 	include_package_data=True,
     install_requires=[
