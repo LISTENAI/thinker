@@ -26,7 +26,7 @@
 ## 二、安装：
 - [pip安装方式](./thinker/docs/thinker_environment.md)
 - [源码编译安装方式](./thinker/docs/thinker_build.md)
-- [docker镜像](./thinker/docs/thinker_build.md)
+- [docker镜像](./thinker/docs/thinker_docker.md)
 ***
 ## 三、快速开始
 聆思专用芯片工具链包括Linger+Thinker，两者无缝衔接。Thinker依赖于Linger的计算图导出整个工具链的使用贯穿模型落地的整个生命周期，大致可以分为三个阶段：
