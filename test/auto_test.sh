@@ -51,7 +51,7 @@ pushd ./
 rm -rf dist/*
 python setup.py sdist
 
-pip install dist/thinker*.tar.gz
+pip install dist/pythinker*.tar.gz
 popd
 
 ###################### compile test.cpp ######################

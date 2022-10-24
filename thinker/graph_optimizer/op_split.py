@@ -600,12 +600,7 @@ def op_split(
                     * weight.shape[2]
                     * weight.shape[3]
                 )
-                assert (
-                    weight_size <= 32768,
-                    "size of weight：{} in ConvTranpose exceed limit 32KB\n".format(
-                        weight_size
-                    ),
-                )
+                assert weight_size <= 32768, "size of weight：{} in ConvTranpose exceed limit 32KB\n".format(weight_size)
                 continue
 
         elif node.op_type == "LinearInt" or node.op_type == "BmmInt":
