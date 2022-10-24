@@ -51,7 +51,6 @@ Directly load resources serialized by offline tools. Implement computational gra
 
 ### 6. Auxiliary Functions
 View operator performance statistics and intermediate result data
-  * [pack and run]
   * [Example Tutorial 6](./thinker/docs/thinker_performance.md)
 
 ***
