@@ -47,7 +47,7 @@ Parameter checking of the computational graph, computational graph optimization 
 
 ### 5. Inference execution
 Directly load resources serialized by offline tools. Implement computational graphs on VENUS chips with few or even zero modifications.
-* [Example Tutorial 5](./thinker/docs/thinker_docker.md)
+* [Example Tutorial 5](./thinker/docs/thinker_run.md)
 
 ### 6. Auxiliary Functions
 View operator performance statistics and intermediate result data

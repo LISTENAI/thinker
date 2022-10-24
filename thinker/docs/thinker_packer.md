@@ -13,15 +13,13 @@ tpacker -g xx.onnx [-p venus] [-d True] [-m memory] [-o model.bin]
 * -m : 模型参数在venus上存放的位置，选填项，默认为psram，可选项有flash、psram
 * -o : 输出的二进制模型资源路径，选填项，默认为./model.pkg
 
-# Step2-引擎执行
-执行编译后，会对应测试工程test_thinker，执行脚本如下
-* 输入数据格式为 input.bin model.bin result.bin  c h w
-  * input.bin : 输入的模型二进制数据
-  * model.bin : 打包生成优化后的模型二进制数据
-  * result.bin: thinker引擎最终生成的二进制结果数据
-  * shape : c(通道),h(高度),w(宽度)
-
-* 输入
+* 以 Resnet50 模型为例，输入:
 ```Shell
-./test_thinker input.bin model.bin result.bin 8 64 128
+tpacker -g demo/resnet50/resnet50_fashion_mnist.onnx -d True -s Remove_QuantDequant -o demo/resnet50/model.bin
 ```
+其中 -s Remove_QuantDequant 为保留 Quant 与 Dequant 算子, 若能打包成功，则会提示 ![如下图片](./images/Resnet50_sucess.png)。
+
+同时会得到内存分析结果。
+![PSRAM 内存结果](./images/Resnet50_Mem1.png)
+
+![Share_Mem 内存结果](./images/Resnet50_Mem2.png)
