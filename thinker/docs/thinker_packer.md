@@ -17,9 +17,11 @@ tpacker -g xx.onnx [-p venus] [-d True] [-m memory] [-o model.bin]
 ```Shell
 tpacker -g demo/resnet50/resnet50_fashion_mnist.onnx -d True -s Remove_QuantDequant -o demo/resnet50/model.bin
 ```
-其中 -s Remove_QuantDequant 为保留 Quant 与 Dequant 算子, 若能打包成功，则会提示 ![如下图片](./images/Resnet50_sucess.png)。
+其中 -s Remove_QuantDequant 为保留 Quant 与 Dequant 算子, 若能打包成功，则会提示 : 
+![如下图片](./images/Resnet50_sucess.png)
 
 同时会得到内存分析结果。
+
 ![PSRAM 内存结果](./images/Resnet50_Mem1.png)
 
 ![Share_Mem 内存结果](./images/Resnet50_Mem2.png)
