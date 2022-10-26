@@ -8,12 +8,6 @@ on:
       - 'thinker/**'
       - 'thinker/executor/**'
       - '.github/workflows/linux_x86.yml'
-  pull_request:
-    branches: [main]
-    paths:
-      - 'thinker/**'
-      - 'test/**'
-      - '.github/workflows/linux_x86.yml'
 
 concurrency:
   group: linux-${{ github.ref }}
