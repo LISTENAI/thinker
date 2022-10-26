@@ -25,6 +25,10 @@ jobs:
   linux_build_test:
     runs-on: self-hosted
     steps:
+      - name: display the path
+        run:  echo  $PATH
+        shell:  bash
+    steps:
       - uses: actions/checkout@v3
       - echo: "build begin"
       - name: build
