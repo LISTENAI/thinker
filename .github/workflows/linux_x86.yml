@@ -25,6 +25,7 @@ jobs:
   get_path:
     runs-on:  self-hosted
     steps:
+      - uses: actions/checkout@v3
       - name: display the path
         run:  echo  $PATH
         shell:  bash
@@ -33,13 +34,11 @@ jobs:
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v3
-      - echo: "build begin"
       - name: build
         run: |
             conda create -n thinker-env python==3.8.5
             conda activate thinker-env
             pip install -U pip
             cat requirements.txt | xargs -n 1 pip install
-      - echo: "build end"
       - name: test
         run: sh ./test/auto_test.sh
