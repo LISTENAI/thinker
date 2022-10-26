@@ -23,13 +23,13 @@ permissions:
 
 jobs:
   linux_build_test:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
       - name: build
         run:  conda activate thinker-env
   x86_linux_test:
     needs:  linux_build_test
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
       - name: test
         run:  ./test/auto_test.sh
