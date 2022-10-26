@@ -20,15 +20,15 @@ module load gcc/5.4.0-os7.2
 mkdir -p model
 mkdir -p resource
 pushd ./
-download_onnx_thinker_models "test_conv2d" "net.onnx" "input.bin" "output.bin"
 download_onnx_thinker_models "test_conv1d" "conv1d.onnx" "input.bin" "output.bin"
+download_onnx_thinker_models "test_conv2d" "net.onnx" "input.bin" "output.bin"
+download_onnx_thinker_models "test_gru" "gru_int.onnx" "input.bin" "output.bin"
 download_onnx_thinker_models "test_batchnorm" "batchnormInt.onnx" "input.bin" "output.bin"
 download_onnx_thinker_models "test_softmaxint" "softmaxint.onnx" "input.bin" "output.bin"
 download_onnx_thinker_models "test_logsoftmax" "logsoftmaxint.onnx" "input.bin" "output.bin"
 download_onnx_thinker_models "test_iqsigmoid" "iqsigmoid.onnx" "input.bin" "output.bin"
 download_onnx_thinker_models "test_layernorm" "layernorm_int.onnx" "input.bin" "output.bin"
 download_onnx_thinker_models "test_shufflechannel" "shuffle_net_10_09.onnx" "input.bin" "output.bin"
-download_onnx_thinker_models "test_gru" "gru_int.onnx" "input.bin" "output.bin"
 popd
 
 ###################### compile thinker.so ######################
