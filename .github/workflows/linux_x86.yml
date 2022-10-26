@@ -21,7 +21,11 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: build
-        run:  conda activate thinker-env
+        run:  |
+              conda create -n thinker-env python==3.8.5
+              conda activate thinker-env
+              pip install -U pip
+              cat requirements.txt | xargs -n 1 pip install
   x86_linux_test:
     needs:  linux_build_test
     runs-on: self-hosted
