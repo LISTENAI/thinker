@@ -22,12 +22,15 @@ permissions:
   contents: read
 
 jobs:
-  linux_build_test:
-    runs-on: self-hosted
+  get_path:
+    runs-on:  self-hosted
     steps:
       - name: display the path
         run:  echo  $PATH
         shell:  bash
+
+  linux_build_test:
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v3
       - echo: "build begin"
