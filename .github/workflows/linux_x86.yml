@@ -21,9 +21,8 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: build
-        run:  |
-              pip install -U pip
-              cat requirements.txt | xargs -n 1 pip install
+      
+
   x86_linux_test:
     needs:  linux_build_test
     runs-on: self-hosted
