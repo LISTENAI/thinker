@@ -12,7 +12,7 @@ on:
     paths:
       - 'thinker/**'
       - 'test/**'
-      - '.github/workflows/linux.yml'
+      - '.github/workflows/linux_x86.yml'
 
 concurrency:
   group: linux-${{ github.ref }}
@@ -21,13 +21,16 @@ permissions:
   contents: read
 
 jobs:
-  linux_buil_test:
-    runs-on: ubuntu-latest
+  linux_build_test:
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v3
       - name: build
         run: |
-            source ~/anaconda3/bin/activate
+            conda create -n thinker-env python==3.8.5
+            conda activate thinker-env
+            pip install -U pip
+            cat requirements.txt | xargs -n 1 pip install
 
       - name: test
         run: sh ./test/auto_test.sh
