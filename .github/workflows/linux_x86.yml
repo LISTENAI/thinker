@@ -3,10 +3,11 @@ on:
   push:
     branches:
      - main
-     - 'feature/**'
+     - 'thinker/**'
     paths:
+      - 'thinker/**'
       - 'thinker/executor/**'
-      - '.github/workflows/linux.yml'
+      - '.github/workflows/linux_x86.yml'
   pull_request:
     branches: [main]
     paths:
