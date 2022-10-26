@@ -16,5 +16,4 @@ jobs:
       - name: build
         run:  |
               echo "build"
-              echo  "$(conda --version)"
 
