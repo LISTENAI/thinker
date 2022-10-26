@@ -1,0 +1,33 @@
+name: linux
+on:
+  push:
+    branches:
+     - master
+     - 'feature/**'
+    paths:
+      - 'thinker/executor/**'
+      - '.github/workflows/linux.yml'
+  pull_request:
+    branches: [master]
+    paths:
+      - 'thinker/**'
+      - 'test/**'
+      - '.github/workflows/linux.yml'
+
+concurrency:
+  group: linux-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+
+jobs:
+  linux_buil_test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: build
+        run: |
+            source ~/anaconda3/bin/activate
+
+      - name: test
+        run: sh ./test/auto_test.sh
