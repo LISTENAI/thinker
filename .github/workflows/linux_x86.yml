@@ -28,4 +28,6 @@ jobs:
     runs-on: self-hosted
     steps:
       - name: test
-        run:  ./test/auto_test.sh
+        run:  |
+        chmod +x ./test/auto_test.sh
+        ./test/auto_test.sh
