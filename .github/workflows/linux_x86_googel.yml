@@ -31,5 +31,6 @@ jobs:
   x86_linux_test:
     needs:  linux_build_test
     runs-on: ubuntu-latest
+    steps:
       - name: test
         run:  ./test/auto_test.sh
