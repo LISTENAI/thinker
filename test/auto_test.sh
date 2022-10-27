@@ -33,9 +33,8 @@ popd
 
 ###################### compile thinker.so ######################
 # CMAKE_ROOT=/home/bitbrain/bzcai/anaconda3/bin
-CMAKE_ROOT=/home/bitbrain/bzcai/anaconda3/bin
 pushd ./
-pwd
+pwdn
 rm -rf lib
 rm -rf bin
 rm -rf build
