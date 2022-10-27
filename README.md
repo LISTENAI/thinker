@@ -1,4 +1,5 @@
 ![thinker_logo](thinker/docs/images/Thinker_logo.png)
+--------------------------------------------------------------------------------
 #### [English](./README_EN.md) | 简体中文
 
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/thinker.svg)](https://pypi.org/project/thinker)
