@@ -1,4 +1,4 @@
-name: Build and Publish Docker Image
+name:  Docker Image CI/CD
 on:
   push:
     branches:
@@ -10,10 +10,9 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: Build Image
-         run: docker image build -t thinker:0.9.0 ..
-      - name: Log into Docker Hub
-         run: docker login -u bzcai2022 -p ${{ secrets.DOCKER_HUB_TOKEN }}
-      - name: Push Image 
-         run: docker push thinker:0.9.0
+         run: |
+              docker image build -t thinker:0.9.0 ..
+              docker login -u bzcai2022 -p ${{ secrets.DOCKER_HUB_TOKEN }}
+              docker push thinker:0.9.0
 
 
