@@ -32,7 +32,7 @@ download_onnx_thinker_models "test_shufflechannel" "shuffle_net_10_09.onnx" "inp
 popd
 
 ###################### compile thinker.so ######################
-# CMAKE_ROOT=/home/bitbrain/bzcai/anaconda3/bin
+CMAKE_ROOT=/home/bitbrain/bzcai/anaconda3/bin
 pushd ./
 pwdn
 rm -rf lib
