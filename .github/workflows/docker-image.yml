@@ -1,0 +1,25 @@
+name: linux
+on:
+  push:
+    branches:
+     - main
+
+jobs:
+  build:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v3
+      - name: build
+        run: |
+          docker image build -t thinker:0.9.0 ..
+          docker login -u bzcai2022 -p ${{ secrets.DOCKER_HUB_TOKEN }}
+          docker push thinker:0.9.0
+
+  # pull-docker: # docker部署
+  #   needs: [build]
+  #   name: Pull Docker
+  #   runs-on: self-hosted
+  #   steps:
+  #     - name: Deploy
+  #       uses: appleboy/ssh-action@master
+  #       with:
