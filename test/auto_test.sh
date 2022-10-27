@@ -16,7 +16,7 @@ function download_onnx_thinker_models()
 
 #################### fetch onnx graph and config file ####################
 export LD_LIBRARY_PATH=./:$LD_LIBRARY_PATH
-module load gcc/5.4.0-os7.2
+# module load gcc/5.4.0-os7.2
 mkdir -p model
 mkdir -p resource
 pushd ./
@@ -32,6 +32,7 @@ download_onnx_thinker_models "test_shufflechannel" "shuffle_net_10_09.onnx" "inp
 popd
 
 ###################### compile thinker.so ######################
+# CMAKE_ROOT=/home/bitbrain/bzcai/anaconda3/bin
 CMAKE_ROOT=/home/bitbrain/bzcai/anaconda3/bin
 pushd ./
 pwd
