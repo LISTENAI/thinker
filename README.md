@@ -5,7 +5,7 @@
 [![PyPI](https://badge.fury.io/py/thinker.svg)](https://badge.fury.io/py/thinker)
 [![DockerHub](https://img.shields.io/docker/pulls/thinker/thinker-cpu.svg)](https://hub.docker.com/r/thinker/thinker-cpu)
 [![linux](https://github.com/LISTENAI/thinker/actions/workflows/linux_x86.yml/badge.svg)](https://github.com/LISTENAI/thinker/actions/workflows/linux_x86.yml)
-[![LICENSE](https://img.shields.io/github/license/thinker-ai/thinker.svg?style=flat-square)](https://github.com/LISTENAI/thinker/blob/main/LICENSE)
+[![LICENSE](https://img.shields.io/github/license/thinker-ai/thinker.svg?style=flat-square)](https://img.shields.io/badge/License-Apache-brightgreen)
 
 Thinker是聆思科技开发的轻量级神经网络推理框架，结合另一个聆思开源的量化训练工具[linger](https://github.com/LISTENAI/linger)可实现产业级深度学习平台，
 集深度学习量化训练和引擎推理、LUNA器件库和丰富的工具组件于一体。聆思生态工具链（linger+thinker）是专为聆思AIOT芯片（目前只支持CSK60xx）研发，
