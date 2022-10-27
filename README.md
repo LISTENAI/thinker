@@ -3,8 +3,8 @@
 
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/thinker.svg)](https://pypi.org/project/thinker)
 [![PyPI](https://badge.fury.io/py/thinker.svg)](https://badge.fury.io/py/thinker)
-[![Downloads](https://pepy.tech/badge/thinker)](https://pepy.tech/project/thinker)
 [![DockerHub](https://img.shields.io/docker/pulls/thinker/thinker-cpu.svg)](https://hub.docker.com/r/thinker/thinker-cpu)
+[![linux](https://github.com/LISTENAI/thinker/actions/workflows/linux_x86.yml/badge.svg)](https://github.com/LISTENAI/thinker/actions/workflows/linux_x86.yml)
 [![LICENSE](https://img.shields.io/github/license/thinker-ai/thinker.svg?style=flat-square)](https://github.com/LISTENAI/thinker/blob/main/LICENSE)
 
 Thinker是聆思科技开发的轻量级神经网络推理框架，结合另一个聆思开源的量化训练工具[linger](https://github.com/LISTENAI/linger)可实现产业级深度学习平台，
