@@ -11,7 +11,7 @@ thinker包括离线打包工具和引擎执行器两部分：
   * shape : c(通道),h(高度),w(宽度)
 
 
-* 以 Resnet50 模型为例，输入:
-```Shell
+以 Resnet50 模型为例，输入:
+```python
 ./bin/test_thinker demo/resnet50/input.bin demo/resnet50/model.bin demo/resnet50/result.bin 1 32 32
 ```

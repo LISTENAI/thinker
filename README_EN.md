@@ -35,8 +35,6 @@ The entire tool chain is used throughout the life cycle of the model landing and
 ### 2. Model design
 After finishing the model structure design, algorithm researchers use random initialization parameters to go through the linger+thinker tool chain, which evaluates the model's parameter adaptability, memory consumption and running efficiency to avoid design rework later on when the application needs are not met.
 
-* [Example Tutorial 2](./thinker/docs/thinker_docker.md)
-
 ### 3. Quantitative training and export of models
 Linger is a plug-in for pytorch and can be imported with one click. Linger uses QAT quantization, which is completely or basically lossless for CV models. After the quantization training is completed, the model can be exported with a single click using its own tools.
 * [Example Tutorial 3](./thinker/docs/linger.md)

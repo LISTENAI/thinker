@@ -1,8 +1,8 @@
 ![thinker_logo](thinker/docs/images/Thinker_logo.png)
 #### [English](./README_EN.md) | 简体中文
 
-[![PyPI - Python Version](https://img.shields.io/pypi/pyversions/pythinker.svg)](https://pypi.org/project/pythinker)
-[![PyPI](https://badge.fury.io/py/pythinker.svg)](https://badge.fury.io/py/pythinker)
+[![PyPI - Python Version](https://img.shields.io/pypi/pyversions/thinker.svg)](https://pypi.org/project/thinker)
+[![PyPI](https://badge.fury.io/py/thinker.svg)](https://badge.fury.io/py/thinker)
 [![LICENSE](https://img.shields.io/github/license/LISTENAI/thinker.svg?style=flat-square)](https://github.com/LISTENAI/thinker/blob/main/LICENSE)
 [![linux](https://github.com/LISTENAI/thinker/actions/workflows/linux_x86.yml/badge.svg)](https://github.com/LISTENAI/thinker/actions/workflows/linux_x86.yml)
 
@@ -35,7 +35,6 @@ thinker+linger工具链支持全低精度计算(int8/int16)以提升推理性能
 - [docker镜像](./thinker/docs/thinker_docker.md)(包含了linger和thinker)
 ### 2. 模型设计阶段
   算法研究人员在完成模型结构设计后，使用随机初始化参数，过一遍linger+thinker工具链，工具链会对该模型的参数可适配性、内存占用和运行效率进行评估，避免后期不满求应用需求而设计返工。
-  [模型设计实例](./thinker/docs/thinker_packer.md)
   
 ### 3. 模型量化训练和导出
   linger作为pytorch的插件，一键导入。从浮点训练阶段就开始对模型参数进行规范处理，浮点模型训练完成后，添加少量代码即可进入量化训练阶段。Linger采用QAT量化方式，对于CV模型能做到完全无损或基本无损。

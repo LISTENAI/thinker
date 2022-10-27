@@ -1,4 +1,4 @@
-# [llinger量化训练和导出](https://github.com/LISTENAI/linger)
+# [linger量化训练和导出](https://github.com/LISTENAI/linger)
 
 使用linger进行量化训练极其方便，只需要`import linger`，再把 linger 相关设置加到合适的代码处，就可以实现一键量化训练。
 关于量化训练，我们推荐的主要将其分为两阶段：
