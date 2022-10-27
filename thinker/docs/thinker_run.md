@@ -4,7 +4,9 @@ thinker包括离线打包工具和引擎执行器两部分：
 
 # Step2-引擎执行
 执行编译后，会对应测试工程test_thinker，执行脚本如下
+
 * 输入数据格式为 input.bin model.bin result.bin  c h w
+
   * input.bin : 输入的模型二进制数据
   * model.bin : 打包生成优化后的模型二进制数据
   * result.bin: thinker引擎最终生成的二进制结果数据
@@ -12,6 +14,6 @@ thinker包括离线打包工具和引擎执行器两部分：
 
 
 以 Resnet50 模型为例，输入:
-```python
+```Shell
 ./bin/test_thinker demo/resnet50/input.bin demo/resnet50/model.bin demo/resnet50/result.bin 1 32 32
 ```
