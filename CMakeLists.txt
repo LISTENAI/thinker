@@ -52,3 +52,4 @@ if(THINKER_DUMP)
 endif()
 
 ADD_SUBDIRECTORY(thinker/executor)
+ADD_SUBDIRECTORY(demo/test_thinker)
