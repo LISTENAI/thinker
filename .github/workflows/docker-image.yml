@@ -1,13 +1,7 @@
 name: docker
 on:
-  push:
-    branches:
-     - main
-     - 'thinker/**'
-    paths:
-      - 'thinker/**'
-      - 'thinker/executor/**'
-      - '.github/workflows/docker-image.yml'
+  workflow_dispatch:
+
 
 jobs:
   build:

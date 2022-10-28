@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   linux_build_test:
-    runs-on: self-hosted
+    runs-on: [self-hosted, Linux , X64]
     steps:
       - uses: actions/checkout@v3
       - name: build
@@ -25,7 +25,7 @@ jobs:
 
   x86_linux_test:
     needs:  linux_build_test
-    runs-on: [self-hosted, thinker]
+    runs-on: [self-hosted, Linux , X64]
     steps:
       - name: test
         run: ./test/auto_test.sh
