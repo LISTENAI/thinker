@@ -11,7 +11,7 @@ on:
 
 jobs:
   build:
-    runs-on: self-hosted
+    runs-on: self-hosted thinker
     steps:
       - uses: actions/checkout@v3
       - name: build
