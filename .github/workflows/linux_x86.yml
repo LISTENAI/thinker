@@ -23,7 +23,6 @@ jobs:
       - name: build
         run:  echo "build"
 
-
   x86_linux_test:
     needs:  linux_build_test
     runs-on: self-hosted
