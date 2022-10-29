@@ -3,6 +3,12 @@ on:
   workflow_dispatch:
 
 
+concurrency:
+  group: linux-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+  
 jobs:
   build:
     runs-on: [self-hosted, Linux , X64]
