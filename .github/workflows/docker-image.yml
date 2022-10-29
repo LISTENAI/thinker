@@ -1,11 +1,6 @@
 name: docker
 on:
   workflow_dispatch:
-  # push:
-  #   branches:
-  #    - main
-  #   paths:
-  #     - '.github/workflows/docker-image.yml'
 
 concurrency:
   group: linux-${{ github.ref }}
@@ -24,16 +19,3 @@ jobs:
              docker login -u bzcai2022 -p ${{ secrets.DOCKER_HUB_TOKEN }}
              docker tag thinker:0.2.0 bzcai2022/thinker:0.9.0
              docker push bzcai2022/thinker:0.9.0
-
-  # pull-docker: 
-  #   needs: [build]
-  #   name: pull-docker
-  #   runs-on: self-hosted
-  #   steps:
-  #     - name: Deploy
-  #       uses: appleboy/ssh-action@main
-  #       with:
-  #           host: ${{ secrets.HOST }} 
-  #           username: ${{ secrets.HOST_USERNAME }} 
-  #           password: ${{ secrets.HOST_PASSWORD }} 
-  #           port: ${{ secrets.HOST_PORT }} 
