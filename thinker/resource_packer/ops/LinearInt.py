@@ -78,9 +78,6 @@ class LinearInt(Operator):
                 x_h, w_shape[-1]
             )
         elif not self.attrs["transA"] and not self.attrs["transB"]:
-            import pdb
-
-            pdb.set_trace()
             assert x_w == w_shape[0], "x_w:{} and w_shape[0]:{}".format(x_w, w_shape[0])
         else:
             assert x_h == w_shape[0]
