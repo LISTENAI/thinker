@@ -7,17 +7,17 @@
 [![LICENSE](https://img.shields.io/github/license/LISTENAI/thinker.svg?style=flat-square)](https://github.com/LISTENAI/thinker/blob/main/LICENSE)
 [![linux](https://github.com/LISTENAI/thinker/actions/workflows/linux_x86.yml/badge.svg)](https://github.com/LISTENAI/thinker/actions/workflows/linux_x86.yml)
 
-Thinker是聆思科技开发的轻量级神经网络推理框架，结合另一个聆思开源的量化训练工具[linger](https://github.com/LISTENAI/linger)可实现产业级深度学习平台，
-集深度学习量化训练和引擎推理、LUNA器件库和丰富的工具组件于一体。聆思生态工具链（linger+thinker）是专为聆思AIOT芯片（目前只支持CSK60xx）研发，
-其中推理引擎框架Thinker助力开发者在聆思VENUS芯片上快速上线AI业务，帮助越来越多嵌入式尤其是AIOT产品实现AI赋能，助力产业智能化升级。
-目前linger+thinker工具链已支持聆思芯片在计算机视觉、语音唤醒、语音识别、离线翻译等领域的10多个AI场景中应用落地。
+Thinker是聆思科技开发的轻量级神经网络推理框架，是聆思科技开源的AI生态工具链的一部分，结合另一个聆思开源的训练组件[linger](https://github.com/LISTENAI/linger)可实现产业级深度学习平台，
+集深度学习量化训练和引擎推理、LUNA器件库和丰富的工具组件于一体。聆思AI生态工具链（linger+thinker）是专为聆思AIOT芯片（目前只支持CSK60xx系列）研发，
+Thinker助力开发者轻松在聆思VENUS芯片上快速上线AI业务，帮助越来越多嵌入式尤其是AIOT产品实现AI赋能，助力产业智能化升级。
+目前linger+thinker工具链支持聆思芯片在计算机视觉、语音唤醒、语音识别、离线翻译等领域的10多个AI场景中应用落地。
 ***
 ## 框架特点
 ![thinker/docs/images/struct.png](thinker/docs/images/struct-CH.png)
 ### 1. 超轻量
 如上述框架示意图所示，Thinker框架中包含两个部分：离线分析工具和引擎执行器
-离线分析工具中包含了大部分的计算图预处理部分，包括图融合、图优化和图适配等功能，模拟执行器功能，提前分配好内存，将执行器中非计算部分的功能尽量剥离。
-引擎执行器主要负责计算部分以及其它辅助调试功能（可选），代码精简，纯C语言实现，无任何依赖，使用调研示例demo，基本不用修改就可方便地部署到CSKXX设备中。
+离线分析工具中包含计算图优化和资源序列化，图优化包括计算图加载、op融合、图推导、layout转换和图适配等功能，资源序列化中先模拟执行器功能，分配好内存，将执行器中非计算部分的功能尽量剥离。
+引擎执行器主要负责计算部分以及其它辅助调试功能（可选），代码精简，纯C语言实现，无任何依赖，使用调用示例demo，基本不用修改就可方便地部署到CSK60XX设备中。
 
 ### 2. 通用性
 对于常规的CV模型，经过linger的量化训练导出计算图后，一键打包部署。支持多输入多输出计算图，支持动态输入（输入大小可变），支持CV模型中32个常见的量化算子，[详见算子支持列表](./thinker/docs/support_quant_ops.md)。
@@ -28,7 +28,7 @@ thinker+linger工具链支持全低精度计算(int8/int16)以提升推理性能
 ***
 
 ## 快速开始
-聆思工具链中包括Linger和Thinker，两者相互衔接，必须联合使用。Thinker依赖于Linger的计算图导出，两者使用同一个算子标准库。
+聆思工具链中包括Linger和Thinker，两者相互衔接，必须配合使用。Thinker依赖于Linger的计算图导出，两者使用同一个算子标准库。
 整个工具链的使用贯穿模型落地的整个生命周期，大致可以分为六个阶段：
 ### 1. 工具链安装
 - [pip安装方式](./thinker/docs/thinker_environment.md)
