@@ -25,7 +25,7 @@ scripts/cmake_install.cmake
 scripts/CMakeCache.txt
 scripts/Makefile
 
-thinker.egg-info
+pythinker.egg-info
 cmake_*
 CMakeCache*
 CMakeFiles

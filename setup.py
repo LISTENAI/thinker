@@ -5,10 +5,10 @@ this_package_name="pythinker"
     
 setup(
 	name=this_package_name,
-	version="0.1.0",
+	version="1.0.0",
 	description="A DeepLearning inference framework for venus",
-	author="leofang3",
-	author_email="leifang202209@163.com",
+	author="listenai",
+	author_email="lingerthinker@listenai.com",
 	url="https://github.com/LISTENAI/thinker",
 	packages=find_packages(),
 	include_package_data=True,
