@@ -3,8 +3,8 @@
 
 ## 配置本地环境
 ```Shell
-conda create -n thinker python==3.8.5
-conda activate thinker
+conda create -n thinker-env python==3.8.5
+conda activate thinker-env
 pip install -U pip
 cat requirements.txt | xargs -n 1 pip install
 ```
