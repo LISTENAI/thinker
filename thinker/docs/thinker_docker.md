@@ -31,6 +31,8 @@ $ sudo systemctl start docker # systemctl 命令的用法
 ```Shell
 $ docker pull listenai/linger-thinker:1.0.0
 ```
+若国内拉取镜像较慢，可尝试换镜像源拉取。
+
 2、运行容器
 ```Shell
 $ docker container run -it listenai/linger-thinker:1.0.0 /bin/bash
