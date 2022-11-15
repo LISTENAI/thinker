@@ -1,0 +1,7 @@
+
+numpy==1.21.0
+onnx==1.8.1
+sympy==1.8.0
+cffi==1.15.1
+protobuf==3.15.6
+pre-commit==2.20.0

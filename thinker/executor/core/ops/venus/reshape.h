@@ -1,0 +1,16 @@
+#include <math.h>
+#include <stdio.h>
+#include <string.h>
+
+#include "core/comm/thinker_log.h"
+#include "core/comm/utils.h"
+
+int32_t reshape_luna(tTensor *X, tTensor *Y) {
+  int8_t *input = (int8_t *)X->dptr_;
+  int8_t *output = (int8_t *)Y->dptr_;
+  if (input != output) {
+    size_t size = getTensorSize(X);
+    memcpy(output, input, X->byte_ * size);
+  }
+  return 0;
+}
