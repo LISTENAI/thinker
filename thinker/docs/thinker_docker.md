@@ -21,48 +21,30 @@ $ docker ps    # 测试docker命令是否可以使用sudo正常使用
 
 启动docker服务
 ```Shell
-$ sudo service start docker # service  命令的用法
 $ sudo systemctl start docker # systemctl 命令的用法
 ```
 
 ## 获取thinker镜像并加载
-### 方案1:docker官网下载安装 thinker 镜像
+
 
 1、拉取镜像
 ```Shell
-$ docker pull bzcai2022:thinker:0.1.0
+$ docker pull listenai/linger-thinker:1.0.0
 ```
 2、运行容器
 ```Shell
-$ docker container run -it bzcai2022/thinker:0.1.0 /bin/bash
+$ docker container run -it listenai/linger-thinker:1.0.0 /bin/bash
 ``` 
 如果一切正常，运行上面的命令以后，就会返回一个命令行提示符。
 ```Shell
-root@66d80f4aaf1e:/thinker#
+root@66d80f4aaf1e:/listenai#
 ```  
-这表示你已经在容器里面了，返回的提示符就是容器内部的 Shell 提示符。能够执行命令。
+这表示你已经在容器里面了，返回的提示符就是容器内部的 Shell 提示符。这里进入 thinker目录, 执行 thinker 安装脚本命令。
 ```Shell
-root@66d80f4aaf1e:/thinker# ./scripts/x86_linux.sh
-```
-### 方案2：下载thinker源码，使用源码中的Dockerfile文件, 生成image文件
-1、下载thinker源码
-```Shell
-  mkdir thinker
-  git clone https://github.com/LISTENAI/thinker/thinker.git
-```
-2、生成image文件
-```Shell
-$ docker image build -t thinker:0.1.0 . (.表示当前路径)
+root@66d80f4aaf1e:/listenai/thinker# ./scripts/x86_linux.sh
 ```
 (注: x86_linux.sh 脚本中 CMAKE_ROOT 根据 anoconda 路径修改 , module load gcc 可以注释掉)
-3、生成容器
-```Shell
-$ docker container run -it thinker:0.1.0 /bin/bash
-```
-4、测试环境
-```Shell
-root@66d80f4aaf1e:/thinker# ./scripts/x86_linux.sh
-```
+
 ## 容器的退出
 image 文件生成的容器实例，本身也是一个文件，称为容器文件。查看容器文件
 ```Shell
@@ -73,7 +55,10 @@ $ docker container ls --all # 列出本机所有容器，包括终止运行的�
 ```Shell
 $ docker container kill [containID] 
 ```
-
+移除停止的容器文件
+```Shell
+$ docker container rm [containID] 
+```
 ### 容器内部的退出
 |  方式  |  结果       |  再次启动  |
 | ----   | ----        |----   |
