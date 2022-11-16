@@ -64,9 +64,6 @@ View operator performance statistics and intermediate result data
 
 ## Citation
 - [ONNX](https://github.com/onnx/onnx)
-- [MNN](https://github.com/alibaba/MNN)
-- [NCNN](https://github.com/Tencent/ncnn)
-- [TNN](https://github.com/Tencent/TNN)
 ***
 
 ## Copyright and License
