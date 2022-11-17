@@ -1,24 +1,3 @@
-# name: docker
-# on:
-#   workflow_dispatch:
-
-# concurrency:
-#   group: linux-${{ github.ref }}
-#   cancel-in-progress: true
-# permissions:
-#   contents: read
-  
-# jobs:
-#   build:
-#     runs-on: [self-hosted, Linux , X64]
-#     steps:
-#       - uses: actions/checkout@v3
-#       - name: build
-#         run: |
-#              docker image build -t thinker:0.9.0 ./
-#              docker login -u listenai -p ${{ secrets.DOCKER_HUB_TOKEN }}
-#              docker tag thinker:0.9.0 listenai/thinker:0.9.0
-#              docker push listenai/thinker:0.9.0
 
 # This workflow uses actions that are not certified by GitHub.
 # They are provided by a third-party and are governed by

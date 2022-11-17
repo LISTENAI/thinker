@@ -39,11 +39,11 @@ $ docker container run -it listenai/linger-thinker:1.0.0 /bin/bash
 ``` 
 如果一切正常，运行上面的命令以后，就会返回一个命令行提示符。
 ```Shell
-root@66d80f4aaf1e:/listenai#
+root@66d80f4aaf1e:/LISTENAI#
 ```  
 这表示你已经在容器里面了，返回的提示符就是容器内部的 Shell 提示符。这里进入 thinker目录, 执行 thinker 安装脚本命令。
 ```Shell
-root@66d80f4aaf1e:/listenai/thinker# ./scripts/x86_linux.sh
+root@66d80f4aaf1e:/LISTENAI/thinker# ./scripts/x86_linux.sh
 ```
 (注: x86_linux.sh 脚本中 CMAKE_ROOT 根据 anoconda 路径修改 , module load gcc 可以注释掉)
 
