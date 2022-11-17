@@ -1,5 +1,4 @@
 set -e
-module load gcc/5.4.0
 CMAKE_ROOT=/home/bitbrain/bzcai/anaconda3/bin
 pushd ./
 rm -rf build && mkdir -p build && cd build
