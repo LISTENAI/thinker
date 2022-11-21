@@ -18,7 +18,7 @@ jobs:
 
   push_to_registry:  
     name: Push Docker image to Docker Hub
-    runs-on: [self-hosted, Linux , X64, GPU]
+    runs-on: [self-hosted, Linux , X64, thinker]
 
     steps:  
       - name: Check out the repo
