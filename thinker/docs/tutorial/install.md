@@ -43,7 +43,7 @@ pip install pythinker
 ```
 
 ### docker镜像安装方式
-1、docker安装
+1、docker安装  
 如果未安装docker工具，请参考以下链接进行安装（建议使用Centos系统）。如果已安装则直接进行权限验证
 * [Ubuntu](https://docs.docker.com/engine/install/ubuntu/)
 * [Debian](https://docs.docker.com/engine/install/debian/)
@@ -54,7 +54,7 @@ pip install pythinker
 ```Shell
 $ docker version
 ```
-如果出现"Got permission denied"权限报错，说明当前用户权限不够，需要添加权限
+如果出现"Got permission denied"权限报错，说明当前用户权限不够，需要添加权限  
 docker 需要用户具有 sudo 权限，但不宜直接使用root用户进行操作  
 为了避免每次命令都输入sudo，可以建立 docker 用户组并把用户加入  
 ```Shell
@@ -125,14 +125,13 @@ $ docker container rm [containID]
 ### 1、分析打包工具的验证
 ``` Shell
 tpacker -g model/xx.onnx
+```
 能够正常对模型进行分析打包或者对模型的路径及分析过程报错，即可认为安装成功。
 如果提示找不到tpacker指令，则表明安装未成功
-```
 
 ### 2、测试用例和thinker库编译
-* gcc版本为5.4.0及以上
-* 修改script/x86_linux.sh和test/auto_test.sh脚本中的**CMAKE**的路径, 版本建议为3.0及以上
-* 执行编译脚本
+gcc版本为5.4.0及以上,修改script/x86_linux.sh和test/auto_test.sh脚本中的**CMAKE**的路径, 版本建议为3.0及以上  
+执行编译脚本  
 ```Shell
 bash scripts/x86_linux.sh
 ```

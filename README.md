@@ -86,6 +86,7 @@ chmod +x ./bin/test_thinker
 
 ## 引用
 - [ONNX](https://github.com/onnx/onnx)
+- [pytorch-cifar100](https://github.com/weiaicunzai/pytorch-cifar100)
 
 ## 版权和许可证
 - thinker 由 [Apache-2.0 license](LICENSE) 提供
