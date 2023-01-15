@@ -1,10 +1,7 @@
-import os
 from setuptools import setup,find_packages
 
-this_package_name="pythinker"
-    
 setup(
-	name=this_package_name,
+	name="pythinker",
 	version="1.0.0",
 	description="A DeepLearning inference framework for venus",
 	author="listenai",

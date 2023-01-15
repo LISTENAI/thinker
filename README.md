@@ -1,73 +1,91 @@
-![thinker_logo](thinker/docs/images/Thinker_logo.png)
+![thinker_logo](thinker/docs/images/thinker_logo.png)
 --------------------------------------------------------------------------------
-#### [English](./README_EN.md) | 简体中文
+#### [English](README_EN.md) | 简体中文
 
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/pythinker.svg)](https://pypi.org/project/pythinker)
 [![PyPI](https://badge.fury.io/py/pythinker.svg)](https://badge.fury.io/py/pythinker)
 [![LICENSE](https://img.shields.io/github/license/LISTENAI/thinker.svg?style=flat-square)](https://github.com/LISTENAI/thinker/blob/main/LICENSE)
 [![linux](https://github.com/LISTENAI/thinker/actions/workflows/linux_x86.yml/badge.svg)](https://github.com/LISTENAI/thinker/actions/workflows/linux_x86.yml)
 
-Thinker是聆思科技开发的轻量级神经网络推理框架，是聆思科技开源的AI生态工具链的一部分，结合另一个聆思开源的训练组件[linger](https://github.com/LISTENAI/linger)可实现产业级深度学习平台，
-集深度学习量化训练和引擎推理、LUNA器件库和丰富的工具组件于一体。聆思AI生态工具链（linger+thinker）是专为聆思AIOT芯片（目前只支持CSK60xx系列）研发，
-Thinker助力开发者轻松在聆思VENUS芯片上快速上线AI业务，帮助越来越多嵌入式尤其是AIOT产品实现AI赋能，助力产业智能化升级。
-目前linger+thinker工具链支持聆思芯片在计算机视觉、语音唤醒、语音识别、离线翻译等领域的10多个AI场景中应用落地。
-***
-## 框架特点
+thinker是聆思科技开发的轻量级神经网络推理框架，是聆思科技开源的AI生态工具链LNN(ListenAI Neural Network)的一部分，结合另一个聆思开源的量化训练组件[linger](https://github.com/LISTENAI/linger)可实现产业级深度学习训练推理一体化平台，集深度学习量化训练和引擎推理、LUNA器件库和丰富的辅助组件于一体。LNN是专为聆思AIOT芯片（目前只支持CSK60xx系列）定制开发，助力开发者轻松在聆思VENUS芯片上快速上线AI业务，帮助越来越多嵌入式尤其是AIOT产品实现AI赋能，助力产业智能化升级。目前LNN工具链支持聆思芯片在计算机视觉、语音唤醒、语音识别、离线翻译等10多个AI应用场景中的产品落地。
+
+## 引擎框架
+thinker将引擎执行器中的非核心功能尽量剥离出来放在离线工具中完成  
 ![thinker/docs/images/struct.png](thinker/docs/images/struct-CH.png)
-### 1. 超轻量
-如上述框架示意图所示，Thinker框架中包含两个部分：离线分析工具和引擎执行器
-离线分析工具中包含计算图优化和资源序列化，图优化包括计算图加载、op融合、图推导、layout转换和图适配等功能，资源序列化中先模拟执行器功能，分配好内存，将执行器中非计算部分的功能尽量剥离。
-引擎执行器主要负责计算部分以及其它辅助调试功能（可选），代码精简，纯C语言实现，无任何依赖，使用调用示例demo，基本不用修改就可方便地部署到CSK60XX设备中。
 
-### 2. 通用性
-对于常规的CV模型，经过linger的量化训练导出计算图后，一键打包部署。支持多输入多输出计算图，支持动态输入（输入大小可变），支持CV模型中32个常见的量化算子，[详见算子支持列表](./thinker/docs/support_quant_ops.md)。
+## 技术亮点
+### 1. 轻量级部署
+* 优化器和执行器分离，只需部署执行器
+* 执行器架构基于C语言，能实现在嵌入式设备上的快速、高效部署
+* 嵌入式版本无任何第三方库依赖，编译库小于200k
+* 算子可选编译，可以进一步轻量化
 
-### 3. 高性能
-引擎执行器专门针对CSK60XX的VENUS架构进行了适配，集成核心运算的LUNA库，通过手写自定义指令码方式充分发挥LUNA的算力，单线程下运行常见CV模型能接近设备算力峰值。
-thinker+linger工具链支持全低精度计算(int8/int16)以提升推理性能，并对相关指令进行了适配。相对于浮点模型，量化模型能减少50%-75%的参数量，加快了数据存取速度和提升运算效率。
-***
+### 2. 闭环量化生态
+* 配合linger实现模型训练-量化落地的闭环
+* 支持onnx量化扩展
+* 支持全int8量化
+* 无缝对接NPU,保证NPU结果与量化训练结果二进制一致
 
-## 快速开始
-聆思工具链中包括Linger和Thinker，两者相互衔接，必须配合使用。Thinker依赖于Linger的计算图导出，两者使用同一个算子标准库。
-整个工具链的使用贯穿模型落地的整个生命周期，大致可以分为六个阶段：
-### 1. 工具链安装
-- [pip安装方式](./thinker/docs/thinker_environment.md)
-- [源码编译安装方式](./thinker/docs/thinker_build.md)
-- [docker镜像](./thinker/docs/thinker_docker.md)(包含了linger和thinker)
-### 2. 模型设计阶段
-  算法研究人员在完成模型结构设计后，使用随机初始化参数，过一遍linger+thinker工具链，工具链会对该模型的参数可适配性、内存占用和运行效率进行评估，避免后期不满求应用需求而设计返工。
-  
-### 3. 模型量化训练和导出
-  [linger](https://github.com/LISTENAI/linger)作为pytorch的插件，一键导入。从浮点训练阶段就开始对模型参数进行规范处理，浮点模型训练完成后，添加少量代码即可进入量化训练阶段。[Linger](https://github.com/LISTENAI/linger)采用QAT量化方式，对于CV模型能做到完全无损或基本无损。
-  量化训练完成后，使用自带的工具，一键导出。
-  [模型量化训练和导出示例](./thinker/docs/linger.md)
+### 3. 高效开发
+* 上手简单，支持各种一键式操作，实现训练、转换、流式执行一条龙
+* 接口简单易用，提供各种调用范例，仅以少量改动即可完成模型部署
+* 跨平台模型统一、调用接口统一，模拟代码与芯片代码保持统一
 
-### 4. 模型分析和打包
-  使用Thinker离线工具tpacker对计算图的参数检查、计算图优化和内存分析检查。最后将计算图序列化成引擎执行器所需要的格式，并对运行内存进行预分配。
-  [打包示例](./thinker/docs/thinker_packer.md)
+## 快速入门
+- [安装](thinker/docs/tutorial/install.md)：支持pip、源码、docker三种安装方式
+- [资源打包](thinker/docs/tutorial/thinker_packer.md)：指定计算图即可自动完成图分析和资源序列化
+- [推理执行](thinker/docs/tutorial/thinker_run.md)：指定资源位置，给定输入输出路径即可完成引擎的执行
+- [辅助工具](thinker/docs/tutorial/thinker_performance.md)：查看模型内存占用、效率评估和打印中间结果
 
-### 5. 推理执行
-  直接加载离线工具序列化的资源。在少量修改甚至零修改的情况下，实现计算图在VENUS芯片上的落地应用。
-  [运行示例](./thinker/docs/thinker_run.md)
+## 工程示例
+  AI算法落地基本涵盖六个阶段：模型规约性检查、浮点训练、量化训练、模型打包、模拟引擎执行、固件烧录并芯片运行。其中固件烧录并芯片运行需要在聆思的开发板上来完成，如有需要请与我们联系，这里不做进一步介绍。其它五个阶段的流程示例图如下：  
+  ![lnn_flow_path](thinker/docs/images/lnn_flow_path.png)    
+  其中模型规约性检查的功能是穿插在量化训练和模型打包中来完成的。  
+  我们先假设模型结构与底层硬件完全适配，介绍流程中各个阶段，再介绍模型规约性检查的具体实现（实际开发过程中规约性检查要在模型结构初步进行，避免后续工作返工）。
+### 1. 浮点训练
+  确保在当前环境下，浮点模型训练基于pytorch能够跑起来。 
+```Shell
+python train.py -net resnet50 -gpu
+```
+  建议采用两阶段量化训练，对浮点训练的数据进行范围约束，只需[添加少量代码](thinker/docs/tutorial/resnet_modify1.md).  
+  为避免冲突，将tesnorboard[功能关闭](thinker/docs/tutorial/resnet_modify2.md)。同样的指令开启训练，运行几个epoch后，在checkpoint/resnet50文件夹中生成了一个**.pth文件
 
-### 6. 辅助功能
-  查看算子性能统计和中间结果数据
-  [辅助工具](./thinker/docs/thinker_performance.md)
+### 2. 量化训练和导出
+  加载步1中保存的浮点模型**.pth，[修改约束代码](thinker/docs/images/linger_set2.png)，即可将浮点算子替换为量化算子。同样的指令开启量化训练，训练几个epoch后，同样在checkpoint/resnet50文件夹中生成了一个**.pth文件。
+  使用linger的模型转换工具，将[模型转换成onnx计算图](thinker/docs/images/onnx_export.png)。
+
+### 3. 模型分析和打包
+  使用thinker离线工具tpacker对步2生成的onnx计算图打包  
+```Shell
+tpacker -g xx.onnx -d Ture -o model.bin
+```
+
+### 4. 推理执行
+  使用调用示例工程test_thinker，指定输入数据、资源文件和输出文件名称即可运行模拟代码。  
+```Shell
+chmod +x ./bin/test_thinker
+./bin/test_thinker input.bin model.bin output.bin 3 32 32
+```
+可以通过修改编译脚本来查看[算子性能和中间数据的结果](thinker/docs/tutorial/thinker_performance.md)
+
+### 5. 规约性检查
+  该阶段不关注模型的效果，只关注模型的结构是否和底层硬件相适配，功能实现贯穿了1~4步
+  * 在步1中，对模型参数进行初始化或者训练几个epoch即可将模型文件导出，无需模型收敛。
+  * 步2中加载步1的模型文件，进行量化训练时，会对算子参数的合规性进行检查，如有不符合的设置，报错退出[错误示例](thinker/docs/images/resnet50_linger_err.png)。用户根据报错信息修改层参数并返回步1，直至通过步2。
+  * 步3中加载步2的计算图，工具会对节点的tensor大小进行检查，[如果tensor大小超限会报错退出](thinker/docs/images/Resnet50_err.png)。否则进入内存分析阶段，会在根目录下生成[内存分析报告](thinker/docs/images/Resnet50_Mem1.png)，并提示整体的flash/psram/share-memory占用。对于超过硬件限制的报错，用户可结合报错信息和[内存分析报告](thinker/docs/images/Resnet50_Mem2.png)来定位计算图中的超限的算子，返回步1进行模型结构调整，直至[通过步3的打包流程](thinker/docs/images/Resnet50_sucess.png)。   
+  至此完成模型规约性检查，确保了模型能够在芯片上能够跑起来。模型效率评估目前只支持在芯片上部署运行，具体需求可联系我们。  
 
 ## 能力展示
-* [thinker API](./thinker/docs/thinker_api.md)
-* [支持量化OP列表及限制说明](./thinker/docs/support_quant_ops.md)
-***  
+* [thinker API](thinker/docs/tutorial/thinker_api.md)
+* [支持量化OP列表](https://github.com/LISTENAI/linger/blob/main/doc/tutorial/support_quant_ops.md)及[模型结构限制说明](thinker/docs/tutorial/restrain_of_model.md)
 
 ## 交流与反馈
 - 欢迎您通过 Github Issues 来提交 BUG 与建议
-- 技术交流微信群
-***
+- 技术交流微信群  
+![concat us](thinker/docs/images/contact_me_qr.png)
 
 ## 引用
 - [ONNX](https://github.com/onnx/onnx)
 
-
 ## 版权和许可证
-[Apache-2.0 license](LICENSE)
-***
+- thinker 由 [Apache-2.0 license](LICENSE) 提供
