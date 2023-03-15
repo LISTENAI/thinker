@@ -91,16 +91,22 @@ int thinker_task_test(int loop_count, char *argv[])
     if (ret != T_SUCCESS) {
         printf("tInitModel: ret = %d\n", ret);
     }
+	else{
+		printf("init model successful!\n");
+	}
 
     tExecHandle hdl;
     ret = tCreateExecutor(model_hdl, &hdl, memory_list, num_memory);
     if (ret != T_SUCCESS) {
         printf("tCreateExecutor: ret = %d\n", ret);
     }
+	else{
+		printf("create executor successful!\n");
+	}
 
   	tData input; 
 	input.dptr_ = (char*)input_data;
-	input.dtype_ = Float32;
+	input.dtype_ = Int8;
 	input.scale_ = 1.0;
 	input.shape_.ndim_ = 4;
 	input.shape_.dims_[0] = 1;
@@ -109,18 +115,21 @@ int thinker_task_test(int loop_count, char *argv[])
     input.shape_.dims_[3] = in_w;
 
 	ret = tSetInput(hdl, 0, &input);
-	if (ret != T_SUCCESS) 
-	{
+	if (ret != T_SUCCESS) {
 		printf("tSetInput: %d\n", ret);
 	}
-
+	else{
+		printf("set input successful!\n");
+	}
 	uint32_t clk = 0;
 	for(i = 0; i < loop_count; i++)
 	{
 		ret = tForward(hdl);        //error
-		if (ret != T_SUCCESS) 
-		{
+		if (ret != T_SUCCESS) {
 			printf("tForward: %d\n", ret);
+		}
+		else{
+			printf("forward successful!\n");
 		}
 
 		tData output[5];
@@ -129,14 +138,19 @@ int thinker_task_test(int loop_count, char *argv[])
 		{
 			void * data = (void *)(g_psram_buf + use_psram_size);
 			ret = tGetOutput(hdl, j, &output[j]);
-			if (ret != T_SUCCESS)
-			{
+			if (ret != T_SUCCESS) {
 				printf("tGetOutput: %d\n", ret);
 			}
+			else{
+				printf("get output%d successful!\n", j);
+			}
 			int shape_size = (output[j].dtype_ & 0xF);
+			printf("output%d shape:(");
 			for(k = 0; k < output[j].shape_.ndim_; k++){
 				shape_size *= output[j].shape_.dims_[k];
+				printf("%d,", output[j].shape_.dims_[k]);
 			}
+			printf(")\n");
 			use_psram_size += (shape_size+63)&(~63);
 			memcpy((char*)data, output[j].dptr_, shape_size);
 			output[j].dptr_ = (void *)data;
