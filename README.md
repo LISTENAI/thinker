@@ -58,7 +58,7 @@ python train.py -net resnet50 -gpu
 ### 3. 模型分析和打包
   使用thinker离线工具tpacker对步2生成的onnx计算图打包  
 ```Shell
-tpacker -g xx.onnx -d Ture -o model.bin
+tpacker -g xx.onnx -d True -o model.bin
 ```
 
 ### 4. 推理执行
