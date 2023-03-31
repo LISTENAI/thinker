@@ -8,8 +8,8 @@
   - pad_size = {0,1,2,3},支持四个方向pad独立设置
   - in_w >= weight_w，同时in_h >= weight_h
   - weight_w >= stride_w，同时weight_h >= stride_h
-  - pad_h_up >= weight_h，同时pad_h_down >= weight_h
-  - pad_w_right >= weight_w, 同时pad_w_left >= weight_w
+  - pad_h_up < weight_h，同时pad_h_down < weight_h
+  - pad_w_right < weight_w, 同时pad_w_left < weight_w
 ### 2. deconv的限制  
   * stride_h(stride_w) = 2时，kernel_h(kernel_w) = {2,3,4,5}
   * stirde_h(stride_w) = 4时，kernel_h(kernel_w) = {4,5}  
