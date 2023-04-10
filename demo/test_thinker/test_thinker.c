@@ -112,6 +112,9 @@ int thinker_task_test(int loop_count, char *argv[])
         printf("tInitModel failed, error code:%d\n", ret);
 		return ret;
     }
+	else{
+		printf("init model successful!\n");
+	}
 
     tExecHandle hdl;
     ret = tCreateExecutor(model_hdl, &hdl, memory_list, num_memory);
@@ -119,6 +122,9 @@ int thinker_task_test(int loop_count, char *argv[])
         printf("tCreateExecutor failed, error code:%d\n", ret);
 		return ret;
     }
+	else{
+		printf("create executor successful!\n");
+	}
 
   	tData input; 
 	input.dptr_ = (char*)input_data;//在此处设断点
@@ -143,6 +149,9 @@ int thinker_task_test(int loop_count, char *argv[])
 		if (ret != T_SUCCESS) {
 			printf("tForward failed, error code:%d\n", ret);
 			return ret;
+		}
+		else{
+			printf("forward successful!\n");
 		}
 
 		tData output[5];
