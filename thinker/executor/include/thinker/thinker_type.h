@@ -82,8 +82,7 @@ typedef struct _thinker_Data_ {
 typedef struct _thinker_Memory_ {
   uint32_t size_;     // size of memory
   uint8_t dev_type_;  // device of memory default {0,0}
-  uint8_t
-      mem_type_;  // type of memory: (0, model_inst), (1, exec_inst), (2,
+  uint8_t mem_type_;  // type of memory: (0, model_inst), (1, exec_inst), (2,
                   // share_memory), (3, runtime), (4, shape), (5, xflow inst)
 
   addr_type dptr_;  // address of memory

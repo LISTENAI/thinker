@@ -4,17 +4,32 @@
 #include "thinker/thinker.h"
 #include "thinker/thinker_status.h"
 
-#define INPUT_FILE_PATH     "bin/input.bin"
-#define MODEL_FILE_PATH     "bin/model.bin"
 #define PSRAM_SIZE  (8*1024*1024)
 #define SHARE_SIZE  (640*1024)
 
 static int8_t g_psram_buf[PSRAM_SIZE];
 static int8_t g_share_buf[SHARE_SIZE];
 
+const char *classes[] = {
+	"apple", "aquarium_fish", "baby", "bear", "beaver", "bed", "bee", "beetle", "bicycle", "bottle",
+	"bowl", "boy", "bridge", "bus", "butterfly", "camel", "can", "castle", "caterpillar", "cattle",
+	"chair", "chimpanzee", "clock", "cloud", "cockroach", "couch", "crab", "crocodile", "cup",
+	"dinosaur", "dolphin", "elephant", "flatfish", "forest", "fox", "girl", "hamster", "house",
+	"kangaroo", "keyboard", "lamp", "lawn_mower", "leopard", "lion", "lizard", "lobster", "man",
+	"maple_tree", "motorcycle", "mountain", "mouse", "mushroom", "oak_tree", "orange", "orchid",
+	"otter", "palm_tree", "pear", "pickup_truck", "pine_tree", "plain", "plate", "poppy", "porcupine",
+	"possum", "rabbit", "raccoon", "ray", "road", "rocket", "rose", "sea", "seal", "shark", "shrew",
+	"skunk", "skyscraper", "snail", "snake", "spider", "squirrel", "streetcar", "sunflower", "sweet_pepper",
+	"table", "tank", "telephone", "television", "tiger", "tractor", "train", "trout", "tulip", "turtle",
+	"wardrobe", "whale", "willow_tree", "wolf", "woman", "worm"
+};
+
 static void load_bin_file(const char *file, int8_t **ptr, uint64_t *size) 
 {
     FILE *fp = fopen(file, "rb");
+	if (fp == NULL){
+		printf("open file failed, check the path!\n");
+	}
 
     fseek(fp, 0 ,SEEK_END);
     *size = ftell(fp);
@@ -53,20 +68,25 @@ int thinker_task_test(int loop_count, char *argv[])
 	int32_t in_c = atoi(argv[4]);
 	int32_t in_h = atoi(argv[5]);
 	int32_t in_w = atoi(argv[6]);
-	// int32_t in_type = atoi(argv[7]);  //0:float 1:int8_t
-	// int32_t in_scale = atoi(argv[8]);
+	int32_t scale = atoi(argv[7]);
 
 	load_bin_file(input_file, &input_data, &input_size);
     load_bin_file(model_file, &res_data, &res_size);
-    // load_bin_file(INPUT_FILE_PATH, &input_data, &input_size);
-    // load_bin_file(MODEL_FILE_PATH, &res_data, &res_size);
 
     tStatus ret = T_SUCCESS;
 	ret = tInitialize();
+	if (ret != T_SUCCESS) {
+        printf("tInitialize failed, error code:%d\n", ret);
+		return ret;
+    }
 
 	int num_memory = 0;
 	tMemory memory_list[7];
 	ret = tGetMemoryPlan((tMemory *)memory_list, &num_memory, (int8_t*)res_data, res_size);
+    if (ret != T_SUCCESS) {
+        printf("tGetMemoryPlan failed, error code:%d\n", ret);
+		return ret;
+    }
 
 	for(i = 0; i < num_memory; i++)
 	{
@@ -89,73 +109,72 @@ int thinker_task_test(int loop_count, char *argv[])
     tModelHandle model_hdl;   //typedef uint64_t
     ret = tModelInit(&model_hdl, (int8_t*)res_data, res_size, memory_list, num_memory);
     if (ret != T_SUCCESS) {
-        printf("tInitModel: ret = %d\n", ret);
+        printf("tInitModel failed, error code:%d\n", ret);
+		return ret;
     }
-	else{
-		printf("init model successful!\n");
-	}
 
     tExecHandle hdl;
     ret = tCreateExecutor(model_hdl, &hdl, memory_list, num_memory);
     if (ret != T_SUCCESS) {
-        printf("tCreateExecutor: ret = %d\n", ret);
+        printf("tCreateExecutor failed, error code:%d\n", ret);
+		return ret;
     }
-	else{
-		printf("create executor successful!\n");
-	}
 
   	tData input; 
-	input.dptr_ = (char*)input_data;
+	input.dptr_ = (char*)input_data;//在此处设断点
 	input.dtype_ = Int8;
-	input.scale_ = 1.0;
+	input.scale_ = scale;
 	input.shape_.ndim_ = 4;
 	input.shape_.dims_[0] = 1;
 	input.shape_.dims_[1] = in_c;
     input.shape_.dims_[2] = in_h;
     input.shape_.dims_[3] = in_w;
 
-	ret = tSetInput(hdl, 0, &input);
-	if (ret != T_SUCCESS) {
-		printf("tSetInput: %d\n", ret);
-	}
-	else{
-		printf("set input successful!\n");
-	}
 	uint32_t clk = 0;
 	for(i = 0; i < loop_count; i++)
 	{
-		ret = tForward(hdl);        //error
+		ret = tSetInput(hdl, 0, &input);
 		if (ret != T_SUCCESS) {
-			printf("tForward: %d\n", ret);
+			printf("tSetInput failed, error coe:%d\n", ret);
+			return ret;
 		}
-		else{
-			printf("forward successful!\n");
+
+		ret = tForward(hdl);
+		if (ret != T_SUCCESS) {
+			printf("tForward failed, error code:%d\n", ret);
+			return ret;
 		}
 
 		tData output[5];
 		int getoutputcount = tGetOutputCount(model_hdl);
+
 		for(j = 0; j < getoutputcount; j++)
 		{
-			void * data = (void *)(g_psram_buf + use_psram_size);
 			ret = tGetOutput(hdl, j, &output[j]);
 			if (ret != T_SUCCESS) {
-				printf("tGetOutput: %d\n", ret);
+				printf("tGetOutput_%d failed, error code: %d\n", j, ret);
+				return ret;
 			}
-			else{
-				printf("get output%d successful!\n", j);
-			}
-			int shape_size = (output[j].dtype_ & 0xF);
-			printf("output%d shape:(");
-			for(k = 0; k < output[j].shape_.ndim_; k++){
-				shape_size *= output[j].shape_.dims_[k];
-				printf("%d,", output[j].shape_.dims_[k]);
-			}
-			printf(")\n");
-			use_psram_size += (shape_size+63)&(~63);
-			memcpy((char*)data, output[j].dptr_, shape_size);
-			output[j].dptr_ = (void *)data;
-			save_bin_file(output_file, data, shape_size);
 		}
+
+		int8_t *output_data = (int8_t *)output[0].dptr_;
+		int output_length = output[0].shape_.dims_[1];
+
+		int predicted_category_index = 0;
+		int8_t max_probability = output_data[0];
+
+		for (int idx = 1; idx < output_length; idx++) {
+			if (output_data[i] > max_probability)
+			{
+				max_probability = output_data[idx];
+				predicted_category_index = idx;
+			}
+		}
+
+		printf("Predicted category index: %d\n", predicted_category_index);
+		printf("Predicted label: %s\n", classes[predicted_category_index]);	
+
+		save_bin_file(output_file, output_data, output_length);
 	}
 	tUninitialize();
     return ret;
@@ -163,8 +182,15 @@ int thinker_task_test(int loop_count, char *argv[])
 
 int main(int argc, char *argv[]) 
 {
+	if(argc < 8)
+	{
+		printf("commad:path of input file, path of model, path of output file, channel of input, height of input, width of input, QValue of input, loop num(opt)\n");
+		return -1;
+	}
 	int loop_count = 1;
-	thinker_task_test(loop_count, argv);
+	if( argc == 9)
+		loop_count = atoi(argv[8]);
+	int32_t ret = thinker_task_test(loop_count, argv);
 
-	return 0;
+	return ret;
 }

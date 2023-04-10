@@ -56,18 +56,19 @@ python train.py -net resnet50 -gpu
   使用linger的模型转换工具，将[模型转换成onnx计算图](thinker/docs/images/onnx_export.png)。
 
 ### 3. 模型分析和打包
-  使用thinker离线工具tpacker对步2生成的onnx计算图打包  
+  使用thinker离线工具tpacker对步2生成的onnx计算图打包，这里我们以训练好的resnet28模型为例，进行打包
 ```Shell
-tpacker -g xx.onnx -d Ture -o model.bin
+tpacker -g demo/resnet28/resnet18-12-regular.onnx -d Ture -o demo/resnet28/model.bin
 ```
 
 ### 4. 推理执行
   使用调用示例工程test_thinker，指定输入数据、资源文件和输出文件名称即可运行模拟代码。  
 ```Shell
 chmod +x ./bin/test_thinker
-./bin/test_thinker input.bin model.bin output.bin 3 32 32
+./bin/test_thinker demo/resnet28/input.bin demo/resnet28/model.bin demo/resnet28/output.bin 3 32 32 6
 ```
-可以通过修改编译脚本来查看[算子性能和中间数据的结果](thinker/docs/tutorial/thinker_performance.md)
+这里简化整体处理流程，引擎输入为规整后的3x32x32的图片，输出取max_value对应的id作为分类的结果。输入图片的处理参考[图片处理脚本](tools/image_preprocess.py)，或者从pytorch-cifar100中取处理后的测试集图片进行测试。
+另外可通过修改编译脚本来查看[算子性能和中间数据的结果](thinker/docs/tutorial/thinker_performance.md)
 
 ### 5. 规约性检查
   该阶段不关注模型的效果，只关注模型的结构是否和底层硬件相适配，功能实现贯穿了1~4步
