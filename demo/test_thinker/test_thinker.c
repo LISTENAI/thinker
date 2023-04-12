@@ -173,7 +173,7 @@ int thinker_task_test(int loop_count, char *argv[])
 		int8_t max_probability = output_data[0];
 
 		for (int idx = 1; idx < output_length; idx++) {
-			if (output_data[i] > max_probability)
+			if (output_data[idx] > max_probability)
 			{
 				max_probability = output_data[idx];
 				predicted_category_index = idx;
