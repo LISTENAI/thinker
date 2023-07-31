@@ -80,7 +80,8 @@ chmod +x ./bin/test_thinker
 ## 能力展示
 * [thinker API](thinker/docs/tutorial/thinker_api.md)
 * [支持量化OP列表](https://github.com/LISTENAI/linger/blob/main/doc/tutorial/support_quant_ops.md)及[模型结构限制说明](thinker/docs/tutorial/restrain_of_model.md)
-
+## 应用示例
+* 鼾声检测[https://github.com/mywang44/snoring_net]
 ## 交流与反馈
 - 欢迎您通过 Github Issues 来提交 BUG 与建议
 - 技术交流微信群  
