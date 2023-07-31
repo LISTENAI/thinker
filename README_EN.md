@@ -92,7 +92,7 @@ So far, the model compliance check has been completed, ensuring that the model c
 ## Citation
 - [ONNX](https://github.com/onnx/onnx)
 - [pytorch-cifar100](https://github.com/weiaicunzai/pytorch-cifar100)
-## 应用示例
+## Applications
 * snoring detect[https://github.com/mywang44/snoring_net]
 ## Copyright and License
 [Apache-2.0 license](LICENSE)
