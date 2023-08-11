@@ -1,9 +1,9 @@
 from typing import List, Tuple, Dict
-
+from ._type import *
 from ..graph import Graph
 from ..enum_defines import MemType, ALIGN16, TensorType
 from .memory import WORKSPACE_NAME, DMA_BUFFER1_NAME, DMA_BUFFER2_NAME
-from ._type import tDMA, tParameter, tMemory, tTensor, tTensorName, tOperator, tIO
+
 
 
 def pack_memory(memory_planer: Dict[int, List[int]]) -> List[tMemory]:
@@ -173,7 +173,7 @@ def pack_param(
                 if tensor.nbytes != offset:
                     print(
                         ctx.entry.name,
-                        "the size of tensor:{} do not math offset{}!".format(
+                        "the size of tensor({}) do not match offset({})!".format(
                             tensor.nbytes, offset
                         ),
                     )

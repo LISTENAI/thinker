@@ -3,9 +3,6 @@ from .base import Operator, OperatorAttrs, register_op
 
 @register_op
 class Flatten(Operator):
-    def __init__(self, attrs={}):
-        self.attrs = OperatorAttrs(attrs)
-
     def infer_tensor(self):
         inputs = self.inputs
         assert len(inputs) == 1

@@ -1,3 +1,6 @@
+#ifndef _DEQUANT_LUNA_H_
+#define _DEQUANT_LUNA_H_
+
 #include <string.h>
 
 #include "c_api/thinker_define.h"
@@ -35,3 +38,4 @@ int32_t dequantize_linear_luna(tTensor *X, tTensor *Y, tTensor *Workspace) {
 
   return 0;
 }
+#endif  //_DEQUANT_VENUS_H_

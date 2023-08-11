@@ -1,3 +1,6 @@
+#ifndef _VAR_LUNA_H_
+#define _VAR_LUNA_H_
+
 #include <math.h>
 
 #include "c_api/thinker_define.h"
@@ -63,3 +66,4 @@ int32_t iqvar(tTensor *X, tTensor *Y, tTensor *temp, iqvarAttrs *attrs) {
   }
   return 0;
 }
+#endif

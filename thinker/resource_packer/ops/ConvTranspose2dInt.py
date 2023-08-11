@@ -4,11 +4,10 @@ from enum import Enum
 
 from ...graph import Tensor
 from .._type._ctype import tffi
-from ...enum_defines import DevType, Layout
-from .utils import get_deconv_workspace_desc
+from ...enum_defines import DevType, Layout, ALIGN2, ALIGN8, ALIGN16
+from .utils import get_deconv_workspace_desc, QuantType
 from .base import Operator, OperatorAttrs, register_op
 from .utils import attr2tuple, calc_deconv2d_output_shape
-
 
 class ConvTranspose2dIntAttrs(OperatorAttrs):
     def checkparams(self) -> None:
@@ -28,9 +27,6 @@ class ConvTranspose2dIntAttrs(OperatorAttrs):
             and tuple(attrs["output_padding"]) != (0, 0, 0, 0, 0, 0)
         ):
             output_padding = tuple(attrs["output_padding"])
-            raise (
-                f"[ConvTranspose2dInt] Not supported yet: output_padding:{output_padding}."
-            )
         else:
             output_padding = (0, 0, 0, 0, 0, 0)
 
@@ -40,59 +36,29 @@ class ConvTranspose2dIntAttrs(OperatorAttrs):
 
         kernels = attrs.get("kernel_shape")
         kernels = attr2tuple(kernels, (1, 1))
-        assert kernels[0] in {
-            1,
-            2,
-            3,
-            4,
-            5,
-        }, "kernel_w for ConvTranspose2dInt exceed limit"
-        assert kernels[1] in {
-            1,
-            2,
-            3,
-            4,
-            5,
-        }, "kernel_h for ConvTranspose2dInt exceed limit"
+        assert kernels[0] in (1, 2, 3, 4, 5,), "kernel_w for ConvTranspose2dInt exceed limit"
+        assert kernels[1] in (1, 2, 3, 4, 5,), "kernel_h for ConvTranspose2dInt exceed limit"
 
         pads = attrs.get("pads")
         pads = attr2tuple(pads, (0, 0, 0, 0))
-        assert pads[0] in {
-            0,
-            1,
-            2,
-            3,
-            4,
-        }, "pad_left for ConvTranspose2dInt exceed limit"
-        assert pads[1] in {
-            0,
-            1,
-            2,
-            3,
-            4,
-        }, "pad_right for ConvTranspose2dInt exceed limit"
-        assert pads[2] in {0, 1, 2, 3, 4}, "pad_up for ConvTranspose2dInt exceed limit"
-        assert pads[3] in {
-            0,
-            1,
-            2,
-            3,
-            4,
-        }, "pad_down for ConvTranspose2dInt exceed limit"
+        assert pads[0] in (0, 1, 2, 3, 4,), "pad_left for ConvTranspose2dInt exceed limit"
+        assert pads[1] in (0, 1, 2, 3, 4,), "pad_right for ConvTranspose2dInt exceed limit"
+        assert pads[2] in (0, 1, 2, 3, 4,), "pad_up for ConvTranspose2dInt exceed limit"
+        assert pads[3] in (0, 1, 2, 3, 4,), "pad_down for ConvTranspose2dInt exceed limit"
 
         strides = attrs.get("strides")
         strides = attr2tuple(strides, (1, 1))
-        assert strides[0] in {1, 2, 4}, "stride_h for ConvTranspose2dInt exceed limit"
-        assert strides[1] in {1, 2, 4}, "stride_w for ConvTranspose2dInt exceed limit"
+        assert strides[0] in (1, 2, 4), "stride_h for ConvTranspose2dInt exceed limit"
+        assert strides[1] in (1, 2, 4), "stride_w for ConvTranspose2dInt exceed limit"
 
         if strides[0] == 2:
-            assert kernels[0] in {2, 3, 4, 5}, "stride_h and kernel_h do not match"
+            assert kernels[0] in (2, 3, 4, 5), "stride_h and kernel_h do not match"
         if strides[0] == 4:
-            assert kernels[0] in {4, 5}, "stride_h and kernel_h do not match"
+            assert kernels[0] in (4, 5), "stride_h and kernel_h do not match"
         if strides[1] == 2:
-            assert kernels[1] in {2, 3, 4, 5}, "stride_w and kernel_w do not match"
+            assert kernels[1] in (2, 3, 4, 5), "stride_w and kernel_w do not match"
         if strides[1] == 4:
-            assert kernels[1] in {4, 5}, "stride_w and kernel_w do not match"
+            assert kernels[1] in (4, 5), "stride_w and kernel_w do not match"
 
         group = int(attrs.get("group", 1))
 
@@ -100,14 +66,24 @@ class ConvTranspose2dIntAttrs(OperatorAttrs):
             layout = attrs.get("layout", "NCHW")
         else:
             layout = Layout.from_str(attrs.get("layout", "NCHW"))
-        assert layout in {Layout.NCHW, Layout.NHWC}
+        assert layout in (Layout.NCHW, Layout.NHWC)
+        self.attrs["layout"] = layout
+
+        assert self.attrs.get("platform_quant") == "luna_quant"
+        quant_type = QuantType.from_str(self.attrs.get("platform_quant"))
+        act_type = int(self.attrs.get("act_type", 0))
+        self.attrs["quant_type"] = quant_type
+        self.attrs["act_type"] = act_type
+
+        assert self.attrs.get("o_bits") == 8, "Conv1dInt just support output of int8"
 
     def serialize(self) -> bytes:
-        attrs = tffi.new("Conv2dIntAttrs *")
+        attrs = tffi.new("ConvTranspose2dIntAttrs *")
 
         attrs.dilation = self.attrs["dilations"]
         attrs.kernel = self.attrs["kernel_shape"]
         attrs.pad = self.attrs["pads"]
+        attrs.output_padding = self.attrs["output_padding"]
         attrs.stride = self.attrs["strides"]
         attrs.group = self.attrs["group"]
         attrs.layout = self.attrs["layout"].value
@@ -116,7 +92,6 @@ class ConvTranspose2dIntAttrs(OperatorAttrs):
 
         return bytes(tffi.buffer(attrs))
 
-
 @register_op
 class ConvTranspose2dInt(Operator):
     def __init__(self, attrs={}):
@@ -124,17 +99,20 @@ class ConvTranspose2dInt(Operator):
 
     def infer_tensor(self):
         inputs = self.inputs
-        assert len(inputs) in {2, 3}
+        assert len(inputs) in (2, 3)
         X = inputs[0]
         W = inputs[1]
         assert len(X.shape) == 4 and len(W.shape) == 4
+        if len(inputs) == 3:
+            assert inputs[2].dtype in (np.int32, np.int16), "data type of bias in Conv2dInt must be int16/32"
 
         scale_x = self.attrs.get("scale_x")
         temp = math.log(scale_x, 2)
         assert abs(temp - int(temp)) < 0.000001
-        assert X.scale == int(
-            temp
-        ), "scale of tensor must be same with scale_x in attribute"
+        if X.scale != -1 :
+            assert X.scale == int(temp), "scale of tensor must be same with scale_x in attribute"
+        else:
+            self.inputs[0].scale = int(temp)
 
         scale_w = self.attrs.get("scale_w")
         temp = math.log(scale_w, 2)
@@ -152,6 +130,7 @@ class ConvTranspose2dInt(Operator):
             strides=self.attrs["strides"],
             dilations=self.attrs["dilations"],
             pads=self.attrs["pads"],
+            output_pads = self.attrs["output_padding"],
             groups=self.attrs["group"],
             layout=Layout.NCHW,
         )
@@ -191,10 +170,16 @@ class ConvTranspose2dInt(Operator):
 
             if len(self.inputs) >= 2:
                 bias = self.inputs[2]
+                assert bias.dtype in (np.int16, np.int32)
                 if bias.dtype != np.dtype(np.int32):
+                    scale_x = self.inputs[0].scale
+                    scale_w = self.inputs[1].scale
+                    scale_o = self.outputs[0].scale
+                    scale_d = min(scale_x + scale_w, 7 + scale_o)
+                    shift = scale_x + scale_w - scale_d
                     new_bias = np.zeros(bias.shape, np.dtype(np.int32))
                     for i in range(bias.shape[0]):
-                        new_bias[i] = bias.data[i]
+                        new_bias[i] = bias.data[i] * pow(2, shift)
                     self.inputs[2].update(data=new_bias, dtype=np.dtype(np.int32))
 
             weight_data = self.inputs[1]
@@ -302,5 +287,5 @@ class ConvTranspose2dInt(Operator):
                     )
                     return
 
-
+                    
 __all__ = ["ConvTranspose2dInt"]

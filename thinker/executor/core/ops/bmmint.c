@@ -10,16 +10,19 @@
 
 int32_t X(Forward)(tOperator *op, tTensor **tensors, int32_t num_tensor,
                    tDMA_List *list) {
-  CHECK_EQ(num_tensor, (op->num_input_ + op->num_output_));
+  CHECK_GE(num_tensor, (op->num_input_ + op->num_output_));
 
   int32_t ret = T_ERR_NO_IMPLEMENTED;
   iqBinaryAttrs *attrs = (iqBinaryAttrs *)((int8_t *)op + op->attr_offset_);
   tTensor *X = tensors[0];
   tTensor *Y = tensors[1];
   tTensor *O = tensors[op->num_input_];
+  tTensor *Workspace = NULL;
+  if (num_tensor > op->num_input_ + op->num_output_)
+    Workspace = tensors[op->num_input_ + op->num_output_];
 
 #ifdef THINKER_USE_VENUS
-  ret = bmmint_luna(X, Y, O);
+  ret = bmmint_luna(X, Y, O, Workspace);
 #endif
 
   if (ret != T_SUCCESS) {

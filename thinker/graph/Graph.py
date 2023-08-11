@@ -1,3 +1,4 @@
+import numpy as np
 from ..graph import Graph
 from .GraphEntry import GraphEntry
 from .GraphNode import GraphNode
@@ -13,7 +14,6 @@ class Graph(object):
 
         # attrs
         self.performance = 0
-        self.dynamic_args_max = {}
 
     def add_node(self, node: GraphNode):
         if node.name in self.nodes:
@@ -28,7 +28,6 @@ class Graph(object):
     # copy
     def copy_attrs(self, src: "Graph") -> "Graph":
         self.performance = src.performance
-        self.dynamic_args_max = src.dynamic_args_max
 
     def copy(self, src: "Graph") -> "Graph":
         self.copy_attrs(src)

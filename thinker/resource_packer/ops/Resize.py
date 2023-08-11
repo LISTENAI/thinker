@@ -72,7 +72,7 @@ class Resize(Operator):
             shape = X.shape * inputs[2].data
             yshape = []
             for i, s in enumerate(shape):
-                yshape.append(int(shape[i]))
+                yshape.append(int(s))
 
             Y = X.clone(shape=tuple(yshape))
         elif inputs[3].nbytes != 0:

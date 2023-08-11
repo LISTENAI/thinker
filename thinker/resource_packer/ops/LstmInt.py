@@ -58,7 +58,11 @@ class LSTMInt(Operator):
 
     def infer_tensor(self):
         inputs = self.inputs
-        assert len(inputs) > 3
+        assert len(inputs) > 3        
+        if (len(self.inputs) == 6):
+            self.weight_index = 2
+        elif (len(self.inputs) == 8):
+            self.weight_index = 4
         X = inputs[0]  # input scale
         i2h_w = inputs[self.weight_index]  ##i2h_w scale
         h2h_w = inputs[self.weight_index + 1]
@@ -71,12 +75,12 @@ class LSTMInt(Operator):
         scale_iw = self.attrs.get("scale_iw", 1.0)
         temp = math.log(scale_iw, 2)
         assert abs(temp - int(temp)) < 0.000001
-        self.inputs[1].scale = temp
+        self.inputs[self.weight_index].scale = temp
 
         scale_hw = self.attrs.get("scale_hw", 1.0)
         temp = math.log(scale_hw, 2)
         assert abs(temp - int(temp)) < 0.000001
-        self.inputs[2].scale = temp
+        self.inputs[self.weight_index + 1].scale = temp
 
         scale_o = self.attrs.get("scale_o", 1.0)
         temp = math.log(scale_o, 2)
@@ -120,12 +124,12 @@ class LSTMInt(Operator):
         return [max_workspace]
 
     def pack_params(self, dev_type: DevType):
-        weight_i = self.inputs[1]
-        weight_h = self.inputs[2]
+        weight_i = self.inputs[self.weight_index]
+        weight_h = self.inputs[self.weight_index + 1]
         data_i = weight_i.data.transpose(1, 0)
         data_h = weight_h.data.transpose(1, 0)
-        self.inputs[1].update(data=data_i, shape=data_i.shape)
-        self.inputs[2].update(data=data_h, shape=data_h.shape)
+        self.inputs[self.weight_index].update(data=data_i, shape=data_i.shape)
+        self.inputs[self.weight_index + 1].update(data=data_h, shape=data_h.shape)
 
 
 __all__ = ["LSTMInt"]

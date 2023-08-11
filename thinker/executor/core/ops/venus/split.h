@@ -1,3 +1,6 @@
+#ifndef _SPLIT_LUNA_H_
+#define _SPLIT_LUNA_H_
+
 #include "c_api/thinker_define.h"
 #include "core/comm/thinker_log.h"
 #include "core/comm/type_switch.h"
@@ -5,6 +8,9 @@
 #include "core/operator_attrs.h"
 #include "thinker_status.h"
 
+#if !(defined(WIN32) || defined(linux))
+#pragma clang optimize off
+#endif
 int32_t split_venus(tTensor *X, tTensor **tensors, SliceAttrs *attrs) {
   if (attrs->axis < 0) {
     attrs->axis += X->shape_.ndim_;
@@ -39,3 +45,7 @@ int32_t split_venus(tTensor *X, tTensor **tensors, SliceAttrs *attrs) {
 
   return 0;
 }
+#if !(defined(WIN32) || defined(linux))
+#pragma clang optimize on
+#endif
+#endif

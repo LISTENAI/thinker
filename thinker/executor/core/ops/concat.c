@@ -10,7 +10,7 @@
 
 int32_t X(Forward)(tOperator *op, tTensor **tensors, int32_t num_tensor,
                    tDMA_List *list) {
-  CHECK_EQ(num_tensor, (op->num_input_ + op->num_output_));
+  CHECK_GE(num_tensor, (op->num_input_ + op->num_output_));
   iqCatAttrs *attr = (iqCatAttrs *)((int8_t *)op + op->attr_offset_);
   int32_t axis = attr->axis;
   if (axis < 0) {
@@ -18,8 +18,14 @@ int32_t X(Forward)(tOperator *op, tTensor **tensors, int32_t num_tensor,
   }
   int32_t ret = T_ERR_NO_IMPLEMENTED;
 
+  tTensor *workspace = NULL;
+  if (num_tensor == op->num_input_ + op->num_output_ + 1){
+    workspace = ((tTensor**)tensors)[op->num_input_ + op->num_output_];
+  }
+
 #ifdef THINKER_USE_VENUS
-  ret = concat_luna(tensors, axis, op->num_input_, tensors[op->num_input_]);
+ret = concat_luna(tensors, axis, op->num_input_, workspace, tensors[op->num_input_]);
+
 #endif
   if (ret != T_SUCCESS) {
     return ret;

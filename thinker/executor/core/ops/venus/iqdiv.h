@@ -1,5 +1,5 @@
-#ifndef _ADD_LUNA_H_
-#define _ADD_LUNA_H_
+#ifndef _DIV_LUNA_H_
+#define _DIV_LUNA_H_
 
 #include "c_api/thinker_define.h"
 #include "core/comm/thinker_log.h"

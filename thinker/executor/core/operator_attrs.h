@@ -56,6 +56,10 @@ typedef struct _LogsoftmaxintAttrs {
   int8_t axis;
 } LogSoftmaxIntAttrs;
 
+typedef struct _LogsoftmaxAttrs {
+  int8_t axis;
+} LogSoftmaxAttrs;
+
 typedef struct _LstmIntAttrs {
   uint16_t direction;
   uint16_t hidden_size;
@@ -95,10 +99,6 @@ typedef struct _ConvTranspose2dIntAttrs {
   int16_t layout;
   uint8_t quant_type;
   uint8_t act_type;
-  int8_t max;
-  int8_t min;
-  uint8_t optimize_Strategy;
-  uint8_t algorithm;
 } ConvTranspose2dIntAttrs;
 
 typedef struct _QuantAttrs {
@@ -145,9 +145,9 @@ typedef struct _GemmAttrs {
   int32_t transB;
 } GemmAttrs;
 
-typedef struct _SumAttrs {
+typedef struct _iqSumAttrs {
   int32_t axis;
-} SumAttrs;
+} iqSumAttrs;
 
 typedef struct _PreluAttrs {
   int32_t slope;
@@ -176,5 +176,23 @@ typedef struct _iqvarAttrs {
   uint8_t ndim_;
   int8_t dims;
 } iqvarAttrs;
+
+typedef struct _CastAttrs {
+  int64_t to;
+} CastAttrs;
+
+typedef struct _topNAttrs {
+  int8_t dim;
+  int8_t max_num;
+} topNAttrs;
+
+typedef struct _ArgMaxAttrs {
+  int8_t axis;
+} ArgMaxAttrs;
+
+typedef struct _iqPadAttrs {
+  int8_t shape;
+  int8_t value;
+} iqPadAttrs;
 
 #endif

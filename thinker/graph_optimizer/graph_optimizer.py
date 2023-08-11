@@ -1,12 +1,15 @@
-from typing import List
-
 from ..graph import Graph
 from .op_fusion import op_fusion
+from .op_divide import op_divide
 from .layout_convert import layout_optimizer
 
 
 def graph_optimizer(graph: Graph, strategy: str, is_dump: bool = False) -> Graph:
     graph = op_fusion(graph, strategy, is_dump)
+    graph.init_tensor()
+    print("---- op fusion success ----")
+
+    graph = op_divide(graph, is_dump)
     graph.init_tensor()
     print("---- op fusion success ----")
 

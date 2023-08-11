@@ -1,3 +1,4 @@
+from enum import Enum
 from ....enum_defines import Layout
 
 
@@ -41,7 +42,10 @@ def gemm_workspace_desc(
 
 def get_deconv_workspace_desc(calc_kernel, X, W, attrs, outputs):
     group = attrs["group"]
-    layout = attrs["layout"]
+    if isinstance(attrs.get("layout", "NCHW"), Enum):
+        layout = attrs.get("layout", "NCHW")
+    else:
+        layout = Layout.from_str(attrs.get("layout", "NCHW"))
     input_shape = X.shape
     weight_shape = W.shape
     dtype_size = X.dtype.itemsize
@@ -95,6 +99,7 @@ def get_gemm_workspace_desc(calc_kernel, inputs, attrs, outputs):
 
 
 __all__ = [
+    "ProdShape",
     "gemm_workspace_desc",
     "get_deconv_workspace_desc",
     "get_gemm_workspace_desc",

@@ -1,7 +1,9 @@
 import math
 import numpy as np
+from typing import List
 
 from ...graph import Tensor
+from ...enum_defines import DevType, MemType
 from ...enum_defines import ALIGN16, ALIGN32
 from .base import iqBinaryOperator, register_op
 
@@ -24,19 +26,28 @@ class BmmInt(iqBinaryOperator):
         scale_x = self.attrs.get("scale_x", 1.0)
         temp = math.log(scale_x, 2)
         assert abs(temp - int(temp)) < 0.000001
-        assert self.inputs[0].scale == temp
+        if self.inputs[0].scale != -1:
+            assert self.inputs[0].scale == int(temp)
+        else:
+            self.inputs[0].scale = int(temp)
 
         scale_y = self.attrs.get("scale_y", 1.0)
         temp = math.log(scale_y, 2)
         assert abs(temp - int(temp)) < 0.000001
-        assert self.inputs[1].scale == temp
+        if self.inputs[1].scale != -1:
+            assert self.inputs[1].scale == int(temp)
+        else:
+            self.inputs[1].scale = int(temp)
 
         scale_o = self.attrs.get("scale_o", 1.0)
         temp = math.log(scale_o, 2)
         assert abs(temp - int(temp)) < 0.000001
 
-        M = ALIGN16(x_shape[0])
-        N = ALIGN32(x_shape[1])
+        x_h = x_shape[0]
+        x_w = x_shape[1]
+
+        M = ALIGN16(x_h)
+        N = ALIGN32(x_w)
         if X.dtype == np.int8:
             assert M * N < 65536, "left matmul of linearint must less 64KB"
         elif X.dtype == np.int16:
@@ -51,6 +62,18 @@ class BmmInt(iqBinaryOperator):
 
         Y = Tensor(shape=shape, dtype=X.dtype, scale=int(temp))
         self.outputs = [Y]
-
+        
+    def get_workspace(self, dev_type: DevType) -> List[Tensor]:
+        X = self.inputs[0]
+        Y = self.outputs[0]
+        workspace_bytes = 0
+        if X.mem_type != MemType.SHARE_MEM:
+            workspace_bytes = X.nbytes
+        if Y.mem_type != MemType.SHARE_MEM:
+            workspace_bytes = max(workspace_bytes, Y.nbytes)
+        if workspace_bytes != 0:
+            return [Tensor.from_shape([workspace_bytes], np.int8, dev_type)]
+        else:
+            return []
 
 __all__ = ["BmmInt"]

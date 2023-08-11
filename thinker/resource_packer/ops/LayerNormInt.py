@@ -24,11 +24,17 @@ class LayerNormInt(Operator):
 
     def infer_tensor(self):
         X = self.inputs[0]
+        W = self.inputs[1]
+
+        assert W.shape[0] == X.shape[-1]* X.shape[-2] or W.shape[0] == X.shape[-1] , "layernorm not support"
 
         scale_x = self.attrs.get("scale_x")
         temp = math.log(scale_x, 2)
         assert abs(temp - int(temp)) < 0.000001, "scale of inputs must be 2^Q"
-        assert X.scale == int(temp)
+        if X.scale != -1 :
+            assert X.scale == int(temp), "scale of tensor must be same with scale_x in attribute"
+        else:
+            self.inputs[0].scale = int(temp)
 
         scale_w = self.attrs.get("scale_w")
         temp = math.log(scale_w, 2)

@@ -1,3 +1,6 @@
+#ifndef _LOGSOFTMAXINT_LUNA_H_
+#define _LOGSOFTMAXINT_LUNA_H_
+
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -51,3 +54,4 @@ int32_t logsoftmaxint_luna(tTensor *data, tTensor *out, tTensor *Workspace,
   }
   return 0;
 }
+#endif

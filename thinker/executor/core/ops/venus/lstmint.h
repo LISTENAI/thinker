@@ -33,11 +33,42 @@ typedef struct _luna_lstm_param {
   void *p_hb;
 } luna_lstm_param_t;
 
+
+static  int32_t luna_ceil(int32_t x, int32_t shift) {
+  if (x & ~(0xFFFFFFFF << shift)) {
+    return (x >> shift) + 1;
+  } else {
+    return (x >> shift);
+  }
+}
+
+static int calc_mat_mul_split_num(int M,int N,int L,int byte)
+{
+    int32_t split_num = 1;
+
+    // const int32_t left_limit = 64 * 1024;
+    const int32_t right_limit = 32 * 1024;
+    int32_t split_L = L / split_num;
+    // int32_t int8_condition_l =
+    // (luna_ceil(M, 2) << 2) * (luna_ceil(N, 3) << 3) * byte;  // right:4x8
+    // if (int8_condition_l > left_limit) {
+    //   return split_num;
+    // }
+
+    int32_t int8_condition_r =(luna_ceil(N, 3) << 3) * (luna_ceil(split_L, 2) << 2) * byte;  // right:8x4
+    while (int8_condition_r > right_limit || (0 != (L % split_num))) 
+    {
+        split_num++;
+        split_L = L / split_num;
+        int8_condition_r = (luna_ceil(N, 3) << 3) *(luna_ceil(split_L, 2) << 2) * byte;  // right:8x4
+    }
+    return split_num;
+}
 static int32_t luna_lstm_q7_int8_inner(luna_lstm_param_t *params, int32_t t,
                                        int8_t *p_input, int8_t *p_output,
                                        int8_t *p_tmp) {
   int32_t ret = -1;
-  const int32_t split_num = 4;
+  int32_t split_num = 1;
   const int32_t active_q_in = 11;
   const int32_t active_q_out = 7;
 
@@ -65,6 +96,16 @@ static int32_t luna_lstm_q7_int8_inner(luna_lstm_param_t *params, int32_t t,
   int32_t hw_q = p_lstm_param->q_hw;
   int32_t ib_q = p_lstm_param->q_ib;
   int32_t hb_q = p_lstm_param->q_hb;
+  //calc split_num
+  const int32_t left_limit = 64 * 1024;
+  int32_t int8_condition_l =
+  (luna_ceil(1, 2) << 2) * (luna_ceil(input_size, 3) << 3);  // right:4x8
+  if (int8_condition_l > left_limit) {
+    return ret;
+  }
+
+  split_num = calc_mat_mul_split_num(1,input_size,hidden_size * 4,1);
+
 
   // step1: [Gi_i, Gf_i, Gc_i, Go_i] =  [Wi_i, Wf_i, Wc_i, Wo_i] * i + Bias_i
   int32_t *p_out1 = (int32_t *)p_tmp;
@@ -72,6 +113,13 @@ static int32_t luna_lstm_q7_int8_inner(luna_lstm_param_t *params, int32_t t,
                                     input_size, hidden_size * 4, 0);
   ret = luna_add_q31_int32(p_out1, p_ib_bias, p_out1, hidden_size * 4, 0);
 
+  int8_condition_l =
+  (luna_ceil(1, 2) << 2) * (luna_ceil(hidden_size, 3) << 3);  // right:4x8
+  if (int8_condition_l > left_limit) {
+    return ret;
+  }
+
+  split_num = calc_mat_mul_split_num(1,hidden_size,hidden_size * 4,1);
   // step2: [Gi_h, Gf_h, Gc_h, Go_h] = Hp * [Wi_h, Wf_h, Wc_h, Wo_h] + Bias_h
   int32_t *p_out2 = (int32_t *)p_tmp + p_lstm_param->hidden_size * 4;
   ret = luna_split_mat_mul_q7_int32(p_h_in, p_hw_weight, p_out2, split_num, 1,
@@ -85,18 +133,31 @@ static int32_t luna_lstm_q7_int8_inner(luna_lstm_param_t *params, int32_t t,
                                hidden_size * 4, 0);
     ret = luna_scale_q31_int32(p_out2, 1 << (active_q_in - hb_q), p_out2,
                                hidden_size * 4, 0);
-    ret = luna_add_q31_int16(p_out1, p_out2, (int16_t *)p_out1, hidden_size * 4,
-                             0);  // Q11
-  } else {
+  }
+  else if (active_q_in > ib_q) {
+    int32_t shift2 = hb_q - active_q_in;
+    ret = luna_scale_q31_int32(p_out1, 1 << (active_q_in - ib_q), p_out1,
+                               hidden_size * 4, 0);
+    ret = luna_scale_q31_int32((const q31_t *)p_out2, (1), (int32_t *)p_out2,
+                               hidden_size * 4, shift2);
+  }
+  else if (active_q_in > hb_q) {
+    int32_t shift1 = ib_q - active_q_in;
+    ret = luna_scale_q31_int32((const q31_t *)p_out1, (1), (int32_t *)p_out1,
+                               hidden_size * 4, shift1);
+    ret = luna_scale_q31_int32(p_out2, 1 << (active_q_in - hb_q), p_out2,
+                               hidden_size * 4, 0);
+  }
+  else {
     int32_t shift1 = ib_q - active_q_in;
     int32_t shift2 = hb_q - active_q_in;
     ret = luna_scale_q31_int32((const q31_t *)p_out1, (1), (int32_t *)p_out1,
                                hidden_size * 4, shift1);
     ret = luna_scale_q31_int32((const q31_t *)p_out2, (1), (int32_t *)p_out2,
                                hidden_size * 4, shift2);
-    ret = luna_add_q31_int16((const q31_t *)p_out1, (q31_t *)p_out2,
-                             (int16_t *)p_out1, hidden_size * 4, 0);
   }
+  ret = luna_add_q31_int16((const q31_t *)p_out1, (q31_t *)p_out2,
+                             (int16_t *)p_out1, hidden_size * 4, 0);
 
   // step4:sigmod(G_i, G_f, G_o)
   int16_t *G_i = (int16_t *)p_out1;
@@ -162,6 +223,10 @@ int32_t lstmint_luna(const tTensor *data, const tTensor *history_h,
     seq_len = data->shape_.dims_[1];
     batch_size = data->shape_.dims_[0];
   }
+  if (mask)
+  {
+    seq_len = (int32_t)(*(int32_t *)mask->dptr_);
+  }
 
   ///////////////////////////////////////////////////
   luna_lstm_param_t p_lstm_param;
@@ -193,8 +258,21 @@ int32_t lstmint_luna(const tTensor *data, const tTensor *history_h,
   int8_t *p_out = (int8_t *)out->dptr_;
   int8_t *p_tmp = (int8_t *)workspace->dptr_;
   int32_t t = 0;
-  memset(p_lstm_param.p_h_in, 0, p_lstm_param.hidden_size * hidden_o->byte_);
-  memset(p_lstm_param.p_c_in, 0, p_lstm_param.hidden_size * cell_o->byte_);
+
+  if(history_c != NULL)
+  {
+    luna_memcpy(p_lstm_param.p_c_in,(void *)history_c->dptr_,history_c->byte_ * p_lstm_param.hidden_size);
+  }else{
+      memset(p_lstm_param.p_c_in, 0, p_lstm_param.hidden_size * cell_o->byte_);
+  }
+  if(history_h != NULL)
+  {
+    luna_memcpy(p_lstm_param.p_h_in,(void *)history_h->dptr_,history_h->byte_ * p_lstm_param.hidden_size);
+  }else{
+    memset(p_lstm_param.p_h_in, 0, p_lstm_param.hidden_size * hidden_o->byte_);
+
+  }
+
   if (go_forward == 1) {
     for (t = 0; t < seq_len; t++) {
       ret = luna_lstm_q7_int8_inner(&p_lstm_param, t, p_input + step_size * t,

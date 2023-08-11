@@ -7,8 +7,8 @@ from .base import Operator, OperatorAttrs, register_op
 
 
 class GatherAttrs(OperatorAttrs):
-    def checkparams(self) -> None:
-        assert "axis" in self.attrs
+    def normalize(self):
+        self.attrs["axis"] = self.attrs.get("axis", 0)
 
     def serialize(self) -> bytes:
         attrs = tffi.new("GatherAttrs *")
@@ -43,22 +43,15 @@ class Gather(Operator):
             if len(indices.shape) == 0:
                 Y.data = np.array(Y.data)
 
-        self.outputs = [Y]
 
-    def pack_params(self, dev_type: DevType):
-        if "scale_x" in self.attrs:
-            scale_w = self.attrs.get("scale_w")
-            temp = math.log(scale_w, 2)
-            assert abs(temp - int(temp)) < 0.000001
-            assert self.inputs[1].scale == int(temp)
-
-        if "scale_o" in self.attrs:
-            scale_o = self.attrs.get("scale_o")
+        scale_o = self.attrs.get("scale_o", -1)
+        if scale_o < 0:    
+            Y.scale = self.inputs[0].scale
+        else:
             temp = math.log(scale_o, 2)
             assert abs(temp - int(temp)) < 0.000001
-            self.outputs[0].scale = int(temp)
-        else:
-            self.outputs[0].scale = self.inputs[0].scale
+            Y.scale = int(temp)
+        self.outputs = [Y]
 
 
 __all__ = ["Gather"]

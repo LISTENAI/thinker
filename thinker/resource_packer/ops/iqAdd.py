@@ -3,45 +3,31 @@ import numpy as np
 from typing import List
 
 from ...graph import Tensor
-from ...enum_defines import DevType
+from ...enum_defines import DevType, MemType
 from .base import iqBinaryOperator, register_op, BaseLayout
 
 
 @register_op
 class iqAdd(iqBinaryOperator, BaseLayout):
-    def infer_tensor(self):
-        X = self.inputs[0]
-        scale_x = self.attrs.get("scale_x", 1.0)
-        temp = math.log(scale_x, 2)
-        assert abs(temp - int(temp)) < 0.000001
-        assert self.inputs[0].scale == temp
-
-        scale_y = self.attrs.get("scale_y", 1.0)
-        temp = math.log(scale_y, 2)
-        assert abs(temp - int(temp)) < 0.000001
-        assert self.inputs[1].scale == temp
-
-        scale_o = self.attrs.get("scale_o", 1.0)
-        temp = math.log(scale_o, 2)
-        assert abs(temp - int(temp)) < 0.000001
-
-        Y = X.clone(scale=int(temp))
-        self.outputs[0] = Y
-
     def get_workspace(self, dev_type: DevType) -> List[Tensor]:
         x1 = self.inputs[0]
         x2 = self.inputs[1]
+        size = x1.nbytes
+        Y = self.outputs[0]
 
         scale_x = self.attrs["scale_x"]
         scale_y = self.attrs["scale_y"]
+        scale_o = self.attrs["scale_o"]
 
         workspace_size = 0
-        if scale_x != scale_y:
-            workspace_size = x1.nbytes
-            max_workspace = Tensor.from_shape([workspace_size], np.int8, x1.mem_type)
-            return [max_workspace]
-        else:
-            return []
+        if (scale_x != scale_o) or x1.mem_type != MemType.SHARE_MEM:
+            workspace_size += size
+        if (scale_y != scale_o) or x2.mem_type != MemType.SHARE_MEM:
+            workspace_size += size
+        if Y.mem_type != MemType.SHARE_MEM:
+            workspace_size = max(workspace_size, size)
 
+        max_workspace = Tensor.from_shape([workspace_size], np.int8, MemType.SHARE_MEM)
+        return [max_workspace]
 
 __all__ = ["iqAdd"]

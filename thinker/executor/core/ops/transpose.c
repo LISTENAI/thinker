@@ -392,7 +392,7 @@ int32_t X(Forward)(tOperator *op, tTensor **tensors, int32_t num_tensor,
           for (int32_t i = 0; i < batch; i++) {
             void *tsrc = (void *)((int8_t *)src + i * one_batch_size);
             void *tdst = (void *)((int8_t *)dst + i * one_batch_size);
-            ret |= transpose_axis_luna(dtype, (void *)src, (void *)tdst,
+            ret = transpose_axis_luna(dtype, (void *)src, (void *)tdst,
                                        new_in_shape, new_axis, n_dims);
           }
         }

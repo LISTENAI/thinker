@@ -7,6 +7,7 @@ global:
     tModelInit;
     tModelFini;
     tGetInputCount;
+    tGetInputInfo;
     tGetInputName;
     tGetOutputCount;
     tGetOutputName;
@@ -22,6 +23,8 @@ global:
     tGetOutputByName;
     tForward;
     thinkerGetApi;
+    tExecutorStart;
+    tExecutorStop;
 	
 local:*;
 };

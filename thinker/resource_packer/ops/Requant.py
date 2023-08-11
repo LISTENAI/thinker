@@ -14,6 +14,8 @@ class RequantAttrs(OperatorAttrs):
         assert "scale_o" in self.attrs
         assert "data_bits" in self.attrs
         assert "o_bist" in self.attrs
+        assert self.attrs['data_bits'] in (8, 16, 32)
+        assert self.attrs['o_bits'] in (8, 16, 32)
 
     def serialize(self) -> bytes:
         attrs = tffi.new("RequantAttrs *")
@@ -48,10 +50,8 @@ class Requant(Operator):
             data_type = np.dtype("i4")
         elif 16 == self.attrs["o_bits"]:
             data_type = np.dtype("i2")
-        elif 8 == self.attrs["o_bits"]:
-            data_type = np.dtype("i1")
         else:
-            raise ZeroDivisionError(f"o_bits is not equal data_bits.")
+            data_type = np.dtype("i1")
 
         Y = X.clone(dtype=data_type, scale=int(temp1))
         self.outputs = [Y]

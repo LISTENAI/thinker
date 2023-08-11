@@ -1,5 +1,5 @@
-#ifndef _QLINEARCONV_LUNA_H_
-#define _QLINEARCONV_LUNA_H_
+#ifndef _DECONV2DINT_LUNA_H_
+#define _DECONV2DINT_LUNA_H_
 
 #include <math.h>
 #include <stdint.h>
@@ -27,10 +27,10 @@ static void deconv2dint_venus_para_init(ConvTranspose2dIntAttrs *attrs,
   conv_attrs->weight_w = attrs->kernel[1];
   conv_attrs->stride_h = attrs->stride[0];
   conv_attrs->stride_w = attrs->stride[1];
-  conv_attrs->padding_h_up = attrs->pad[0] + (conv_attrs->stride_h >> 1);
-  conv_attrs->padding_h_down = attrs->pad[2] + (conv_attrs->stride_h >> 1);
-  conv_attrs->padding_w_left = attrs->pad[1] + (conv_attrs->stride_w >> 1);
-  conv_attrs->padding_w_right = attrs->pad[3] + (conv_attrs->stride_w >> 1);
+  conv_attrs->padding_h_up = attrs->kernel[0] - attrs->pad[0] - 1;
+  conv_attrs->padding_h_down = attrs->kernel[0] - attrs->pad[2] -1 + attrs->output_padding[0];
+  conv_attrs->padding_w_left = attrs->kernel[1] - attrs->pad[1] - 1;
+  conv_attrs->padding_w_right = attrs->kernel[1] - attrs->pad[3] - 1 + attrs->output_padding[1];
   conv_attrs->input_h_after_padding =
       (conv_attrs->input_h - 1) * conv_attrs->stride_h + 1 +
       conv_attrs->padding_h_up + conv_attrs->padding_h_down;
@@ -171,4 +171,4 @@ int32_t deconv2dint_venus(tTensor *X, tTensor *W, tTensor *Bias, tTensor *Y,
   }
   return ret;
 }
-#endif
+#endif // _DEQCONV2DINT_VENUS_H_

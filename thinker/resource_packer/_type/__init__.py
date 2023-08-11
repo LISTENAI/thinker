@@ -5,7 +5,5 @@ from ._tOperator import *
 from ._tIO import *
 from ._tParamter import *
 from ._tModel import *
-from ._tShapeInfer import *
-from ._tShapeOnnxInfer import *
 from ._tDebug import *
 from ._tDMA import *

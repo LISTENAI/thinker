@@ -250,9 +250,9 @@ void write_file(char *output_name, tTensor *tensor) {
       fprintf(fp, "%d\n", (int32_t)data_val);
     }
   } else if (tensor->dtype_ == Int16) {
-    uint64_t *output_data = (uint64_t *)tensor->dptr_;
+    int16_t *output_data = (int16_t *)tensor->dptr_;
     for (int32_t i = 0; i < size; i++) {
-      uint64_t data_val = output_data[i];
+      int16_t data_val = output_data[i];
       fprintf(fp, "%d\n", (int32_t)data_val);
     }
   } else if (tensor->dtype_ == Int64) {

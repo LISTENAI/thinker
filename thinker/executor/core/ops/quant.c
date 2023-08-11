@@ -9,7 +9,7 @@
 #include "core/operator_register.h"
 
 #ifdef THINKER_USE_VENUS
-#include "./venus/quantize_linear.h"
+#include "./venus/quant.h"
 #endif
 
 int32_t X(Forward)(tOperator *op, tTensor **tensors, int32_t num_tensor,

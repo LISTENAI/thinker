@@ -1,3 +1,6 @@
+#ifndef _MATMUL_LUNA_H_
+#define _MATMUL_LUNA_H_
+
 #include "core/comm/thinker_log.h"
 #include "core/comm/utils.h"
 
@@ -57,3 +60,4 @@ int32_t matmul_luna(tTensor *lhs, tTensor *rhs, tTensor *out) {
 
   return ret;
 }
+#

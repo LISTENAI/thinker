@@ -1,3 +1,5 @@
+#ifndef _TRANSPOSE_LUNA_H_
+#define _TRANSPOSE_LUNA_H_
 
 #include <stdio.h>
 #include <string.h>
@@ -136,3 +138,4 @@ int32_t transpose_axis_luna(int16_t dtype, void *src, void *dst,
 
   return ret;
 }
+#endif

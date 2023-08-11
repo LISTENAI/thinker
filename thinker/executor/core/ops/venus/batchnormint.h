@@ -1,3 +1,6 @@
+#ifndef _BATCHNORMINT_VENUS_H_
+#define _BATCHNORMINT_VENUS_H_
+
 #include <math.h>
 
 #include "c_api/thinker_define.h"
@@ -8,11 +11,6 @@
 
 int32_t batchnormint_luna(const tTensor *X, const tTensor *W,
                           const tTensor *Bias, tTensor *Y, tTensor *workspace) {
-  int32_t n_dims = X->shape_.ndim_;
-  if (4 != n_dims) {
-    return -1;
-  }
-
   int32_t N = X->shape_.dims_[0];
   int32_t F = X->shape_.dims_[2] * X->shape_.dims_[3];
   int32_t C = X->shape_.dims_[1];
@@ -45,3 +43,4 @@ int32_t batchnormint_luna(const tTensor *X, const tTensor *W,
 
   return 0;
 }
+#endif  //_BATCHNORMINT_VENUS_H_

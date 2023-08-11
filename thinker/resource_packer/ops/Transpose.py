@@ -40,7 +40,7 @@ class Transpose(Operator):
         new_shape = [shape[x] for x in axes]
         new_shape += shape[len(axes) :]
 
-        Y = X.clone(shape=tuple(new_shape))
+        Y = X.clone(shape=tuple(new_shape),scale=X.scale)
         if X.layout == Layout.NCHW and tuple(axes) == (0, 1, 3, 2):
             Y.layout = Layout.NCWH
         elif X.layout == Layout.NCWH and tuple(axes) == (0, 1, 3, 2):

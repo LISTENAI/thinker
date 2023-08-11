@@ -1,3 +1,5 @@
+import math
+import numpy as np
 from typing import Any, Dict, Optional
 
 from ..utils import QuantType
@@ -59,6 +61,14 @@ class BinaryOperator(Operator):
     def forward(self):
         raise NotImplementedError
 
+class LogicalOperator(BinaryOperator):
+    def infer_tensor(self):
+        super().infer_tensor()
+        self.outputs[0].dtype = np.dtype(np.int8)
+
+class MultiOperator(Operator):
+    def __init__(self, attrs={}):
+        self.attrs = OperatorAttrs(attrs)
 
 class iqUnaryOperatorAttrs(OperatorAttrs):
     def normalize(self):
@@ -84,8 +94,24 @@ class iqUnaryOperator(UnaryOperator):
     def infer_tensor(self):
         assert len(self.inputs) == 1
         X = self.inputs[0]
-        Y = X.clone(scale=self.attrs["scale_o"])
+        # Y = X.clone(scale=self.attrs["scale_o"])
+        # self.outputs = [Y]
+
+        scale_x = self.attrs.get("scale_x")
+        temp = math.log(scale_x, 2)
+        assert abs(temp - int(temp)) < 0.000001
+        if self.inputs[0].scale != -1:
+            assert X.scale == int(temp)
+        else:
+            self.inputs[0].scale = int(temp)
+
+        scale_o = self.attrs.get("scale_o")
+        temp = math.log(scale_o, 2)
+        assert abs(temp - int(temp)) < 0.000001
+
+        Y = X.clone(scale=int(temp))
         self.outputs = [Y]
+
         if all([x.has_data() for x in self.inputs]):
             self.forward()
 
@@ -120,16 +146,35 @@ class iqBinaryOperator(BinaryOperator):
                 shape[i] = shape2[i]
             else:
                 raise AttributeError
-        Y = X1.clone(shape=tuple(shape), scale=self.attrs["scale_o"])
+
+        scale_x = self.attrs.get('scale_x', 1.0)
+        temp = math.log(scale_x, 2)
+        assert(abs(temp - int(temp)) < 0.000001)
+        if self.inputs[0].scale != -1:
+            assert self.inputs[0].scale == int(temp)
+        else:
+            self.inputs[0].scale = int(temp)
+
+        scale_y = self.attrs.get('scale_y', 1.0)
+        temp = math.log(scale_y, 2)
+        assert(abs(temp - int(temp)) < 0.000001)
+        self.inputs[1].scale = temp
+
+        scale_o = self.attrs.get("scale_o", 1.0)
+        temp = math.log(scale_o, 2)
+        assert abs(temp - int(temp)) < 0.000001
+
+        Y = X1.clone(shape=tuple(shape), scale=temp)
         self.inputs = inputs
         self.outputs = [Y]
         if all([x.has_data() for x in inputs]):
             self.forward()
 
-
 __all__ = [
     "UnaryOperator",
     "BinaryOperator",
+    "LogicalOperator",
+    "MultiOperator",
     "iqUnaryOperatorAttrs",
     "iqBinaryOperatorAttrs",
     "iqUnaryOperator",

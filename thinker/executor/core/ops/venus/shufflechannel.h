@@ -1,3 +1,6 @@
+#ifndef __SHUFFLECHANNEL_H__
+#define __SHUFFLECHANNEL_H__
+
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -81,3 +84,4 @@ int32_t shufflechannel_venus(tTensor *X, tTensor *Y,
 
   return 0;
 }
+#endif

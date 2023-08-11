@@ -1,3 +1,6 @@
+#ifndef __SLICE_H__
+#define __SLICE_H__
+
 #include <string.h>
 
 #include "c_api/thinker_define.h"
@@ -45,13 +48,25 @@ tStatus slice_luna(tTensor* X, int32_t begin, int32_t end, int32_t axis,
   }
   int32_t i_mt = mid * trailing;
   int32_t o_mt = Y->shape_.dims_[real_axis] * trailing;
-
-  for (int32_t l = 0; l < leading; l++) {
-    int32_t i_lmt_this = l * i_mt + real_begin * trailing;
-    int32_t o_lmt_this = l * o_mt;
-    memcpy((int8_t*)Y->dptr_ + o_lmt_this * Y->byte_,
-           (int8_t*)X->dptr_ + i_lmt_this * X->byte_,
-           Y->shape_.dims_[real_axis] * trailing * Y->byte_);
+  int32_t offset = real_begin * trailing;
+  if (1 == X->byte_){
+    for (int32_t l = 0; l < leading; l++) {
+      int32_t i_lmt_this = l * i_mt + offset;
+      int32_t o_lmt_this = l * o_mt;
+      memcpy((int8_t*)Y->dptr_ + o_lmt_this,
+            (int8_t*)X->dptr_ + i_lmt_this,
+            o_mt);
+    }
+  }
+  else{
+      for (int32_t l = 0; l < leading; l++) {
+      int32_t i_lmt_this = l * i_mt + offset;
+      int32_t o_lmt_this = l * o_mt;
+      memcpy((int8_t*)Y->dptr_ + o_lmt_this* Y->byte_,
+            (int8_t*)X->dptr_ + i_lmt_this * X->byte_,
+            o_mt * Y->byte_);
+    }
   }
   return T_SUCCESS;
 }
+#endif

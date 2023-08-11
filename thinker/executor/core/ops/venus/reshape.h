@@ -1,3 +1,6 @@
+#ifndef __REQUANT_H__
+#define __REQUANT_H__
+
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -14,3 +17,4 @@ int32_t reshape_luna(tTensor *X, tTensor *Y) {
   }
   return 0;
 }
+#endif

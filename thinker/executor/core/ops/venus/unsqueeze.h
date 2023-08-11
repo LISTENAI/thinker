@@ -1,3 +1,6 @@
+#ifndef _UNSQUEEZE_LUNA_H_
+#define _UNSQUEEZE_LUNA_H_
+
 #include <math.h>
 #include <string.h>
 
@@ -13,3 +16,4 @@ int32_t unsqueeze_luna(tTensor* X, tTensor* Y) {
 
   return 0;
 }
+#endif

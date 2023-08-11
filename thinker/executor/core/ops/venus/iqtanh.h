@@ -1,3 +1,6 @@
+#ifndef _TANH_LUNA_H_
+#define _TAMH_LUNA_H_
+
 #include <math.h>
 
 #include "core/comm/thinker_log.h"
@@ -22,3 +25,4 @@ int32_t iqtanh(tTensor *X, tTensor *Y) {
 
   return ret;
 }
+#endif

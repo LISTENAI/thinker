@@ -4,10 +4,10 @@ import numpy as np
 from ...graph import Tensor
 from .._type._ctype import tffi
 from ...enum_defines import DevType
-from .base import Operator, OperatorAttrs, register_op
+from .base import Operator, OperatorAttrs, iqUnaryOperator, iqUnaryOperatorAttrs, register_op
 
 
-class LogSoftmaxIntAttrs(OperatorAttrs):
+class LogSoftmaxIntAttrs(iqUnaryOperatorAttrs):
     def checkparams(self) -> None:
         assert "dim" in self.attrs
 
@@ -18,7 +18,7 @@ class LogSoftmaxIntAttrs(OperatorAttrs):
 
 
 @register_op
-class LogSoftmaxInt(Operator):
+class LogSoftmaxInt(iqUnaryOperator):
     def __init__(self, attrs={}):
         self.attrs = LogSoftmaxIntAttrs(attrs)
 
@@ -31,6 +31,10 @@ class LogSoftmaxInt(Operator):
         temp = math.log(scale_x, 2)
         assert abs(temp - int(temp)) < 0.000001
         assert X.scale == int(temp), "scale of inputs in LogSoftmaxInt must be 2^Q"
+        if X.scale != -1 :
+            assert X.scale == int(temp), "scale of tensor must be same with scale_x in attribute"
+        else:
+            self.inputs[0].scale = int(temp)
 
         scale_o = self.attrs.get("scale_o")
         temp = math.log(scale_o, 2)
@@ -45,5 +49,5 @@ class LogSoftmaxInt(Operator):
         max_workspace = Tensor.from_shape([workspace_bytes], np.int32, dev_type)
         return [max_workspace]
 
-
+  
 __all__ = ["LogSoftmaxInt"]

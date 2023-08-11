@@ -1,3 +1,6 @@
+#ifndef _EXPAND_LUNA_H_
+#define _EXPAND_LUNA_H_
+
 #include <stdio.h>
 #include <string.h>
 
@@ -50,3 +53,4 @@ int32_t expand_luna(tTensor *X, tTensor *Y) {
 
   return 0;
 }
+#endif  //_EXPAND_VENUS_H_

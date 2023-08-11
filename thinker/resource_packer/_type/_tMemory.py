@@ -43,11 +43,11 @@ class tMemoryList(object):
             print("{} need capacity: {} Bytes".format(MemType(i), _total_size))
             if i == 2:
                 assert (
-                    _total_size < 640 * 1024
-                ), "SHARE-MEM to be allocated was {}, exceed 640KB".format(_total_size)
+                    _total_size <=  640 * 1024
+                ), "SHARE-MEM to be allocated was {}, exceed {} Byte".format(_total_size, 655360)
             elif i == 1:
                 assert (
-                    _total_size < 8 * 1024 * 1024
+                    _total_size <= 8 * 1024 * 1024
                 ), "PSRAM to be allocated was {}, exceed 8MB".format(_total_size)
 
         self.obj = tffi.new("tMemoryList *")

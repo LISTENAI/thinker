@@ -109,6 +109,7 @@ class MemoryPlaner(object):
                 or node.op_type == "LinearInt"
                 or node.op_type == "LSTMInt"
                 or node.op_type == "Conv1dInt"
+                or node.op_type == "LayerNormInt"                
             ) and node.dev_type == DevType.LUNA:
                 for x in node.inputs:
                     if x.tensor.mem_type != MemType.SHARE_MEM and x.is_constant():
@@ -148,7 +149,7 @@ class MemoryPlaner(object):
             if node and node.op.is_inplace():  # reshape, squeeze, unsqueeze
                 input_name = node.inputs[0]
                 src_tensor_id = self.entries.keys().index(input_name)
-                s.share_id = src_tensor_id
+                s.share_id = src_tensor_id                
 
     def get_life_period(self):
         for _, s in enumerate(self.entry_ctx_list):
@@ -179,18 +180,26 @@ class MemoryPlaner(object):
         # update inplace alive status
         for i, _t in enumerate(self.entry_ctx_list):
             _t_prev = _t
-            if (
+            _t_same = [_t]
+            while (
                 _t_prev.share_id != _t_prev.entry.index
                 and _t_prev.entry.tensor.mem_type
                 == self.entry_ctx_list[_t_prev.share_id].entry.tensor.mem_type
-            ):  # shared from other tensor
+            ):  
+                # shared from other tensor
                 _t_prev = self.entry_ctx_list[_t_prev.share_id]
+                _t_same.append(_t_prev)
 
-                # update life_period
-                _t_prev.life_begin = _t.life_begin = min(
-                    _t.life_begin, _t_prev.life_begin
-                )
-                _t_prev.life_end = _t.life_end = max(_t.life_end, _t_prev.life_end)
+            # update life_period
+            life_begin = _t.life_begin
+            life_end = _t.life_end
+            for _t_index in _t_same:
+                life_begin = min(life_begin, _t_index.life_begin)
+                life_end = max(life_end, _t_index.life_end)
+
+            for _t_index in _t_same:
+                _t_index.life_begin = life_begin
+                _t_index.life_end = life_end            
 
                 _t.share_id = _t_prev.share_id
 
@@ -398,10 +407,10 @@ def memory_plan(graph: Graph, is_dump: bool = True) -> Dict[int, List[int]]:
         memory_list.append(k)
 
     best_plan = {}
+    best_id = np.array(
+        [sum(x.mem_sizes[2]) for x in plan_list]
+    ).argmin()
     for i in range(len(memory_list)):
-        best_id = np.array(
-            [sum(x.mem_sizes[memory_list[i]]) for x in plan_list]
-        ).argmin()
         best_plan = plan_list[int(best_id)]
         best_plan.mem_sizes[memory_list[i]] = list(
             map(int, best_plan.mem_sizes[memory_list[i]])

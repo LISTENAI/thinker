@@ -1,3 +1,6 @@
+#ifndef _MUL_LUNA_H_
+#define _MUL_LUNA_H_
+
 #include <math.h>
 
 #include "core/comm/thinker_log.h"
@@ -52,7 +55,27 @@ int32_t calc_vec_scale_luna(tTensor *lhs, int32_t scalar, tTensor *Y,
   return ret;
 }
 
-int32_t iqmul_luna(tTensor *lhs, tTensor *rhs, tTensor *Y,
+/*
+mul(C*H*W,C*1*1) = C*H*W 
+*/
+int32_t calc_vec_mul_luna_b2b2_broadcast_h1w1(tTensor *lhs, tTensor *rhs, tTensor *Y, tTensor* Temp, int32_t shift)
+{
+	int32_t ret = T_ERR_FAIL;
+	int32_t c = lhs->shape_.dims_[1];
+	int32_t h = lhs->shape_.dims_[2];
+	int32_t w = lhs->shape_.dims_[3];
+ 	int8_t *p_tmp1 = (int8_t *)Temp->dptr_;
+ 	int8_t *p_tmp2 = p_tmp1 + c;
+
+	ret = luna_memset(p_tmp1, 1, h*w);
+	ret |= luna_mat_mul_q7_int8((int8_t *)rhs->dptr_, p_tmp1, p_tmp2, c, 1, h*w, 0);
+	ret |= luna_mul_q7_int8((int8_t *)lhs->dptr_, p_tmp2, (int8_t *)Y->dptr_, c*h*w, shift);
+
+	return ret;
+}
+
+
+int32_t iqmul_luna(tTensor *lhs, tTensor *rhs, tTensor *Y, tTensor * Temp,
                    iqBinaryAttrs *attrs) {
   int32_t ret = T_ERR_FAIL;
 
@@ -66,7 +89,12 @@ int32_t iqmul_luna(tTensor *lhs, tTensor *rhs, tTensor *Y,
     return ret;
   }
 
-  if (0 == rhs->shape_.ndim_)  // VS
+  if (lhs->shape_.ndim_ == 4 && rhs->shape_.ndim_ == 4 && 
+	  lhs->shape_.dims_[1] == rhs->shape_.dims_[1] && rhs->shape_.dims_[2] == 1 && rhs->shape_.dims_[2] == rhs->shape_.dims_[3])
+  {
+	  ret = calc_vec_mul_luna_b2b2_broadcast_h1w1(lhs, rhs, Y, Temp, shift);
+  }
+  else if (0 == rhs->shape_.ndim_)  // VS
   {
     int32_t scalar = *(int32_t *)rhs->dptr_;
     if (Int8 == rhs->dtype_) {
@@ -82,3 +110,4 @@ int32_t iqmul_luna(tTensor *lhs, tTensor *rhs, tTensor *Y,
 
   return ret;
 }
+#endif

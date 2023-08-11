@@ -1,3 +1,6 @@
+#ifndef _TILE_LUNA_H_
+#define _TILE_LUNA_H_
+
 #include <math.h>
 #include <string.h>
 
@@ -124,3 +127,4 @@ int32_t tile_luna(tTensor *X, tTensor *xRepeat, tTensor *Y) {
 
   return 0;
 }
+#endif

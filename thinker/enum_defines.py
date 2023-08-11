@@ -70,6 +70,7 @@ class Platform(Enum):
                 "iqSigmoid",
                 "iqTanh",
                 "iqCat",
+                "iqPad",
                 "Transpose",
                 "Reshape",
                 "Squeeze",
@@ -77,6 +78,7 @@ class Platform(Enum):
                 "Flatten",
                 "Slice",
                 "iqSum",
+                "iqSub",
                 "iqAdd",
                 "iqMul",
                 "iqDiv",
@@ -93,6 +95,10 @@ class Platform(Enum):
                 "Requant",
                 "LayerNormInt",
                 "iqVar",
+                "Cast",
+                "Expand", 
+                "Tile",
+                "LogSoftmax",              
             ]
 
 

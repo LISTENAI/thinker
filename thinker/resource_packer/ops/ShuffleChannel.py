@@ -27,7 +27,7 @@ class ShuffleChannel(Operator):
         assert len(inputs) == 1
         X = inputs[0]
         assert len(X.shape) == 4
-        Y = Tensor.clone(self.inputs[0])
+        Y = Tensor.clone(X,scale=X.scale)
         self.outputs = [Y]
 
 

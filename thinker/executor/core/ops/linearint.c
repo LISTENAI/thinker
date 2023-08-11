@@ -41,7 +41,7 @@ int32_t X(Forward)(tOperator *op, tTensor **tensors, int32_t num_tensor,
   if (3 == op->num_input_) {
     bias = ((tTensor **)tensors)[op->num_input_ - 1];
     bias->scale_ = input->scale_ + weight->scale_;
-    int32_t size = getShapeSize(&(weight->shape_));
+    int32_t size = getShapeSize(&(weight->shape_)) * weight->byte_;
     bias->dptr_ = (addr_type)((int8_t *)dma_buffer->dptr_ + ALIGN16(size));
   }
 #ifdef THINKER_USE_VENUS

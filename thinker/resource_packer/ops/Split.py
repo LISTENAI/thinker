@@ -44,7 +44,7 @@ class Split(Operator):
         for idx in split:
             shape = list(X.shape)
             shape[axis] = int(idx)
-            yi = X.clone(shape=shape)
+            yi = X.clone(shape=shape,scale=X.scale)
             outputs.append(yi)
         self.outputs = outputs
 

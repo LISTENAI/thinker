@@ -11,8 +11,8 @@ class UnsqueezeAttrs(OperatorAttrs):
 
     def serialize(self) -> bytes:
         attrs = tffi.new("SqueezeAttrs *")
-
-        attrs.ndim = self.attrs["ndim"]
+        
+        #attrs.ndim = self.attrs["ndim"]
         attrs.axes = self.attrs["axes"]
 
         return bytes(tffi.buffer(attrs))
@@ -48,7 +48,7 @@ class Unsqueeze(Operator):
                 tShape.insert(x, 1)
 
         yshape = tShape
-        Y = X.clone(shape=tuple(yshape))
+        Y = X.clone(shape=tuple(yshape),scale=X.scale)
         if X.has_data():
             if isinstance(X.data, int):
                 Y.data = np.array([X.data]).astype(X.dtype.type)

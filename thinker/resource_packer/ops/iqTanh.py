@@ -37,16 +37,15 @@ class iqTanh(Operator):
         assert X.scale == int(
             temp
         ), "scale of tensor must be same with scale_x in attribute"
-        assert X.scale == 11, "scale of iqtanh input must be Q11"
 
         scale_o = self.attrs.get("scale_o")
         temp = math.log(scale_o, 2)
         assert abs(temp - int(temp)) < 0.000001
 
-        Y = X.clone(scale=int(temp))
+        Y = X.clone(scale=int(temp),dtype=np.int8)
         self.outputs = [Y]
         if all([x.has_data() for x in self.inputs]):
             self.forward()
 
-
+        
 __all__ = ["iqTanh"]

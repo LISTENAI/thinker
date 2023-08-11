@@ -1,3 +1,6 @@
+#ifndef _FLATTEN_LUNA_H_
+#define _FLATTEN_LUNA_H_
+
 #include <math.h>
 
 #include "core/comm/thinker_log.h"
@@ -14,3 +17,4 @@ int32_t flatten_luna(tTensor *X, tTensor *Y, FlattenAttrs *attr) {
 
   return 0;
 }
+#endif  //_FLATTEN_VENUS_H_

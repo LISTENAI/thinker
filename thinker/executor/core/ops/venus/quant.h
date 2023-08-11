@@ -1,3 +1,5 @@
+#ifndef __QUANT_H__
+#define __QUANT_H__
 
 #include <stdint.h>
 #include <stdio.h>
@@ -28,3 +30,4 @@ int32_t quantize_linear_luna(tTensor *X, tTensor *Y, tTensor *Workspace,
 
   return 0;
 }
+#endif

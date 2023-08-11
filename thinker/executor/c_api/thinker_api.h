@@ -19,6 +19,8 @@
 #include "thinker_status.h"
 #include "thinker_type.h"
 
+#define T_FORCE_STOP_VALUE  (20221109)
+
 #if defined(WIN32)
 #if defined(x_EXPORTS)
 #define THINKER_DLL __declspec(dllexport)
@@ -64,6 +66,8 @@ THINKER_API(const char *, tGetOutputName,
             (const tModelHandle model, const int32_t idx));
 
 // input
+THINKER_API(tStatus, tGetInputInfo,
+            (const tExecHandle hdl, const int32_t idx, tData *input));
 THINKER_API(tDType, tGetInputDataType,
             (const tModelHandle model, const int32_t idx));
 THINKER_API(tDType, tGetOutputDataType,
@@ -93,6 +97,9 @@ THINKER_API(tStatus, tGetOutputByName,
 
 THINKER_API(tStatus, tForward, (const tExecHandle hdl));
 
+THINKER_API(tStatus, tExecutorStart, (tExecHandle hdl));
+THINKER_API(tStatus, tExecutorStop, (tExecHandle hdl));
+
 /**
  * @brief   thinkerApi
  *
@@ -110,6 +117,7 @@ typedef struct _thinkerApi {
   Proc_tModelFini tModelFini;
 
   Proc_tGetInputCount tGetInputCount;
+  Proc_tGetInputInfo tGetInputInfo;
   Proc_tGetInputName tGetInputName;
   Proc_tGetOutputCount tGetOutputCount;
   Proc_tGetOutputName tGetOutputName;
@@ -126,8 +134,9 @@ typedef struct _thinkerApi {
   Proc_tGetOutput tGetOutput;
   Proc_tGetOutputByName tGetOutputByName;
   Proc_tForward tForward;
-  void *reserve[1];  // aligned 4*sizeof(pointer)
-} thinkerApi;
+  Proc_tExecutorStart tExecutorStart;
+  Proc_tExecutorStop  tExecutorStop;
+} thinkerApi;// aligned 4*sizeof(pointer)
 
 /**
  * @brief	thinkerGetApi

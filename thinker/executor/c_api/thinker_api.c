@@ -62,7 +62,7 @@ typedef struct _t_Instance_ {
   tModel *model_;
   double *shape_scalars_;
   tDMA_List *dma_list_;
-
+  uint32_t force_stop_flag;
   int32_t reserved_args[8];
 } tExecInst;
 
@@ -86,15 +86,15 @@ tStatus tGetMemoryPlan(tMemory *memory_list, int32_t *num_memory,
     return T_ERR_RES_INCOMPLETE;
   }
   // check CRC
-  if (res_hdr->crc32_ != 0) {
-    uint8_t *res_model_ptr = (uint8_t *)res + ALIGN16(sizeof(tModelHeader));
-    int32_t res_model_size = size - ALIGN16(sizeof(tModelHeader));
-    int32_t crc_check = crc24(0, res_model_ptr, res_model_size);
-    if (res_hdr->crc32_ != crc_check) {
-      printf("%d,%d", res_hdr->crc32_, crc_check);
-      return T_ERR_RES_CRC_CHECK;
-    }
-  }
+ if (res_hdr->crc32_ != 0) {
+   uint8_t *res_model_ptr = (uint8_t *)res + ALIGN16(sizeof(tModelHeader));
+   int32_t res_model_size = size - ALIGN16(sizeof(tModelHeader));
+   int32_t crc_check = crc24(0, res_model_ptr, res_model_size);
+   if (res_hdr->crc32_ != crc_check) {
+     printf("%d,%d", res_hdr->crc32_, crc_check);
+     return T_ERR_RES_CRC_CHECK;
+   }
+ }
   //  model_inst_size
   int32_t model_inst_size = 0;
   model_inst_size += ALIGN16(sizeof(tModel));
@@ -166,6 +166,9 @@ tStatus tGetMemoryPlan(tMemory *memory_list, int32_t *num_memory,
   return T_SUCCESS;
 }
 
+#if !(defined(WIN32) || defined(linux))
+#pragma clang optimize off
+#endif
 tStatus tModelInit(tModelHandle *hdl, const int8_t *res, const uint64_t size,
                    const tMemory *memory_list, const int32_t num_memory) {
   tModelHeader *res_hdr = (tModelHeader *)res;
@@ -179,14 +182,14 @@ tStatus tModelInit(tModelHandle *hdl, const int8_t *res, const uint64_t size,
     return T_ERR_RES_INCOMPLETE;
   }
   // check CRC
-  if (res_hdr->crc32_ != 0) {
-    uint8_t *res_model_ptr = (uint8_t *)res + ALIGN16(sizeof(tModelHeader));
-    int32_t res_model_size = size - ALIGN16(sizeof(tModelHeader));
-    int32_t crc_check = crc24(0, res_model_ptr, res_model_size);
-    if (res_hdr->crc32_ != crc_check) {
-      return T_ERR_RES_CRC_CHECK;
-    }
-  }
+ if (res_hdr->crc32_ != 0) {
+   uint8_t *res_model_ptr = (uint8_t *)res + ALIGN16(sizeof(tModelHeader));
+   int32_t res_model_size = size - ALIGN16(sizeof(tModelHeader));
+   int32_t crc_check = crc24(0, res_model_ptr, res_model_size);
+   if (res_hdr->crc32_ != crc_check) {
+     return T_ERR_RES_CRC_CHECK;
+   }
+ }
 
   int32_t inst_size = 0;
   inst_size += ALIGN16(sizeof(tModel));
@@ -315,7 +318,7 @@ tStatus tModelInit(tModelHandle *hdl, const int8_t *res, const uint64_t size,
     tensor->dptr_ = memory->dptr_ + offset;
   }
 
-  inst->debug_info = (tDebugList *)ptr;
+ inst->debug_info = (tDebugList *)ptr;
   inst->debug_info->tensor_name_count_ = debug_hdr.tensor_name_count_;
   inst->debug_info->tensor_name_list_ =
       (void *)(res + res_hdr->debug_offset_ + sizeof(tDebugList));
@@ -334,6 +337,9 @@ tStatus tModelInit(tModelHandle *hdl, const int8_t *res, const uint64_t size,
   *hdl = ~((tModelHandle)inst);
   return T_SUCCESS;
 }
+#if !(defined(WIN32) || defined(linux))
+#pragma clang optimize on
+#endif
 
 tStatus tModelFini(tModelHandle hdl) {
 #if !THINKER_USE_ACL
@@ -350,6 +356,34 @@ tStatus tModelFini(tModelHandle hdl) {
 int32_t tGetInputCount(const tModelHandle hdl) {
   tModel *model = (tModel *)~hdl;
   return model->num_input_;
+}
+
+tStatus tGetInputInfo(const tExecHandle hdl, const int32_t idx,
+                  tData *input) {
+  tExecInst *inst = (tExecInst *)~hdl;
+  tModel *model = inst->model_;
+  if (inst == NULL || inst->flag_ != THINKER_INST_FLAG) {
+    return T_ERR_INVALID_INST;
+  }
+
+  if (idx < 0 || idx >= model->num_input_) {
+    return T_ERR_INDEX_OF_BOUND;
+  }
+
+  if (input == NULL) {
+    return T_ERR_INVALID_DATA;
+  }
+
+  {
+    tTensor *tensor = inst->tensor_ + model->io_tensors_[idx];
+    input->dev_type_ = tensor->mem_.type_;
+    input->dtype_ = tensor->dtype_;
+    input->scale_ = tensor->scale_;
+    input->shape_ = tensor->shape_;
+    input->zero_ = tensor->zero_;
+    input->dptr_ = (void *)tensor->dptr_;
+  }
+  return T_SUCCESS;
 }
 
 const char *tGetInputName(const tModelHandle hdl, const int32_t idx) {
@@ -398,6 +432,9 @@ tShape tGetOutputShape(const tModelHandle hdl, const int32_t idx) {
   return tensor->shape_;
 }
 
+#if !(defined(WIN32) || defined(linux))
+#pragma clang optimize off
+#endif
 tStatus tCreateExecutor(const tModelHandle model_hdl, tExecHandle *hdl,
                         const tMemory *memory_list, const int32_t num_memory) {
   tModel *model = (tModel *)~model_hdl;
@@ -502,6 +539,9 @@ tStatus tCreateExecutor(const tModelHandle model_hdl, tExecHandle *hdl,
   *hdl = ~((tModelHandle)inst);
   return T_SUCCESS;
 }
+#if !(defined(WIN32) || defined(linux))
+#pragma clang optimize on
+#endif
 
 tStatus tReleaseExecutor(tExecHandle hdl) {
   tExecInst *inst = (tExecInst *)~hdl;
@@ -573,7 +613,8 @@ tStatus tSetInput(const tExecHandle hdl, const int32_t idx,
     tensor->shape_ = input->shape_;
     tensor->scale_ = input->scale_;
     uint64_t bytes = getShapeSize(&tensor->shape_) * (dtype & 0xFF);
-    memcpy((void *)tensor->dptr_, input->dptr_, bytes);
+    if ((uint64_t)tensor->dptr_ != (uint64_t)input->dptr_)
+      memcpy((void *)tensor->dptr_, input->dptr_, bytes);
   }
   return T_SUCCESS;
 }
@@ -679,6 +720,11 @@ tStatus tForward(const tExecHandle hdl) {
     uint32_t num_tensor = op->num_input_ + op->num_output_ + op->num_temp_;
     tOperatorAPI *op_api = model->op_api_[op->op_id_];
 
+    if (T_FORCE_STOP_VALUE == inst->force_stop_flag)  //user force to stop
+    {
+        return T_FORCE_STOP_VALUE;
+    }
+
     for (ii = 0; ii < num_tensor; ++ii) {
       local_tensor[ii] = inst->tensor_ + tensor_ids[ii];
     }
@@ -706,6 +752,28 @@ tStatus tForward(const tExecHandle hdl) {
   return T_SUCCESS;
 }
 
+tStatus tExecutorStart(tExecHandle hdl)
+{
+    tExecInst *inst = (tExecInst *)~hdl;
+    if (inst == NULL || inst->flag_ != THINKER_INST_FLAG)
+    {
+        return T_ERR_INVALID_INST;
+    }
+    inst->force_stop_flag = 0;
+    return T_SUCCESS;
+}
+
+tStatus tExecutorStop(tExecHandle hdl)
+{
+    tExecInst *inst = (tExecInst *)~hdl;
+    if (inst == NULL || inst->flag_ != THINKER_INST_FLAG)
+    {
+        return T_ERR_INVALID_INST;
+    }
+    inst->force_stop_flag = T_FORCE_STOP_VALUE;
+    return T_SUCCESS;
+}
+
 static thinkerApi g_api;
 const thinkerApi *thinkerGetApi() {
   g_api.tInitialize = tInitialize;
@@ -717,6 +785,7 @@ const thinkerApi *thinkerGetApi() {
   g_api.tModelFini = tModelFini;
 
   g_api.tGetInputCount = tGetInputCount;
+  g_api.tGetInputInfo = tGetInputInfo;
   g_api.tGetInputName = tGetInputName;
   g_api.tGetOutputCount = tGetOutputCount;
   g_api.tGetOutputName = tGetOutputName;
@@ -733,6 +802,9 @@ const thinkerApi *thinkerGetApi() {
   g_api.tGetOutput = tGetOutput;
   g_api.tGetOutputByName = tGetOutputByName;
   g_api.tForward = tForward;
+
+  g_api.tExecutorStart = tExecutorStart;
+  g_api.tExecutorStop = tExecutorStop;
 
   return &g_api;
 }

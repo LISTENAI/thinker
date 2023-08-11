@@ -21,7 +21,7 @@
 #define STR_IMP(x) #x
 #define STR(x) STR_IMP(x)
 #define THINKER_VERSION_MAJOR 1
-#define THINKER_VERSION_MINOR 0
+#define THINKER_VERSION_MINOR 1
 #define THINKER_VERSION_PATCH 0
 #define THINKER_VERSION      \
   STR(THINKER_VERSION_MAJOR) \
@@ -55,6 +55,13 @@ typedef struct _thinker_DMA_list_ {
   uint32_t total_;
   thinkerDMA dma_[256];
 } tDMA_List;
+
+static uint64_t tShapeSize(tShape *shape) {
+  int i;
+  uint64_t size = 1;
+  for (i = 0; i < shape->ndim_; ++i) { size *= shape->dims_[i]; }
+  return size;
+}
 
 // this struct is add for X(init), if need transeform some param, you can add
 // the param in this struct

@@ -18,11 +18,8 @@ class iqSigmoid(Operator):
         temp = math.log(scale_o, 2)
         assert abs(temp - int(temp)) < 0.000001
 
-        Y = X.clone(scale=int(temp))
+        Y = X.clone(scale=int(temp), dtype = np.dtype("int8"))
         self.outputs = [Y]
-        Y.dtype = np.dtype("int8")
-        if all([x.has_data() for x in self.inputs]):
-            self.forward()
 
 
 __all__ = ["iqSigmoid"]

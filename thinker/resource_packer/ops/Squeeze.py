@@ -41,7 +41,7 @@ class Squeeze(Operator):
             if len(yshape) == 1:
                 yshape = [1, yshape[0]]
                 
-        Y = X.clone(shape=tuple(yshape))
+        Y = X.clone(shape=tuple(yshape),scale=X.scale)
         self.outputs = [Y]
 
     def is_inplace(self):

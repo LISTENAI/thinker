@@ -4,7 +4,7 @@
 #include "thinker_status.h"
 
 #ifdef THINKER_USE_VENUS
-#include "./venus/requantizelinear.h"
+#include "./venus/requant.h"
 #endif
 
 int32_t X(Forward)(tOperator *op, tTensor **tensors, int32_t num_tensor,

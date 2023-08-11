@@ -1,11 +1,10 @@
 import math
 import numpy as np
 
-from .utils import QuantType
 from ...graph import Tensor
 from .._type._ctype import tffi
 from ...enum_defines import DevType, Layout, ALIGN2, ALIGN8, ALIGN16
-from .utils import attr2tuple, calc_conv1d_output_shape
+from .utils import QuantType, attr2tuple, calc_conv1d_output_shape
 from .base import Operator, OperatorAttrs, CPUConvLayout, register_op
 
 
@@ -27,7 +26,6 @@ class Conv1dIntAttrs(OperatorAttrs):
         kernels = self.attrs.get("kernel_shape")
         kernels = attr2tuple(kernels, (1,))
         assert len(kernels) == 1, "kernel of Conv1dInt must be one dim"
-        assert kernels[0] in {1, 2, 3, 4, 5}, "kernel_w for Conv1dInt exceed limit"
 
         pads = self.attrs.get("pads")
         pads = attr2tuple(pads, (0, 0))
@@ -38,16 +36,17 @@ class Conv1dIntAttrs(OperatorAttrs):
         strides = self.attrs.get("strides")
         strides = attr2tuple(strides, (1,))
         assert len(strides) == 1, "stride_w for Conv1dInt must be one dim"
-        assert strides[0] in {1, 2, 4}, "stride_h for Conv1dInt exceed limit"
+        assert strides[0] in {1, 2, 4}, "stride_h ({}) for Conv1dInt exceed limit".format(strides[0])
 
         assert (
             kernels[0] >= strides[0]
-        ), "weight and stride size of Conv1dInt do not match"
+        ), "weight ({}) and stride ({}) size of Conv1dInt do not match".format(kernels[0], strides[0])
         assert (
             pads[0] <= kernels[0] and pads[1] <= kernels[0]
-        ), "pad_h and weight_h size of Conv1dInt do not match"
+        ), "pad_h ({}, {}) and weight_h ({}) size of Conv1dInt do not match".format(pads[0], pads[1], kernels[0])
 
         assert self.attrs.get("platform_quant") == "luna_quant"
+        assert self.attrs.get("o_bits") == 8, "Conv1dInt just support output of int8"
 
     def serialize(self) -> bytes:
         attrs = tffi.new("Conv1dIntAttrs *")
@@ -72,16 +71,24 @@ class Conv1dInt(Operator, CPUConvLayout):
         assert len(inputs) == 2 or len(inputs) == 3
         X = inputs[0]
         W = inputs[1]
-        assert len(X.shape) == 3
-        assert len(W.shape) == 3
+        assert len(X.shape) == 3, "Conv1dInt just support 3D data"
+        assert len(W.shape) == 3, "Conv1dInt just support 3D weight"
+
+        assert X.dtype == np.int8, "input data type of Conv1dInt must be int8"
+        assert W.dtype == np.int8, "weight data type of Conv1dInt must be int8"
+        if len(inputs) == 3:
+            assert inputs[2].dtype == np.int32, "bias data type of Conv1dInt must be int32"
 
         scale_x = self.attrs.get("scale_x")
         temp = math.log(scale_x, 2)
         assert abs(temp - int(temp)) < 0.000001
-        assert self.inputs[0].scale == int(temp)
+        if self.inputs[0].scale != -1:
+            assert self.inputs[0].scale == int(temp)
+        else:
+            self.inputs[0].scale = int(temp)
 
-        scale_y = self.attrs.get("scale_w")
-        temp = math.log(scale_y, 2)
+        scale_w = self.attrs.get("scale_w")
+        temp = math.log(scale_w, 2)
         assert abs(temp - int(temp)) < 0.000001
         self.inputs[1].scale = int(temp)
 
@@ -105,8 +112,8 @@ class Conv1dInt(Operator, CPUConvLayout):
         )
         assert (
             x_h >= W.shape[2]
-        ), "input and weight size of convolution do not match".format(
-            (x_h), (W.shape[2])
+        ), "input ({}) and weight ({}) size of convolution do not match".format(
+            x_h, W.shape[2]
         )
         assert (
             x_c == W.shape[1] * group
@@ -121,15 +128,8 @@ class Conv1dInt(Operator, CPUConvLayout):
             strides=strides,
             dilations=(1, 1),
             pads=pads,
-            groups=self.attrs["group"],
+            groups=group,
         )
-
-        assert X.dtype == np.int8, "input data type of convolution must be int8"
-        assert W.dtype == np.int8, "weight data type of convolution must be int8"
-        if len(inputs) == 3:
-            assert (
-                inputs[2].dtype == np.int32
-            ), "bias data type of convolution must be int32"
 
         Y = X.clone(shape=tuple(shape), scale=int(temp))
         self.outputs = [Y]
@@ -162,11 +162,10 @@ class Conv1dInt(Operator, CPUConvLayout):
         data_size = (
             ((w + 8 * stride_w - 1) // (8 * stride_w))
             * (8 * stride_w)
-            * ((kernel_c + 7) // 8)
-            * 8
+            * ALIGN8(kernel_c)
             * h
         )
-        out_size = self.outputs[0].nbytes
+        # out_size = self.outputs[0].nbytes
 
         if 1 == kernel_c and (
             group == kernel_num
@@ -176,13 +175,15 @@ class Conv1dInt(Operator, CPUConvLayout):
             num_output_align = ALIGN16(kernel_num)
             kernel_size = num_output_align * kernel_h * kernel_w
             assert kernel_size * weight.dtype.itemsize <= 32768
-            workspace_size = max(out_size, 65536)
+            if data_size > 65536:
+                workspace_size = max(out_size, 65536)
         elif group != 1:  # group conv
             assert kernel_num % group == 0
             num_input_align = ALIGN8(kernel_c)
-            num_output_align = ((kernel_num // group + 1) // 2) * 2
+            num_output_align = ALIGN2(kernel_num // group)
             kernel_size = num_input_align * num_output_align * kernel_h * kernel_w
-            workspace_size = max(out_size, 65536)
+            if data_size > 65536:
+                workspace_size = max(out_size, 65536)
         elif data_size > 64 * 1024 and h * w >= 64 * 1024:  # conv split h
             k_h = kernel_h
             s_h = stride_h
@@ -201,6 +202,12 @@ class Conv1dInt(Operator, CPUConvLayout):
             tmp_ou_h = ou_h / split_num
             out_size = math.ceil(out_size / split_num)
             workspace_size = max(out_size, 65536)
+        elif kernel_h > 5:
+            workspace_size = min(self.outputs[0].shape[2] * kernel_c * kernel_h, 65536)
+            if len(self.inputs) > 2:
+                workspace_size += max(self.outputs[0].nbytes * self.inputs[2].dtype.itemsize, kernel_c * (h + pad_l + pad_r))
+            else:
+                workspace_size += kernel_c * (h + pad_l + pad_r)
         else:
             return []
 
@@ -231,6 +238,10 @@ class Conv1dInt(Operator, CPUConvLayout):
             self.inputs[1].update(
                 shape=weight.shape, data=weight.data, layout=Layout.NHWC8
             )
+        elif kernel_h > 5:
+            weight = self.inputs[1]
+            weight_data = weight.data.transpose(2, 1, 0)
+            self.inputs[1].update(shape = weight_data.shape, data = weight_data)            
         else:
             kernel_num = weight.shape[0]
             kernel_c = weight.shape[1]

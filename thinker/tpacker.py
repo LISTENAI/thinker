@@ -1,19 +1,23 @@
 # Copyright (C) 2022 listenai Co.Ltd
 # All rights reserved. 
 # Created by leifang on 2022.09.31
+# modifyed by leifang on 2023.08.11
 
+import os
 import argparse
-
+from typing import Dict, List, Tuple
 from .enum_defines import Platform, MemType
 from .combine import graph_adapter
 from .graph_serialize import serialize
 from .load_model import load_onnx_model
 from .graph_optimizer import graph_optimizer
-from .generate_report import build_memory_plan_report
+from .generate_report import build_memory_plan_report, remove_invalid_file
 
 platform_list = [s.name for s in Platform]
 memory_list = [s.name for s in MemType]
 
+def str2bool(str:str):
+    return True if str.lower() == 'true' else False
 
 def main():
     parser = argparse.ArgumentParser(
@@ -34,10 +38,9 @@ def main():
     parser.add_argument(
         "-m",
         "--memory",
-        default="psram",
+        default=None,
         type=str,
-        help="params of graph location",
-        choices=memory_list[:-1],
+        help="set params and entries location. Example:  params:psram, inputs[0]:share-memory",
     )
     parser.add_argument(
         "-s",
@@ -48,17 +51,29 @@ def main():
         choices=["Remove_QuantDequant"],
     )
     parser.add_argument(
-        "-d", "--dump", default=False, type=bool, help="dump middle onnx or not."
+        "-d", 
+        "--dump", 
+        default='False', 
+        type=str2bool,
+        help="dump middle onnx or not.",
+        choices=[True, False]
     )
+
     parser.add_argument(
-        "-o", "--output", default="model.pkg", type=str, help="Path of output file."
+        "-o", 
+        "--output", 
+        default="model.pkg", 
+        type=str, 
+        help="Path of output file."
     )
 
     args = parser.parse_args()
 
+    remove_invalid_file()
+
     print("=" * 83)
     print("****** load model:{} ******".format(args.graph))
-    graph = load_onnx_model(args.graph)
+    graph = load_onnx_model(args.graph, args.dump)
 
     print("=" * 83)
     print("****** graph optimizer ******")
@@ -71,7 +86,7 @@ def main():
     print("=" * 83)
     print("****** generate memory plan report ******")
     if args.dump:
-        build_memory_plan_report(memory_plan)
+        build_memory_plan_report(args.graph, memory_plan)
 
     print("=" * 83)
     print("****** graph serialize ******")

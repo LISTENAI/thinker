@@ -1,3 +1,6 @@
+#ifndef _SIGMOID_LUNA_H_
+#define _SIGMOID_LUNA_H_
+
 #include <math.h>
 
 #include "core/comm/thinker_log.h"
@@ -23,3 +26,4 @@ int32_t iqsigmoid(tTensor *X, tTensor *Y) {
 
   return ret;
 }
+#endif

@@ -1,3 +1,6 @@
+#ifndef _SQUEEZE_LUNA_H_
+#define _SQUEEZE_LUNA_H_
+
 #include <math.h>
 #include <string.h>
 
@@ -12,3 +15,4 @@ int32_t squeeze_luna(tTensor* X, tTensor* Y) {
   memcpy((void*)Y->dptr_, (void*)X->dptr_, X->byte_ * size);
   return 0;
 }
+#endif

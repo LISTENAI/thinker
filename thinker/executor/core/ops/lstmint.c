@@ -18,7 +18,21 @@ int32_t X(Forward)(tOperator *op, tTensor **tensors, int32_t num_tensor,
 #ifdef THINKER_USE_VENUS
   getWeightData(list, 0);
 #endif
-
+  int32_t w_idx = 1;
+  tTensor *t_seq = NULL;
+  tTensor *t_hidden_in = NULL;
+  tTensor *t_cell_in = NULL;
+  if (op->num_input_ == 6)  //include seq_len
+  {
+    w_idx = 2;
+    t_seq = tensors[1];
+  }else if(op->num_input_ == 8)
+  {
+    w_idx = 4;
+    t_seq = tensors[1];
+    t_hidden_in = tensors[2];
+    t_cell_in = tensors[3];
+  }
   tTensor *input = tensors[0];
   tTensor i2h_w_tmp;
   tTensor h2h_w_tmp;
@@ -28,14 +42,16 @@ int32_t X(Forward)(tOperator *op, tTensor **tensors, int32_t num_tensor,
   tTensor *h2h_w = &h2h_w_tmp;        // = tensors[2];
   tTensor *i2h_bias = &i2h_bias_tmp;  // = tensors[3];
   tTensor *h2h_bias = &h2h_bias_tmp;  // = tensors[4];
-  memcpy(&i2h_w_tmp, tensors[1], sizeof(tTensor));
-  memcpy(&h2h_w_tmp, tensors[2], sizeof(tTensor));
-  memcpy(&i2h_bias_tmp, tensors[3], sizeof(tTensor));
-  memcpy(&h2h_bias_tmp, tensors[4], sizeof(tTensor));
+  memcpy(&i2h_w_tmp, tensors[w_idx], sizeof(tTensor));
+  memcpy(&h2h_w_tmp, tensors[w_idx + 1], sizeof(tTensor));
+  memcpy(&i2h_bias_tmp, tensors[w_idx + 2], sizeof(tTensor));
+  memcpy(&h2h_bias_tmp, tensors[w_idx + 3], sizeof(tTensor));
 
   tTensor *output = tensors[op->num_input_];
   tTensor *hidden_o = tensors[op->num_input_ + 1];
+  hidden_o->dtype_ = Int8;
   tTensor *hidden_c = tensors[op->num_input_ + 2];
+  hidden_c->dtype_ = Int16;
   tTensor *dma_temp = NULL;
 
   tTensor *workspace = (void *)NULL;
@@ -53,26 +69,11 @@ int32_t X(Forward)(tOperator *op, tTensor **tensors, int32_t num_tensor,
         (addr_type)((int32_t *)i2h_bias->dptr_ + ALIGN16(ib_size));
   }
 
-  // input->scale_ = attr->scale_i;
-  // i2h_w->scale_ = attr->scale_iw;
-  // h2h_w->scale_ = attr->scale_hw;
-  // output->scale_ = attr->scale_o;
-
-  tTensor hidden_i_inst;
-  hidden_i_inst.shape_.ndim_ = 0;
-  // hidden_i_inst.dptr_ = (void*)NULL;
-
-  tTensor hidden_c_inst;
-  hidden_c_inst.shape_.ndim_ = 0;
   // hidden_c_inst.dptr_ = (void*)NULL;
 
-  tTensor mask;
-  // mask.dptr_ = (void*)NULL;
-  mask.shape_.ndim_ = 0;
-
 #ifdef THINKER_USE_VENUS
-  ret = lstmint_luna(input, &hidden_i_inst, &hidden_c_inst, i2h_w, h2h_w,
-                     i2h_bias, h2h_bias, &mask, output, hidden_o, hidden_c,
+  ret = lstmint_luna(input, t_hidden_in, t_cell_in, i2h_w, h2h_w,
+                     i2h_bias, h2h_bias, t_seq, output, hidden_o, hidden_c,
                      attr, workspace);
 #endif
 

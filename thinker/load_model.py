@@ -4,20 +4,10 @@
 
 import onnx
 import numpy as np
-from typing import Dict, List
+from typing import Dict, List, Tuple
 from onnx import mapping, NodeProto, TensorProto, AttributeProto
-
-from .graph import (
-    ConstantEntry,
-    EmptyEntry,
-    GraphEntry,
-    InputEntry,
-    OutputEntry,
-    Tensor,
-    GraphNode,
-    Graph,
-)
-
+from .save_model import save_to_onnx_model
+from .graph import *
 
 def _parse_attr(ap: AttributeProto) -> Dict:
     """Convert AttributeProto to dict, with names as keys"""
@@ -137,7 +127,7 @@ def _convert_shape(tensor_shape) -> List:
     return shape
 
 
-def _convert_from_onnx_model(model: onnx.ModelProto) -> Graph:
+def _convert_from_onnx_model(model: onnx.ModelProto, is_dump: bool=False) -> Graph:
     onnx_graph = model.graph
     thinker_graph = Graph()
     thinker_graph.onnx_model_desc = {
@@ -214,12 +204,17 @@ def _convert_from_onnx_model(model: onnx.ModelProto) -> Graph:
 
     thinker_graph.outputs = [x.name for x in onnx_graph.output]
     thinker_graph.update()
+
+    thinker_graph.init_tensor()
+
+    if is_dump:
+        save_to_onnx_model(thinker_graph, "./model.ignore/graph_after_constant_fold.onnx")   
     return thinker_graph
 
 
-def load_onnx_model(model: str) -> Graph:
+def load_onnx_model(model: str, is_dump: bool=False) -> Graph:
     onnx_model = onnx.load(model)
-    return _convert_from_onnx_model(onnx_model)
+    return _convert_from_onnx_model(onnx_model, is_dump)
 
 
 __all__ = ["load_onnx_model"]

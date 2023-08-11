@@ -1,3 +1,6 @@
+#ifndef _MAXPOOL_LUNA_H_
+#define _MAXPOOL_LUNA_H_
+
 #include <stdio.h>
 #include <string.h>
 #include "luna/luna_math.h"
@@ -183,3 +186,4 @@ int maxpool_luna(const tTensor* X, tTensor* Y, tTensor* Temp, PoolAttrs *attrs)
 
     return ret;
 }
+#endif

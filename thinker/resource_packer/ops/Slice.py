@@ -4,7 +4,7 @@ from ...enum_defines import Layout
 from ...enum_defines import DevType
 from .base import Operator, OperatorAttrs, register_op
 
-
+    
 class SliceAttrs(OperatorAttrs):
     def serialize(self) -> bytes:
         attrs = tffi.new("SliceAttrs *")
@@ -25,17 +25,20 @@ class Slice(Operator):
         inputs = self.inputs
         assert len(inputs) >= 3
         X = inputs[0]
-        starts = inputs[1].data[0]
-        ends = inputs[2].data[0]
-        if len(inputs) >= 4:
-            axes = inputs[3].data[0]
-        else:
-            axes = 0
-        if len(inputs) == 5:
-            steps = inputs[4].data[0]
+        shape = list(X.shape)
+
+        starts = int(inputs[1].data[0])
+        ends = int(inputs[2].data[0])
+
+        if len(inputs) >= 5:
+            steps = int(inputs[4].data[0])
+            axes = int(inputs[3].data[0])
+        elif len(inputs) == 4:
+            steps = 1
+            axes = int(inputs[3].data[0])
         else:
             steps = 1
-        shape = list(X.shape)
+            axes = 0
 
         assert axes < len(shape)
         axes = axes + len(shape) if axes < 0 else axes
@@ -43,11 +46,9 @@ class Slice(Operator):
         if starts < 0:
             starts += shape[axes]
 
-        if ends > 65536:
-            ends = shape[axes]
-        elif ends < 0:
-
+        if ends < 0:
             ends += shape[axes]
+        ends = min(ends, shape[axes])
 
         if steps < 0:
             shape[axes] = (starts - ends + 1 + steps) // (-1 * steps)
@@ -55,6 +56,17 @@ class Slice(Operator):
             shape[axes] = (ends - starts + steps - 1) // steps
 
         Y = X.clone(shape=tuple(shape))
+        if X.has_data():
+            if axes == 0:
+               if ends < 0:
+                   Y.data = X.data[starts::steps]
+               else:
+                   Y.data = X.data[starts:ends:steps]
+            if axes == 1:
+                if ends < 0:
+                    Y.data = X.data[:,starts::steps]
+                else:
+                    Y.data = X.data[:,starts:ends:steps]
         self.outputs = [Y]
 
     def sub_layout_convert(self):

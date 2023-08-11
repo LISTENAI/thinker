@@ -1,3 +1,6 @@
+#ifndef _GATHER_LUNA_H_
+#define _GATHER_LUNA_H_
+
 #include <math.h>
 
 #include "core/comm/thinker_log.h"
@@ -47,3 +50,4 @@ int32_t gather_luna(tTensor *X, tTensor *indices, tTensor *Y,
 
   return 0;
 }
+#endif  //_GATHER_VENUS_H_

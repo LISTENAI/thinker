@@ -106,13 +106,6 @@ typedef struct _t_State_ {
   uint32_t output_tensor_id;
 } tState;
 
-typedef struct _t_Scalar_ {
-  union {
-    uint32_t i32_;
-    float f32_;
-  };
-} tScalar;
-
 typedef struct _t_Tensor_ {
   tMem mem_;
   union {

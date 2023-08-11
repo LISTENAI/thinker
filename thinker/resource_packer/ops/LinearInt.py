@@ -3,10 +3,9 @@ import numpy as np
 from typing import Any, Dict, Optional
 
 from ...graph import Tensor
-
-from .._type._ctype import tffi
 from .utils import QuantType
-from ...enum_defines import DevType, MemType, ALIGN4, ALIGN16, ALIGN32
+from .._type._ctype import tffi
+from ...enum_defines import DevType, MemType, ALIGN2, ALIGN4, ALIGN8
 from .base import Operator, OperatorAttrs, register_op
 
 
@@ -57,7 +56,10 @@ class LinearInt(Operator):
         scale_x = self.attrs.get("scale_x")
         temp = math.log(scale_x, 2)
         assert abs(temp - int(temp)) < 0.000001
-        assert self.inputs[0].scale == int(temp)
+        if self.inputs[0].scale != -1:
+            assert self.inputs[0].scale == int(temp)
+        else:
+            self.inputs[0].scale = int(temp)
 
         scale_w = self.attrs.get("scale_w")
         temp = math.log(scale_w, 2)
@@ -82,13 +84,17 @@ class LinearInt(Operator):
         else:
             assert x_h == w_shape[0]
 
-        M = ALIGN16(x_h)
-        N = ALIGN32(x_w)
         if X.dtype == np.int8:
+            M = ALIGN4(x_h)
+            N = ALIGN8(x_w)
             assert M * N < 65536, "left matmul of linearint must less 64KB"
         elif X.dtype == np.int16:
+            M = ALIGN4(x_h)
+            N = ALIGN2(x_w)
             assert M * N < 32768, "left matmul of linearint must less 64KB"
         elif X.dtype == np.int32:
+            M = ALIGN2(x_h)
+            N = ALIGN2(x_w)
             assert M * N < 16384, "left matmul of linearint must less 64KB"
         else:
             raise (f"[LinearInt] Not supported type of X.dtype:{X.dtype}.")
@@ -101,21 +107,53 @@ class LinearInt(Operator):
         else:
             shape = [x_shape[0], x_shape[1], w_shape[0]]
 
-        Y = X.clone(shape=shape, dtype=X.dtype, scale=int(temp))
+        o_bits = self.attrs.get("o_bits", 8)
+        if 32 == o_bits:
+            data_type = np.dtype("i4")
+        elif 16 == o_bits:
+            data_type = np.dtype("i2")
+        elif 8 == o_bits:
+            data_type = np.dtype("i1")
+        else:
+            raise ZeroDivisionError(f"o_bits is not equal data_bits.")   
+
+
+        Y = X.clone(shape=shape, dtype=data_type, scale=int(temp))
 
         self.outputs = [Y]
 
     def get_workspace(self, dev_type: DevType):
+        workspace_bytes = 0
         if len(self.inputs) > 2:
             workspace_bytes = self.outputs[0].nbytes * self.inputs[2].dtype.itemsize
-            max_workspace = Tensor.from_shape([workspace_bytes], np.int8, dev_type)
-            return [max_workspace]
-        elif self.inputs[0].mem_type != self.outputs[0].mem_type:
-            workspace_bytes = self.outputs[0].nbytes * self.outputs[0].dtype.itemsize
-            max_workspace = Tensor.from_shape([workspace_bytes], np.int8, dev_type)
-            return [max_workspace]
-        else:
-            return []
+
+        M = 1
+        for i in range(len(self.inputs[0].shape)-1):
+            M *= self.inputs[0].shape[i]
+        N = self.inputs[0].shape[-1]
+        L = self.inputs[1].shape[-1]
+        int8_condition_l = ALIGN4(M) * ALIGN8(N)
+        int8_condition_r = ALIGN8(N) * ALIGN4(L)
+        split_M = M
+        if int8_condition_l > 65536:
+            split_num = 2
+            split_M = math.ceil(M / split_num)
+            int8_condition_l_split = ALIGN4(split_M) * ALIGN8(N)
+            while int8_condition_l_split > 65536:
+                split_num += 1
+                split_M = math.ceil(M / split_num)
+                int8_condition_l_split = ALIGN4(split_M) * ALIGN8(N)
+
+        if self.inputs[0].mem_type != MemType.SHARE_MEM and self.outputs[0].mem_type != MemType.SHARE_MEM and dev_type == DevType.LUNA:
+            workspace_bytes += split_M * max(N, L) + split_M * L * 4
+        elif self.inputs[0].mem_type != MemType.SHARE_MEM and dev_type == DevType.LUNA:
+            workspace_bytes += split_M * N
+        elif self.outputs[0].mem_type != MemType.SHARE_MEM and dev_type == DevType.LUNA:
+            workspace_bytes += split_M * L
+
+        max_workspace = Tensor.from_shape([workspace_bytes], np.int8, dev_type)
+        return [max_workspace]
+
 
     def pack_params(self, dev_type: DevType):
         transA = self.attrs["transA"]

@@ -11,7 +11,7 @@ int32_t X(Forward)(tOperator *op, tTensor **tensors, int32_t num_tensor,
                    tDMA_List *list) {
   CHECK_EQ(num_tensor, (op->num_input_ + op->num_output_ + 1));
   int32_t ret = T_ERR_NO_IMPLEMENTED;
-  SumAttrs *attrs = (SumAttrs *)((int8_t *)op + op->attr_offset_);
+  iqSumAttrs *attrs = (iqSumAttrs *)((int8_t *)op + op->attr_offset_);
   tTensor *Temp = tensors[op->num_input_ + op->num_output_];
 #ifdef THINKER_USE_VENUS
   ret = iqsum_luna(tensors[0], Temp, tensors[op->num_input_], attrs);

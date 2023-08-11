@@ -144,6 +144,93 @@ static int32_t calc_split_cnn_luna(int32_t w_dtype, int32_t y_dtype,
   return ret;
 }
 
+static int32_t calc_pointwise_luna(int32_t w_dtype, int32_t y_dtype, int8_t *input,
+                                  int8_t *weight, int32_t *bias, void *output, void *work_space,
+                                  s_conv_struct *conv_attrs) {
+  int32_t ret = -1;
+
+  int32_t in_c = conv_attrs->input_c;
+  int32_t in_h = conv_attrs->input_h;
+  int32_t in_w = conv_attrs->input_w;
+  int32_t ou_c = conv_attrs->output_c;
+  int32_t ou_h = conv_attrs->output_h;
+  int32_t ou_w = conv_attrs->output_w;
+  int32_t k_n = ou_c;
+  int32_t k_c = in_c;
+
+  if (in_h != ou_h || in_w != ou_w)
+  {
+    return -1;
+  }
+
+  // img2col, Y = W * X
+  const int32_t left_limit = 64 * 1024;
+  const int32_t right_limit = 32 * 1024;
+  int32_t M = k_n;
+  int32_t N = k_c;
+  int32_t L = in_h * in_w;
+  int32_t shift = conv_attrs->positive_shift_value;
+  int32_t is_relu = (conv_attrs->activation_type == RELU) ? 1 : 0;
+  int32_t is_bias = conv_attrs->is_bias;
+
+  switch (w_dtype) {
+    case Int4:  //not support
+      break;
+    case Int8:
+    {
+      int32_t int8_condition_l = (luna_quant_ceil(M, 2) << 2) * (luna_quant_ceil(N, 3) << 3);  // right:4x8
+      if (int8_condition_l > left_limit) {
+        return ret;
+      }
+      int32_t int8_condition_r = (luna_quant_ceil(N, 3) << 3) * (luna_quant_ceil(L, 2) << 2);  // right:8x4
+      if (int8_condition_r <= right_limit) {
+        if (is_bias) {
+          int32_t *p_tmp = (int32_t *)work_space;
+          ret = luna_mat_mul_q7_int32(weight, input, (int32_t *)p_tmp, M, N, L, 0);
+        } else {
+          ret = luna_mat_mul_q7_int8(weight, input, (int8_t *)output, M, N, L, shift);
+        }
+      }
+      else {  // big martrix split on col
+        int32_t split_num = 2;
+        int32_t split_L = L / split_num;
+        int8_condition_r =
+            (luna_quant_ceil(N, 3) << 3) * (luna_quant_ceil(split_L, 2) << 2);  // right:8x4
+        while (int8_condition_r > right_limit || (0 != (L % split_num))) {
+          split_num++;
+          split_L = L / split_num;
+          int8_condition_r = (luna_quant_ceil(N, 3) << 3) * (luna_quant_ceil(split_L, 2) << 2);  // right:8x4
+        }
+        {
+          if (is_bias) {
+            int32_t *p_tmp = (int32_t *)work_space;
+            ret = luna_split_mat_mul_q7_int32(weight, input, (int32_t *)p_tmp, split_num, M, N, L, 0);
+          } else {
+            ret = luna_split_mat_mul_q7_int8(weight, input, (int8_t *)output, split_num, M, N, L, shift);
+          }
+        }
+      }
+      if (is_bias) {
+        int32_t *p_tmp = (int32_t *)work_space + M * L;
+        ret = luna_mat_trans_q31((int32_t*)work_space, (int32_t*)p_tmp, M, L);
+        for (int32_t i = 0; i < L; i++)  // add bias
+        {
+          int32_t *tsrc1 = (int32_t *)p_tmp + i * M;
+          int8_t *tdst = (int8_t *)work_space + i * M;
+          ret |= luna_add_q31_int8(tsrc1, bias, tdst, M, shift);
+        }
+        ret = luna_mat_trans_q7((int8_t*)work_space, (int8_t*)output, L, M);
+      }
+      if (is_relu) {
+        ret |= luna_relu_q7_int8((int8_t *)output, (int8_t *)output, M * L, 0);
+      }
+    }
+      break;
+  }
+
+  return ret;
+}
+
 static void conv2dint_venus_para_init(Conv2dIntAttrs *attrs,
                                       s_conv_struct *conv_attrs, tTensor *X,
                                       tTensor *W, tTensor *Bias, tTensor *Y) {
@@ -213,9 +300,13 @@ int32_t conv2dint_venus(tTensor *X, tTensor *W, tTensor *Bias, tTensor *Y,
   int32_t ou_h = conv_attrs.output_h;
   int32_t ou_w = conv_attrs.output_w;
   int32_t s_h = conv_attrs.stride_h;
-  // int32_t s_w = conv_attrs.stride_w;
+  int32_t s_w = conv_attrs.stride_w;
   int32_t padding_hd = conv_attrs.padding_h_down;
   int32_t padding_hu = conv_attrs.padding_h_up;
+  int32_t padding_wl = conv_attrs.padding_w_left;
+  int32_t padding_wr = conv_attrs.padding_w_right;
+  int32_t dilation_h = attrs->dilation[0];
+  int32_t dilation_w = attrs->dilation[1];
   int32_t log2n_stride_w = (conv_attrs.stride_w >> 1);
   int32_t input_condition =
       (luna_quant_ceil(in_c, 3) << 3) * in_h *
@@ -226,22 +317,88 @@ int32_t conv2dint_venus(tTensor *X, tTensor *W, tTensor *Bias, tTensor *Y,
   input_condition = (input_condition <= 64 * 1024) ? 1 : 0;
 
   if (!ou_c || !ou_h || !ou_w) {
-    return 0;
+    return ret;
   }
 
+  if (dilation_h > 1 || dilation_w > 1) //dilation conv
+  {
+    int8_t *p_src = (int8_t *)X->dptr_;
+    if (dilation_h > 1)
+    {
+      int32_t in_hw = in_w * in_h;
+      int32_t ou_hw = in_w * k_h;
+      int32_t d_hw = dilation_h * in_w;
+      for (int i = 0; i < in_c; i++)
+      {
+        int32_t i_off = i * in_hw;
+        int32_t o_off = i * ou_hw;
+        for (int j = 0; j < k_h; j++)
+  		    memcpy(p_src + o_off + j * in_w, p_src + i_off + j * d_hw, in_w);
+      }
+      in_h = k_h;
+      conv_attrs.input_h = k_h;
+      conv_attrs.input_h_after_padding = conv_attrs.input_h + conv_attrs.padding_h_up + conv_attrs.padding_h_down;
+      input_condition =
+      (luna_quant_ceil(in_c, 3) << 3) * in_h *
+      (luna_quant_ceil(in_w, (3 + log2n_stride_w)) << (3 + log2n_stride_w));
+      input_condition = (input_condition <= 64 * 1024) ? 1 : 0;
+    }
+    else
+    {
+      // C*H*W -> C*W*H
+      int8_t *p_tmp = (int8_t *)Temp->dptr_;
+      uint32_t axis[3] = {0, 2, 1};
+      uint32_t in_shape[3] = {in_c, in_h, in_w};
+      luna_trans_axis_q7(p_src, p_tmp, in_shape, axis, 3);
+
+      int32_t in_hw = in_w * in_h;
+      int32_t ou_hw = in_h * k_w;
+      int32_t d_hw = dilation_w * in_h;
+      for (int i = 0; i < in_c; i++)
+      {
+        int32_t i_off = i * in_hw;
+        int32_t o_off = i * ou_hw;
+        for (int j = 0; j < k_w; j++)
+        {
+          memcpy(p_tmp + o_off + j * in_h, p_tmp + i_off + j * d_hw, in_h);
+        }
+      }
+      in_w = k_w;
+      conv_attrs.input_h = k_h;
+      conv_attrs.input_h_after_padding = conv_attrs.input_h + conv_attrs.padding_h_up + conv_attrs.padding_h_down;
+      uint32_t new_in_shape[3] = {in_c, in_w, in_h};
+      luna_trans_axis_q7(p_tmp, p_src, in_shape, axis, 3);
+    }
+  }  
+  
   if (1 == attrs->group) {                      // conv
     if (input_condition && kernel_condition) {  // no need split
       int32_t in_batch_size = in_c * in_h * in_w;
       int32_t ou_batch_size = ou_c * ou_h * ou_w * (Y->dtype_ & 0xF);
+      if (X->dtype_)
       for (n = 0; n < batch; n++) {
         int8_t *p_in = (int8_t *)X->dptr_ + n * in_batch_size;
+        if (X->mem_.type_ != 2)
+        {
+         p_in = (int8_t *)Temp->dptr_;
+         memcpy(p_in, (int8_t *)X->dptr_ +  n * in_batch_size, in_batch_size);
+        }
         int8_t *p_weight = (int8_t *)W->dptr_;
         int32_t *p_bias = (0 == paddr_b) ? NULL : ((int32_t *)paddr_b);
         int8_t *p_out = (int8_t *)Y->dptr_ + n * ou_batch_size;
+        if (Y->mem_.type_ != 2)
+        {
+         p_out = (int8_t *)Temp->dptr_  + in_batch_size * (X->mem_.type_ != 2);
+        }
         ret = calc_conv_luna(W->dtype_, Y->dtype_, p_in, p_weight, p_bias,
                              (void *)p_out, &conv_attrs);
+        if (Y->mem_.type_ != 2)
+        {
+         memcpy((int8_t *)Y->dptr_ +  n * ou_batch_size, p_out, ou_batch_size);
+        }
       }
-    } else if (input_condition && !kernel_condition) {  // split weight N
+    } 
+    else if (input_condition && !kernel_condition) {  // split weight N
       int32_t c_in_align_8 = (((in_c + 7) >> 3) << 3);
       int32_t c_out_max = (32768 / (c_in_align_8 * k_h * k_w)) &
                           0xFFFFFFFE;  // max kernel size is 32KB
@@ -261,7 +418,16 @@ int32_t conv2dint_venus(tTensor *X, tTensor *W, tTensor *Bias, tTensor *Y,
         int32_t *p_bias = (0 == paddr_b) ? NULL : ((int32_t *)paddr_b);
         for (i = 0; i < split_num; i++) {
           int8_t *p_in_tmp = p_in;
+          if (X->mem_.type_ != 2)
+          {
+            p_in_tmp = (int8_t *)Temp->dptr_;
+            memcpy(p_in_tmp, (int8_t *)p_in, in_batch_size);
+          }
           int8_t *p_out_tmp = p_out + i * step_data_out;
+          if (Y->mem_.type_ != 2)
+          {
+            p_out_tmp = (int8_t *)Temp->dptr_  + in_batch_size * (X->mem_.type_ != 2);
+          }
           int8_t *p_weight_tmp = p_weight + i * step_weight;
           int32_t *p_bias_tmp = p_bias + i * step_bias;
           if ((ou_c != k_n) && (i == (split_num - 1))) {
@@ -269,10 +435,15 @@ int32_t conv2dint_venus(tTensor *X, tTensor *W, tTensor *Bias, tTensor *Y,
           }
           ret = calc_conv_luna(W->dtype_, Y->dtype_, p_in_tmp, p_weight_tmp,
                                p_bias_tmp, (void *)p_out_tmp, &conv_attrs);
+          if (Y->mem_.type_ != 2)
+          {
+            memcpy(p_out + + i * step_data_out + n * ou_batch_size, p_out_tmp, step_data_out);
+          }
         }
       }
-    } else if (!input_condition && kernel_condition) {  // split input H/W
-      if (in_h * in_w >= 64 * 1024) {
+    } 
+    else if (!input_condition && kernel_condition) {  // split input H/W
+      if ((in_h * in_w >= 64 * 1024) || (X->mem_.type_ != 2) || (Y->mem_.type_ != 2)){
         /////only support H
         int32_t input_limit_without_h =
             (luna_quant_ceil(in_c, 3) << 3) *
@@ -360,14 +531,15 @@ int32_t conv2dint_venus(tTensor *X, tTensor *W, tTensor *Bias, tTensor *Y,
                                  (void *)p_tmp, &conv_attrs);
 
             int32_t one_channel_ou_offset = ou_w * tmp_ou_h * (0xF & Y->dtype_);
+            int32_t ou_hw = ou_h * ou_w;
+            o_offset = i * one_channel_ou_offset;
             for (j = 0; j < ou_c; j++) {
-              int32_t i_offset = j * one_channel_ou_offset;
-              int32_t o_offset = i * one_channel_ou_offset + j * ou_w * ou_h;
-              memcpy(p_out + o_offset, p_tmp + i_offset, one_channel_ou_offset);
+              memcpy(p_out + o_offset + j * ou_hw, p_tmp + j * one_channel_ou_offset, one_channel_ou_offset);
             }
           }
         }
-      } else {
+      } 
+      else {
         /////only support H
         int32_t in_batch_size = in_c * in_h * in_w;
         int32_t ou_batch_size = ou_c * ou_h * ou_w * (Y->dtype_ & 0xF);
@@ -381,7 +553,8 @@ int32_t conv2dint_venus(tTensor *X, tTensor *W, tTensor *Bias, tTensor *Y,
         }
       }
     }
-  } else if (attrs->group == conv_attrs.input_c &&
+  } 
+  else if (attrs->group == conv_attrs.input_c &&
              attrs->group == conv_attrs.output_c) {  // depthwise
     kernel_condition = (luna_quant_ceil(in_c, 4) << 4) * k_h * k_w;
     kernel_condition = (kernel_condition <= 32 * 1024) ? 1 : 0;
@@ -390,13 +563,27 @@ int32_t conv2dint_venus(tTensor *X, tTensor *W, tTensor *Bias, tTensor *Y,
       int32_t ou_batch_size = ou_c * ou_h * ou_w * (Y->dtype_ & 0xF);
       for (n = 0; n < batch; n++) {
         int8_t *p_in = (int8_t *)X->dptr_ + n * in_batch_size;
+        if (X->mem_.type_ != 2)
+        {
+         p_in = (int8_t *)Temp->dptr_;
+         memcpy(p_in, (int8_t *)X->dptr_ +  n * in_batch_size, in_batch_size);
+        }
         int8_t *p_weight = (int8_t *)W->dptr_;
         int32_t *p_bias = (0 == paddr_b) ? NULL : ((int32_t *)paddr_b);
         int8_t *p_out = (int8_t *)Y->dptr_ + n * ou_batch_size;
+        if (Y->mem_.type_ != 2)
+        {
+         p_out = (int8_t *)Temp->dptr_  + in_batch_size * (X->mem_.type_ != 2);
+        }
         ret = calc_depthwise_luna(W->dtype_, Y->dtype_, p_in, p_weight, p_bias,
                                   (void *)p_out, &conv_attrs);
+        if (Y->mem_.type_ != 2)
+        {
+         memcpy((int8_t *)Y->dptr_ +  n * ou_batch_size, p_out, ou_batch_size);
+        }
       }
-    } else if (!input_condition && kernel_condition) {  // split input H/W
+    } 
+    else if (!input_condition && kernel_condition) {  // split input H/W
       /////only support H
       int32_t input_limit_without_h =
           (luna_quant_ceil(in_c, 3) << 3) *
@@ -471,7 +658,10 @@ int32_t conv2dint_venus(tTensor *X, tTensor *W, tTensor *Bias, tTensor *Y,
                                              conv_attrs.padding_h_up +
                                              conv_attrs.padding_h_down;
           conv_attrs.output_h = tmp_ou_h;
+
           p_out_tmp = p_out + i * ou_addr_offset;
+          if (Y->mem_.type_ != 2)
+            p_out_tmp = p_tmp + in_c * in_w * tmp_in_h + i * ou_addr_offset;
 
           int32_t c;
           int32_t o_offset = in_w * conv_attrs.input_h;
@@ -484,17 +674,29 @@ int32_t conv2dint_venus(tTensor *X, tTensor *W, tTensor *Bias, tTensor *Y,
         }
 
         int32_t one_channel_ou_offset = ou_w * tmp_ou_h * (0xF & Y->dtype_);
-        for (j = 0; j < ou_c; j++) {
-          for (i = 0; i < split_num; i++) {
-            int32_t i_offset = i * ou_addr_offset + j * one_channel_ou_offset;
-            int32_t o_offset = i * one_channel_ou_offset + j * ou_w * ou_h;
-            memcpy(p_tmp + o_offset, p_out + i_offset, one_channel_ou_offset);
+        if (Y->mem_.type_ != 2){        
+          for (j = 0; j < ou_c; j++) {
+              int32_t i_offset = in_c * in_w * tmp_in_h + j * one_channel_ou_offset;
+              int32_t o_offset = j * ou_w * ou_h;
+            for (i = 0; i < split_num; i++) {
+              memcpy(p_out + o_offset + i * one_channel_ou_offset, p_tmp + i_offset + i * ou_addr_offset, one_channel_ou_offset);
+            }
           }
         }
-        memcpy(p_out, p_tmp, ou_c * ou_h * ou_w);
+        else{
+          for (j = 0; j < ou_c; j++) {
+            for (i = 0; i < split_num; i++) {
+              int32_t i_offset = i * ou_addr_offset + j * one_channel_ou_offset;
+              int32_t o_offset = i * one_channel_ou_offset + j * ou_w * ou_h;
+              memcpy(p_tmp + o_offset, p_out + i_offset, one_channel_ou_offset);
+            }
+          }
+          memcpy(p_out, p_tmp, ou_c * ou_h * ou_w);
+        }
       }
     }
-  } else {  // group conv
+  } 
+  else {  // group conv
     in_c = in_c / group_num;
     ou_c = ou_c / group_num;
     k_n = k_n / group_num;
@@ -530,7 +732,8 @@ int32_t conv2dint_venus(tTensor *X, tTensor *W, tTensor *Bias, tTensor *Y,
                                p_bias_tmp, (void *)p_out_tmp, &conv_attrs);
         }
       }
-    } else if (!input_condition && kernel_condition) {  // split input H/W
+    } 
+    else if (!input_condition && kernel_condition) {  // split input H/W
       /////only support H
       int32_t input_limit_without_h =
           (luna_quant_ceil(in_c, 3) << 3) *
@@ -633,11 +836,11 @@ int32_t conv2dint_venus(tTensor *X, tTensor *W, tTensor *Bias, tTensor *Y,
 
           int32_t one_channel_ou_offset = ou_w * tmp_ou_h * (0xF & Y->dtype_);
           for (j = 0; j < ou_c; j++) {
+            int32_t i_offset = j * one_channel_ou_offset;
+            int32_t o_offset = j * ou_w * ou_h;
             for (i = 0; i < split_num; i++) {
-              int32_t i_offset = i * ou_addr_offset + j * one_channel_ou_offset;
-              int32_t o_offset = i * one_channel_ou_offset + j * ou_w * ou_h;
-              memcpy(p_tmp + o_offset, p_out_group + i_offset,
-                     one_channel_ou_offset);
+              memcpy(p_tmp + i * one_channel_ou_offset, p_out_group + i * ou_addr_offset,
+                    one_channel_ou_offset);
             }
           }
           memcpy(p_out_group, p_tmp, ou_c * ou_h * ou_w);

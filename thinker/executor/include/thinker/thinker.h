@@ -31,6 +31,8 @@
 #include "thinker_status.h"
 #include "thinker_type.h"
 
+#define T_FORCE_STOP_VALUE  (20221109)
+
 #if defined(WIN32)
 #if defined(x_EXPORTS)
 #define THINKER_DLL __declspec(dllexport)
@@ -58,48 +60,58 @@ THINKER_API(tStatus, tUninitialize, ());
 
 THINKER_API(tStatus, tGetMemoryPlan,
             (tMemory * memory, int32_t *num_memory, const int8_t *res,
-             uint64_t size));
+             const uint64_t size));
 
 THINKER_API(tStatus, tModelInit,
-            (tModelHandle * model, const int8_t *res, uint64_t size,
+            (tModelHandle * model, const int8_t *res, const uint64_t size,
              const tMemory *memory, int32_t num_memory));
 THINKER_API(tStatus, tModelFini, (tModelHandle model));
 
 // input
-THINKER_API(int32_t, tGetInputCount, (tModelHandle model));
-THINKER_API(const char *, tGetInputName, (tModelHandle model, int32_t idx));
+THINKER_API(int32_t, tGetInputCount, (const tModelHandle model));
+THINKER_API(const char *, tGetInputName,
+            (const tModelHandle model, const int32_t idx));
 
 // output
-THINKER_API(int32_t, tGetOutputCount, (tModelHandle model));
-THINKER_API(const char *, tGetOutputName, (tModelHandle model, int32_t idx));
+THINKER_API(int32_t, tGetOutputCount, (const tModelHandle model));
+THINKER_API(const char *, tGetOutputName,
+            (const tModelHandle model, const int32_t idx));
 
 // input
-THINKER_API(tDType, tGetInputDataType, (tModelHandle model, int32_t idx));
-THINKER_API(tDType, tGetOutputDataType, (tModelHandle model, int32_t idx));
+THINKER_API(tStatus, tGetInputInfo,
+            (const tExecHandle hdl, const int32_t idx, tData *input));
+THINKER_API(tDType, tGetInputDataType,
+            (const tModelHandle model, const int32_t idx));
+THINKER_API(tDType, tGetOutputDataType,
+            (const tModelHandle model, const int32_t idx));
 
 // input shape
-THINKER_API(tShape, tGetInputShape, (tModelHandle model, int32_t idx));
-THINKER_API(tShape, tGetOutputShape, (tModelHandle model, int32_t idx));
+THINKER_API(tShape, tGetInputShape,
+            (const tModelHandle model, const int32_t idx));
+THINKER_API(tShape, tGetOutputShape,
+            (const tModelHandle model, const int32_t idx));
 
 // executor
 THINKER_API(tStatus, tCreateExecutor,
-            (tModelHandle model, tExecHandle *hdl, tMemory *memory_list,
-             int32_t num_memory));
+            (const tModelHandle model, tExecHandle *hdl,
+             const tMemory *memory_list, const int32_t num_memory));
 THINKER_API(tStatus, tReleaseExecutor, (tExecHandle hdl));
 
-THINKER_API(tStatus, tSetInput, (tExecHandle hdl, int32_t idx, tData *input));
+THINKER_API(tStatus, tSetInput,
+            (const tExecHandle hdl, const int32_t idx, const tData *input));
 THINKER_API(tStatus, tSetInputByName,
-            (tExecHandle hdl, const char *name, tData *input));
+            (const tExecHandle hdl, const char *name, const tData *input));
 
-THINKER_API(tStatus, tGetOutput, (tExecHandle hdl, int32_t idx, tData *input));
+THINKER_API(tStatus, tGetOutput,
+            (const tExecHandle hdl, const int32_t idx, tData *input));
 THINKER_API(tStatus, tGetOutputByName,
-            (tExecHandle hdl, const char *name, tData *input));
+            (const tExecHandle hdl, const char *name, tData *input));
 
-THINKER_API(tStatus, tGetInputPtr, (tExecHandle hdl, int32_t idx, void **data));
-THINKER_API(tStatus, tGetOutputPtr,
-            (tExecHandle hdl, int32_t idx, void **data));
+THINKER_API(tStatus, tForward, (const tExecHandle hdl));
 
-THINKER_API(tStatus, tForward, (tExecHandle hdl));
+
+THINKER_API(tStatus, tExecutorStart, (tExecHandle hdl));
+THINKER_API(tStatus, tExecutorStop, (tExecHandle hdl));
 
 /**
  * @brief   thinkerApi
@@ -118,6 +130,7 @@ typedef struct _thinkerApi {
   Proc_tModelFini tModelFini;
 
   Proc_tGetInputCount tGetInputCount;
+  Proc_tGetInputInfo tGetInputInfo;
   Proc_tGetInputName tGetInputName;
   Proc_tGetOutputCount tGetOutputCount;
   Proc_tGetOutputName tGetOutputName;
@@ -133,10 +146,10 @@ typedef struct _thinkerApi {
   Proc_tSetInputByName tSetInputByName;
   Proc_tGetOutput tGetOutput;
   Proc_tGetOutputByName tGetOutputByName;
-  Proc_tGetInputPtr tGetInputPtr;
-  Proc_tGetOutputPtr tGetOutputPtr;
   Proc_tForward tForward;
-} thinkerApi;
+  Proc_tExecutorStart tExecutorStart;
+  Proc_tExecutorStop  tExecutorStop;
+} thinkerApi;// aligned 4*sizeof(pointer)
 
 /**
  * @brief	thinkerGetApi

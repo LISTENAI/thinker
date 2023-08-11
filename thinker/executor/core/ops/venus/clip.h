@@ -1,3 +1,6 @@
+#ifndef _CLIP_VENUS_H_
+#define _CLIP_VENUS_H_
+
 #include <math.h>
 
 #include "core/comm/thinker_log.h"
@@ -47,3 +50,4 @@ int32_t clip_venus(tTensor *X, tTensor *Y, ClipAttrs *attrs, float max,
   }
   return 0;
 }
+#endif  //_CLIP_VENUS_H_
