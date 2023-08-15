@@ -165,7 +165,7 @@ class Conv1dInt(Operator, CPUConvLayout):
             * ALIGN8(kernel_c)
             * h
         )
-        # out_size = self.outputs[0].nbytes
+        out_size = self.outputs[0].nbytes
 
         if 1 == kernel_c and (
             group == kernel_num

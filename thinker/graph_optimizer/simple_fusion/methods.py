@@ -148,10 +148,7 @@ def remove_transpose(graph: Graph) -> Graph:
             new_shape = list()
             new_shape2 = list()
             for p in perm:
-                if is_sympy(shape[p]):
-                    new_shape.append(-1)
-                else:
-                    new_shape.append(shape[p])
+                new_shape.append(shape[p])
                 if shape[p] != 1:
                     new_shape2.append(shape[p])
             for i in range(len(shape)):

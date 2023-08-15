@@ -60,4 +60,4 @@ int32_t matmul_luna(tTensor *lhs, tTensor *rhs, tTensor *out) {
 
   return ret;
 }
-#
+#endif
