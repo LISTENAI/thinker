@@ -64,7 +64,7 @@ THINKER_API(tStatus, tGetMemoryPlan,
 
 THINKER_API(tStatus, tModelInit,
             (tModelHandle * model, const int8_t *res, const uint64_t size,
-             const tMemory *memory, int32_t num_memory));
+             const tMemory *memory, const int32_t num_memory));
 THINKER_API(tStatus, tModelFini, (tModelHandle model));
 
 // input
@@ -103,9 +103,9 @@ THINKER_API(tStatus, tSetInputByName,
             (const tExecHandle hdl, const char *name, const tData *input));
 
 THINKER_API(tStatus, tGetOutput,
-            (const tExecHandle hdl, const int32_t idx, tData *input));
+            (const tExecHandle hdl, const int32_t idx, tData *output));
 THINKER_API(tStatus, tGetOutputByName,
-            (const tExecHandle hdl, const char *name, tData *input));
+            (const tExecHandle hdl, const char *name, tData *output));
 
 THINKER_API(tStatus, tForward, (const tExecHandle hdl));
 
@@ -119,7 +119,7 @@ THINKER_API(tStatus, tExecutorStop, (tExecHandle hdl));
  *  统一管理所有API符号.
  */
 typedef struct _thinkerApi {
-  Proc_tInitialize tGetVersion;
+  Proc_tGetVersion tGetVersion;
 
   Proc_tInitialize tInitialize;
   Proc_tUninitialize tUninitialize;

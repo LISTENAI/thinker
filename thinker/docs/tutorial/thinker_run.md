@@ -13,3 +13,5 @@
 ```Shell
 ./bin/test_thinker demo/resnet50/input.bin demo/resnet50/model.bin demo/resnet50/result.bin 1 32 32
 ```
+
+可根据自己的需要，修改test_thinker.c来调整模型的输入维度

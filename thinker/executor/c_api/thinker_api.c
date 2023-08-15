@@ -776,6 +776,7 @@ tStatus tExecutorStop(tExecHandle hdl)
 
 static thinkerApi g_api;
 const thinkerApi *thinkerGetApi() {
+  g_api.tGetVersion = tGetVersion;
   g_api.tInitialize = tInitialize;
   g_api.tUninitialize = tUninitialize;
 

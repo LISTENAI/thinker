@@ -2,8 +2,8 @@
 - 运行内存share-mem不超过640KB  
 - PSRAM整体可用空间为8MB，内置FLASH可用空间为8MB。单个模型大小整体不超过8M。  
 ## 二、单个算子限制  
-### 1. conv/deconv/pool相关算子共有限制  
-  - kernel_size = {1,2,3,4,5},支持kernel_h ≠ kernel_w
+### 1. conv1dint/conv2dint/deconv2dint/pool相关算子共有限制  
+  - kernel_size = {1,2,3,4,5},支持kernel_h ≠ kernel_w(conv1dint支持kernel_size >5)
   - stride_size = {1,2,4},支持stride_h ≠ stride_w
   - pad_size = {0,1,2,3},支持四个方向pad独立设置
   - in_w >= weight_w，同时in_h >= weight_h
