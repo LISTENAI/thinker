@@ -3,14 +3,21 @@ from typing import Any, Dict, Optional
 
 from ...graph import Tensor
 from ...enum_defines import Layout
-from .base import Operator, register_op
+from .base import Operator, OperatorAttrs, register_op
+
+class iqCatAttrs(OperatorAttrs):
+    def __init__(self, attrs:Optional[Dict[str, Any]] = {}) -> None:
+        super().__init__(attrs, "iqCatAttrs")
+
+    def checkparams(self) -> None:
+        assert "axis" in self.attrs
 
 @register_op
 class Concat(Operator):
     def __init__(self, attrs = {}):
-        self.attrs = ConcatAttrs(attrs)
+        self.attrs = iqCatAttrs(attrs)
 
-    def infer_tensor(self, dynamic_shape):
+    def infer_tensor(self):
         inputs = self.inputs 
         num_input = len(inputs)
         axis = int(self.attrs["axis"])
@@ -24,10 +31,7 @@ class Concat(Operator):
             assert len(inputs[0].shape) == len(inputs[num].shape)
             for i in range(ndims):
                 if i != axis:
-                    if is_sympy(inputs[0].shape[i]) and is_sympy(inputs[num].shape[i]):
-                        calc_expr(str(inputs[0].shape[i]), dynamic_shape) == calc_expr(str(inputs[num].shape[i]), dynamic_shape)
-                    else:
-                        assert inputs[0].shape[i] == inputs[num].shape[i]
+                    assert inputs[0].shape[i] == inputs[num].shape[i]
                     shape[i] = inputs[0].shape[i]
                 else:
                     shape[i] += inputs[num].shape[i]

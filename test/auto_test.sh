@@ -41,8 +41,8 @@ rm -rf build
 mkdir -p build && cd build
 cmake -DCMAKE_BUILD_TYPE="Release"  \
     -DTHINKER_SHARED_LIB=ON         \
-    -DTHINKER_PROFILE=ON           \
-    -DTHINKER_DUMP=ON              \
+    -DTHINKER_PROFILE=OFF           \
+    -DTHINKER_DUMP=OFF              \
     ..
 make -j4
 popd
