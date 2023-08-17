@@ -22,18 +22,27 @@ int32_t iqsub_luna(tTensor *X1, tTensor *X2, tTensor *Temp, tTensor *Y) {
     return ret;
   }
 
+  int32_t x1_is_psram = 0;
+  int32_t x2_is_psram = 0;
+  int32_t y_is_psram = 0;
+  int32_t used_tmp_size = 0;
+
   if ((1 == X1->mem_.type_ || 3 == X1->mem_.type_) &&
       (Temp))  // need copy psram to share
   {
-    src1 = (void *)Temp->dptr_;
-    memcpy(src1, (void *)X1->dptr_, size * X1->byte_);
+    x1_is_psram = 1;
   }
 
   if ((1 == X2->mem_.type_ || 3 == X2->mem_.type_) &&
       (Temp))  // need copy psram to share
   {
-    src2 = (void *)Temp->dptr_;
-    memcpy(src2, (void *)X2->dptr_, size * X2->byte_);
+    x2_is_psram = 1;
+  }
+
+  if ((1 == Y->mem_.type_ || 3 == Y->mem_.type_) &&
+      (Temp))  // need copy psram to share
+  {
+    y_is_psram = 1;
   }
 
   if (equalShape(&X1->shape_, &X2->shape_) && (X1->dtype_ == X2->dtype_)) {
@@ -41,28 +50,35 @@ int32_t iqsub_luna(tTensor *X1, tTensor *X2, tTensor *Temp, tTensor *Y) {
     int32_t shift2 = x2_q - y_q;
     switch (X1->dtype_) {
       case Int8: {
-        ret = luna_scale_q7_int8((const q7_t *)src1, (1), (int8_t *)dst, size,
-                                 shift1);
-        ret = luna_scale_q7_int8((const q7_t *)src2, (1), (int8_t *)src2, size,
-                                 shift2);
+        if (x1_is_psram){
+          src1 = (int8_t *)Temp->dptr_;
+          memcpy(src1, (void *)X1->dptr_, size * sizeof(int8_t));
+        }
+        if (x1_q != y_q){
+          ret = luna_scale_q7_int8((const q7_t *)src1, (1), (int8_t *)Temp->dptr_, size, shift1);
+          src1 = (int8_t *)Temp->dptr_;
+        }
+
+        if (x2_is_psram){
+          src2 = (int8_t *)Temp->dptr_ + ((x1_is_psram) || (x1_q != y_q)) * size;
+          memcpy(src2, (void *)X2->dptr_, size * sizeof(int8_t));
+        }
+        if (x2_q != y_q){
+          ret = luna_scale_q7_int8((const q7_t *)src2, (1), (int8_t *)(int8_t *)Temp->dptr_ + ((x1_is_psram) || (x1_q != y_q))* size, size, shift2);
+          src2 = (int8_t *)Temp->dptr_ + ((x1_is_psram) || (x1_q != y_q))* size;
+        }
+
+        if (y_is_psram){
+          dst = (int8_t *)Temp->dptr_;
+        }
+
         ret = luna_sub_q7_int8((const q7_t *)dst, (q7_t *)src2, (int8_t *)dst,
                                size, 0);
-      } break;
-      case Int16: {
-        ret = luna_scale_q15_int16((const q15_t *)src1, (1), (int16_t *)dst,
-                                   size, shift1);
-        ret = luna_scale_q15_int16((const q15_t *)src2, (1), (int16_t *)src2,
-                                   size, shift2);
-        ret = luna_sub_q15_int16((const q15_t *)dst, (q15_t *)src2,
-                                 (int16_t *)dst, size, 0);
-      } break;
-      case Int32: {
-        ret = luna_scale_q31_int32((const q31_t *)src1, (1), (int32_t *)dst,
-                                   size, shift1);
-        ret = luna_scale_q31_int32((const q31_t *)src2, (1), (int32_t *)src2,
-                                   size, shift2);
-        ret = luna_sub_q31_int32((const q31_t *)dst, (q31_t *)src2,
-                                 (int32_t *)dst, size, 0);
+
+        if (y_is_psram){
+          memcpy((void *)Y->dptr_, dst, size * sizeof(int8_t));
+        }
+
       } break;
       default:
         break;
