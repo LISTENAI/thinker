@@ -100,9 +100,9 @@ int avgpool2dint_luna(const tTensor* X, tTensor* Y, tTensor* Temp, PoolAttrs *at
 					int8_t *p_in = (int8_t *)X->dptr_ + n * in_batch_size;
 					int8_t *p_out = (int8_t *)Y->dptr_ + n * ou_batch_size;
 					ret = luna_mean_pooling_int16(p_in, (int16_t *)p_tmp1, &pool_struct_);
-					ret |= luna_scale_q15_int32((int16_t *)p_tmp1, 1, p_tmp2, ou_batch_size, 0);
+					ret |= luna_scale_q15_int32((int16_t *)p_tmp1, 1, (int32_t *)p_tmp2, ou_batch_size, 0);
 					ret |= luna_memset(p_out, 1, ou_batch_size);
-					ret |= luna_scale_q7_int32(p_out, one_kernel_size, p_tmp1, ou_batch_size, 0);
+					ret |= luna_scale_q7_int32(p_out, one_kernel_size, (int32_t *)p_tmp1, ou_batch_size, 0);
 					ret |= luna_div_q31_int32(p_tmp2, q_x, p_tmp1, 0, p_tmp1, q_o, ou_batch_size);
 					ret |= luna_scale_q31_int8(p_tmp1, 1, p_out, ou_batch_size, 0);
 				}
@@ -117,38 +117,23 @@ int avgpool2dint_luna(const tTensor* X, tTensor* Y, tTensor* Temp, PoolAttrs *at
 			{			
 				int16_t *p_tmp = (int16_t *)Temp->dptr_;
 				shift = my_log2((float)one_kernel_size);
-				if(s_num == 0)
+				for (n = 0; n < split_num ; n++)
 				{
-					for (n = 0; n < split_num ; n++)
-					{
-						int8_t *p_in = (int8_t *)X->dptr_ + n * in_channel_size  * 8;
-						int8_t *p_out = (int8_t *)Y->dptr_ + n * ou_channel_size * 8;
-						pool_struct_.input_c = 8 ;
-						ret = luna_mean_pooling_int16(p_in, (int16_t *)p_tmp, &pool_struct_);
-						ret |= luna_scale_q15_int8(p_tmp, 1, p_out, 8 * ou_channel_size, shift);
-						memset(p_tmp, 0, 8 * ou_channel_size);
-					}					
+					int8_t *p_in = (int8_t *)X->dptr_ + n * in_channel_size  * 8;
+					int8_t *p_out = (int8_t *)Y->dptr_ + n * ou_channel_size * 8;
+					pool_struct_.input_c = 8 ;
+					ret = luna_mean_pooling_int16(p_in, (int16_t *)p_tmp, &pool_struct_);
+					ret |= luna_scale_q15_int8(p_tmp, 1, p_out, 8 * ou_channel_size, shift);
+					memset(p_tmp, 0,  8 * ou_channel_size);
 				}
-				else
+				if(0 != s_num)
 				{
-					for (n = 0; n < split_num -1 ; n++)
-					{
-						int8_t *p_in = (int8_t *)X->dptr_ + n * in_channel_size  * 8;
-						int8_t *p_out = (int8_t *)Y->dptr_ + n * ou_channel_size * 8;
-						pool_struct_.input_c = 8 ;
-						ret = luna_mean_pooling_int16(p_in, (int16_t *)p_tmp, &pool_struct_);
-						ret |= luna_scale_q15_int8(p_tmp, 1, p_out, 8 * ou_channel_size, shift);
-						memset(p_tmp, 0,  8 * ou_channel_size);
-					}
-					if(n == split_num-1)
-					{
-						int8_t *p_in = (int8_t *)X->dptr_ + in_channel_size *  (split_num-1) * 8;
-						int8_t *p_out = (int8_t *)Y->dptr_ + ou_channel_size * (split_num-1) * 8;
-						pool_struct_.input_c = s_num ;
-						ret = luna_mean_pooling_int16(p_in, (int16_t *)p_tmp, &pool_struct_);
-						ret |= luna_scale_q15_int8(p_tmp, 1, p_out, s_num * ou_channel_size, shift);
-						memset(p_tmp, 0,  s_num * ou_channel_size);					
-					}
+					int8_t *p_in = (int8_t *)X->dptr_ + in_channel_size *  (split_num-1) * 8;
+					int8_t *p_out = (int8_t *)Y->dptr_ + ou_channel_size * (split_num-1) * 8;
+					pool_struct_.input_c = s_num ;
+					ret = luna_mean_pooling_int16(p_in, (int16_t *)p_tmp, &pool_struct_);
+					ret |= luna_scale_q15_int8(p_tmp, 1, p_out, s_num * ou_channel_size, shift);
+					memset(p_tmp, 0,  s_num * ou_channel_size);					
 				}
 			}
 			else
@@ -156,52 +141,32 @@ int avgpool2dint_luna(const tTensor* X, tTensor* Y, tTensor* Temp, PoolAttrs *at
 				int32_t q_x = (int32_t)X->scale_;
 				int32_t q_o = (int32_t)Y->scale_;
 				int32_t *p_tmp1 = (int32_t *)Temp->dptr_;
-				int32_t *p_tmp2 = (int32_t *)(p_tmp1 + 8* ou_channel_size);
+				int32_t *p_tmp2 = (int32_t *)(p_tmp1 + 8 * ou_batch_size);
 
-				if(s_num == 0)
+				for (n = 0; n < split_num; n++)
 				{
-					for (n = 0; n < split_num ; n++)
-					{
-						int8_t *p_in = (int8_t *)X->dptr_ + n * in_channel_size * 8;
-						int8_t *p_out = (int8_t *)Y->dptr_ + n * ou_channel_size * 8;
-						pool_struct_.input_c = 8 ;
-						ret = luna_mean_pooling_int16(p_in, (int16_t *)p_tmp1, &pool_struct_);
-						ret |= luna_scale_q15_int32((int16_t *)p_tmp1, 1, p_tmp2, 8 * ou_channel_size, 0);
-						ret |= luna_memset(p_out, 1,  8 * ou_channel_size);
-						ret |= luna_scale_q7_int32(p_out, one_kernel_size, p_tmp1,  8 * ou_channel_size, 0);
-						ret |= luna_div_q31_int32(p_tmp2, q_x, p_tmp1, 0, p_tmp1, q_o,  8 * ou_channel_size);
-						ret |= luna_scale_q31_int8(p_tmp1, 1, p_out,  8 * ou_channel_size, 0);
-					}
+					int8_t *p_in = (int8_t *)X->dptr_ + n * in_channel_size * 8;
+					int8_t *p_out = (int8_t *)Y->dptr_ + n * ou_channel_size * 8;
+					pool_struct_.input_c = 8 ;
+					ret = luna_mean_pooling_int16(p_in, (int16_t *)p_tmp1, &pool_struct_);
+					ret |= luna_scale_q15_int32((int16_t *)p_tmp1, 1, p_tmp2,  8 * ou_channel_size, 0);
+					ret |= luna_memset(p_out, 1,  8 * ou_channel_size);
+					ret |= luna_scale_q7_int32(p_out, one_kernel_size, p_tmp1,  8 * ou_channel_size, 0);
+					ret |= luna_div_q31_int32(p_tmp2, q_x, p_tmp1, 0, p_tmp1, q_o,  8 * ou_channel_size);
+					ret |= luna_scale_q31_int8(p_tmp1, 1, p_out,  8 * ou_channel_size, 0);
 				}
-				else
+				if(0 != s_num)
 				{
-					for (n = 0; n < split_num - 1; n++)
-					{
-						int8_t *p_in = (int8_t *)X->dptr_ + n * in_channel_size * 8;
-						int8_t *p_out = (int8_t *)Y->dptr_ + n * ou_channel_size * 8;
-						pool_struct_.input_c = 8 ;
-						ret = luna_mean_pooling_int16(p_in, (int16_t *)p_tmp1, &pool_struct_);
-						ret |= luna_scale_q15_int32((int16_t *)p_tmp1, 1, p_tmp2,  8 * ou_channel_size, 0);
-						ret |= luna_memset(p_out, 1,  8 * ou_channel_size);
-						ret |= luna_scale_q7_int32(p_out, one_kernel_size, p_tmp1,  8 * ou_channel_size, 0);
-						ret |= luna_div_q31_int32(p_tmp2, q_x, p_tmp1, 0, p_tmp1, q_o,  8 * ou_channel_size);
-						ret |= luna_scale_q31_int8(p_tmp1, 1, p_out,  8 * ou_channel_size, 0);
-					}
-					if(n == split_num-1)
-					{
-						int8_t *p_in = (int8_t *)X->dptr_ + n * in_channel_size * (split_num-1) * 8;
-						int8_t *p_out = (int8_t *)Y->dptr_ + n * ou_channel_size * (split_num-1) * 8;
-						pool_struct_.input_c = s_num ;
-						ret = luna_mean_pooling_int16(p_in, (int16_t *)p_tmp1, &pool_struct_);
-						ret |= luna_scale_q15_int32((int16_t *)p_tmp1, 1, p_tmp2,  s_num * ou_channel_size, 0);
-						ret |= luna_memset(p_out, 1, s_num * ou_channel_size);
-						ret |= luna_scale_q7_int32(p_out, one_kernel_size, p_tmp1,  s_num * ou_channel_size, 0);
-						ret |= luna_div_q31_int32(p_tmp2, q_x, p_tmp1, 0, p_tmp1, q_o,  s_num * ou_channel_size);
-						ret |= luna_scale_q31_int8(p_tmp1, 1, p_out,  s_num * ou_channel_size, 0);					
-					}					
-				}
-				
-
+					int8_t *p_in = (int8_t *)X->dptr_ + in_channel_size * (split_num-1) * 8;
+					int8_t *p_out = (int8_t *)Y->dptr_ + ou_channel_size * (split_num-1) * 8;
+					pool_struct_.input_c = s_num ;
+					ret = luna_mean_pooling_int16(p_in, (int16_t *)p_tmp1, &pool_struct_);
+					ret |= luna_scale_q15_int32((int16_t *)p_tmp1, 1, p_tmp2,  s_num * ou_channel_size, 0);
+					ret |= luna_memset(p_out, 1, s_num * ou_channel_size);
+					ret |= luna_scale_q7_int32(p_out, one_kernel_size, p_tmp1,  s_num * ou_channel_size, 0);
+					ret |= luna_div_q31_int32(p_tmp2, q_x, p_tmp1, 0, p_tmp1, q_o,  s_num * ou_channel_size);
+					ret |= luna_scale_q31_int8(p_tmp1, 1, p_out,  s_num * ou_channel_size, 0);					
+				}					
 			}			
 		}
 	}

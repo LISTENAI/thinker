@@ -102,7 +102,7 @@ class MaxPool(Operator, CPUPoolLayout):
                 * (8 * stride_w)
             )
             assert data_size1 <= 65536, "only support H split"
-            #workspace_size = out_size // h  * 2
+           #workspace_size = out_size // h  * 2
             workspace_size = max(workspace_size, 60*1024)
             workspace_size = max(workspace_size, out_size)
             max_workspace = Tensor.from_shape(
@@ -144,9 +144,16 @@ class AvgPool2dInt(Operator, CPUPoolLayout):
         kernel_c = input_data.shape[1]
         h = input_data.shape[2]
         w = input_data.shape[3]
+        intput_size = h * w
+
+        (kernel_h, kernel_w) = self.attrs['kernel_shape']
+        kernel_size = kernel_h * kernel_w
 
         strides = self.attrs["strides"]
         stride_w = strides[1]
+
+        pads = self.attrs['pads']
+
         out_size = self.outputs[0].nbytes
         data_size = (
             ALIGN8(kernel_c)
@@ -164,17 +171,12 @@ class AvgPool2dInt(Operator, CPUPoolLayout):
                 * h
             )
             assert data_size1 <= 65536, "only support channel split"
-            workspace_size =  out_size // kernel_c * 2
-            max_workspace = Tensor.from_shape(
-                [workspace_size], np.int8, self.inputs[0].mem_type
-            )
-
+           kernel_c = 8
+        if kernel_size & (kernel_size - 1):
+            workspace_size = kernel_c * ou_hw * 8
         else:
-            workspace_size = out_size * 2
-            max_workspace = Tensor.from_shape(
-                [workspace_size], np.int8, self.inputs[0].mem_type
-            )
-        return [max_workspace]
+            workspace_size = kernel_c * ou_hw * 2
+        return [Tensor.from_shape([workspace_size], np.int8, self.inputs[0].mem_type)]
 
 
 __all__ = ["MaxPool", "AvgPool2dInt"]

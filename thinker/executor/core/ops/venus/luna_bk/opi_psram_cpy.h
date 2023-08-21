@@ -1,7 +1,7 @@
 #ifndef __OPI_PSRAM_CPY_H__
 #define __OPI_PSRAM_CPY_H__
 
-#include "luna_math.h"
+#include "luna_math_types.h"
 
 typedef void (*dma_sync_call_func)(void* param);
 

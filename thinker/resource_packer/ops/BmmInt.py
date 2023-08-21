@@ -4,7 +4,7 @@ from typing import List
 
 from ...graph import Tensor
 from ...enum_defines import DevType, MemType
-from ...enum_defines import ALIGN16, ALIGN32
+from ...enum_defines import ALIGN4, ALIGN8
 from .base import iqBinaryOperator, register_op
 
 
@@ -46,17 +46,6 @@ class BmmInt(iqBinaryOperator):
         x_h = x_shape[0]
         x_w = x_shape[1]
 
-        M = ALIGN16(x_h)
-        N = ALIGN32(x_w)
-        if X.dtype == np.int8:
-            assert M * N < 65536, "left matmul of linearint must less 64KB"
-        elif X.dtype == np.int16:
-            assert M * N < 32768, "left matmul of linearint must less 64KB"
-        elif X.dtype == np.int32:
-            assert M * N < 16384, "left matmul of linearint must less 64KB"
-        else:
-            raise (f"BmmInt Not supported this data type.")
-
         shape = list(x_shape)
         shape[-1] = w_shape[-1]
 
@@ -64,14 +53,30 @@ class BmmInt(iqBinaryOperator):
         self.outputs = [Y]
         
     def get_workspace(self, dev_type: DevType) -> List[Tensor]:
-        X = self.inputs[0]
-        Y = self.outputs[0]
         workspace_bytes = 0
-        if X.mem_type != MemType.SHARE_MEM:
-            workspace_bytes = X.nbytes
-        if Y.mem_type != MemType.SHARE_MEM:
-            workspace_bytes = max(workspace_bytes, Y.nbytes)
-        if workspace_bytes != 0:
+        M = self.inputs[0].shape[-2]
+        N = self.inputs[0].shape[-1]
+        L = self.inputs[1].shape[-1]
+        int8_condition_l = ALIGN4(M) * ALIGN8(N)
+        int8_condition_r = ALIGN8(N) * ALIGN4(L)
+        split_M = M
+        if int8_condition_l > 65536:
+            split_num = 2
+            split_M = math.ceil(M / split_num)
+            int8_condition_l_split = ALIGN4(split_M) * ALIGN8(N)
+            while int8_condition_l_split > 65536:
+                split_num += 1
+                split_M = math.ceil(M / split_num)
+                int8_condition_l_split = ALIGN4(split_M) * ALIGN8(N)
+
+        if self.inputs[0].mem_type != MemType.SHARE_MEM and self.outputs[0].mem_type != MemType.SHARE_MEM and dev_type == DevType.LUNA:
+            workspace_bytes = split_M * max(N, L) + split_M * L * 4
+        elif self.inputs[0].mem_type != MemType.SHARE_MEM and dev_type == DevType.LUNA:
+            workspace_bytes = split_M * N
+        elif self.outputs[0].mem_type != MemType.SHARE_MEM and dev_type == DevType.LUNA:
+            workspace_bytes = split_M * L
+
+        if workspace_bytes:
             return [Tensor.from_shape([workspace_bytes], np.int8, dev_type)]
         else:
             return []

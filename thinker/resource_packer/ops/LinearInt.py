@@ -1,6 +1,6 @@
 import math
 import numpy as np
-from typing import Any, Dict, Optional
+from typing import List
 
 from ...graph import Tensor
 from .utils import QuantType
@@ -84,21 +84,6 @@ class LinearInt(Operator):
         else:
             assert x_h == w_shape[0]
 
-        if X.dtype == np.int8:
-            M = ALIGN4(x_h)
-            N = ALIGN8(x_w)
-            assert M * N < 65536, "left matmul of linearint must less 64KB"
-        elif X.dtype == np.int16:
-            M = ALIGN4(x_h)
-            N = ALIGN2(x_w)
-            assert M * N < 32768, "left matmul of linearint must less 64KB"
-        elif X.dtype == np.int32:
-            M = ALIGN2(x_h)
-            N = ALIGN2(x_w)
-            assert M * N < 16384, "left matmul of linearint must less 64KB"
-        else:
-            raise (f"[LinearInt] Not supported type of X.dtype:{X.dtype}.")
-
         # 1D
         if len(X.shape) == 1:
             shape = [w_shape[0]]
@@ -151,8 +136,10 @@ class LinearInt(Operator):
         elif self.outputs[0].mem_type != MemType.SHARE_MEM and dev_type == DevType.LUNA:
             workspace_bytes += split_M * L
 
-        max_workspace = Tensor.from_shape([workspace_bytes], np.int8, dev_type)
-        return [max_workspace]
+        if workspace_bytes:
+            return [Tensor.from_shape([workspace_bytes], np.int8, dev_type)]
+        else:
+            return []
 
 
     def pack_params(self, dev_type: DevType):

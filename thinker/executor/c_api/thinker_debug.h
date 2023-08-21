@@ -37,7 +37,7 @@
 
 void write_file(char *output_name, tTensor *tensor) {
   char save_path[256];
-  char temp[256];
+  char temp[240];
   uint32_t crc32 = 0;
   int32_t lenofstr = strlen(output_name);
   for (int32_t i = 0; i < lenofstr; i++) {
@@ -117,7 +117,7 @@ static size_t alignSize(size_t sz, int32_t n) { return (sz + n - 1) & -n; }
 
 void write_file(char *output_name, tTensor *tensor) {
   char save_path[256];
-  char temp[256];
+  char temp[240];
   int32_t lenofstr = strlen(output_name);
   for (int32_t i = 0; i < lenofstr; i++) {
     if (output_name[i] == '/') {
