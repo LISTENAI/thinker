@@ -7,9 +7,9 @@ TEST_CASE("test_conv2d","[interface]")
     {
         int8_t *res;
         uint64_t res_len = 0;
-        load_bin_file("./model/test_conv2d/model.bin", &res, &res_len); 
+        load_bin_file("./model.test/test_conv2d/model.bin", &res, &res_len); 
         const char *version = tGetVersion(0);
-        printf("%s\n", version);
+        printf("thinker version:%s\n", version);
 
         auto ret =tInitialize();
         REQUIRE(ret == T_SUCCESS);
@@ -51,9 +51,9 @@ TEST_CASE("test_conv2d","[interface]")
         uint64_t res_len = 0;
         uint64_t input_size = 0;
         uint64_t result_size = 0;
-        load_bin_file("./model/test_conv2d/model.bin", &res, &res_len);
-        load_bin_file("./model/test_conv2d/input.bin", &input_data, &input_size);
-        load_bin_file("./model/test_conv2d/output.bin", &result, &result_size);
+        load_bin_file("./model.test/test_conv2d/model.bin", &res, &res_len);
+        load_bin_file("./model.test/test_conv2d/input.bin", &input_data, &input_size);
+        load_bin_file("./model.test/test_conv2d/output.bin", &result, &result_size);
 
         tStatus ret = T_SUCCESS;
         ret = tInitialize();
@@ -135,7 +135,7 @@ TEST_CASE("test_conv1d","[interface]")
     {
         int8_t *res;
         uint64_t res_len = 0;
-        load_bin_file("./model/test_conv1d/model.bin", &res, &res_len);  
+        load_bin_file("./model.test/test_conv1d/model.bin", &res, &res_len);  
         auto ret =tInitialize();
         REQUIRE(ret == T_SUCCESS);
         int32_t num_memory = 0;
@@ -176,9 +176,9 @@ TEST_CASE("test_conv1d","[interface]")
         uint64_t res_len = 0;
         uint64_t input_size = 0;
         uint64_t result_size = 0;
-        load_bin_file("./model/test_conv1d/model.bin", &res, &res_len);
-        load_bin_file("./model/test_conv1d/input.bin", &input_data, &input_size);
-        load_bin_file("./model/test_conv1d/output.bin", &result, &result_size);
+        load_bin_file("./model.test/test_conv1d/model.bin", &res, &res_len);
+        load_bin_file("./model.test/test_conv1d/input.bin", &input_data, &input_size);
+        load_bin_file("./model.test/test_conv1d/output.bin", &result, &result_size);
 
         tStatus ret = T_SUCCESS;
         ret = tInitialize();
@@ -259,7 +259,7 @@ TEST_CASE("test_batchnorm","[interface]")
     {
         int8_t *res;
         uint64_t res_len = 0;
-        load_bin_file("./model/test_batchnorm/model.bin", &res, &res_len);  
+        load_bin_file("./model.test/test_batchnorm/model.bin", &res, &res_len);  
         auto ret =tInitialize();
         REQUIRE(ret == T_SUCCESS);
         int32_t num_memory = 0;
@@ -300,9 +300,9 @@ TEST_CASE("test_batchnorm","[interface]")
         uint64_t res_len = 0;
         uint64_t input_size = 0;
         uint64_t result_size = 0;
-        load_bin_file("./model/test_batchnorm/model.bin", &res, &res_len);
-        load_bin_file("./model/test_batchnorm/input.bin", &input_data, &input_size);
-        load_bin_file("./model/test_batchnorm/output.bin", &result, &result_size);
+        load_bin_file("./model.test/test_batchnorm/model.bin", &res, &res_len);
+        load_bin_file("./model.test/test_batchnorm/input.bin", &input_data, &input_size);
+        load_bin_file("./model.test/test_batchnorm/output.bin", &result, &result_size);
 
         tStatus ret = T_SUCCESS;
         ret = tInitialize();
@@ -384,7 +384,7 @@ TEST_CASE("test_softmaxint","[interface]")
     {
         int8_t *res;
         uint64_t res_len = 0;
-        load_bin_file("./model/test_softmaxint/model.bin", &res, &res_len);  
+        load_bin_file("./model.test/test_softmaxint/model.bin", &res, &res_len);  
         auto ret =tInitialize();
         REQUIRE(ret == T_SUCCESS);
         int32_t num_memory = 0;
@@ -425,9 +425,9 @@ TEST_CASE("test_softmaxint","[interface]")
         uint64_t res_len = 0;
         uint64_t input_size = 0;
         uint64_t result_size = 0;
-        load_bin_file("./model/test_softmaxint/model.bin", &res, &res_len);
-        load_bin_file("./model/test_softmaxint/input.bin", &input_data, &input_size);
-        load_bin_file("./model/test_softmaxint/output.bin", &result, &result_size);
+        load_bin_file("./model.test/test_softmaxint/model.bin", &res, &res_len);
+        load_bin_file("./model.test/test_softmaxint/input.bin", &input_data, &input_size);
+        load_bin_file("./model.test/test_softmaxint/output.bin", &result, &result_size);
 
         tStatus ret = T_SUCCESS;
         ret = tInitialize();
@@ -509,7 +509,7 @@ TEST_CASE("test_logsoftmax","[interface]")
     {
         int8_t *res;
         uint64_t res_len = 0;
-        load_bin_file("./model/test_logsoftmax/model.bin", &res, &res_len);  
+        load_bin_file("./model.test/test_logsoftmax/model.bin", &res, &res_len);  
         auto ret =tInitialize();
         REQUIRE(ret == T_SUCCESS);
         int32_t num_memory = 0;
@@ -550,9 +550,9 @@ TEST_CASE("test_logsoftmax","[interface]")
         uint64_t res_len = 0;
         uint64_t input_size = 0;
         uint64_t result_size = 0;
-        load_bin_file("./model/test_logsoftmax/model.bin", &res, &res_len);
-        load_bin_file("./model/test_logsoftmax/input.bin", &input_data, &input_size);
-        load_bin_file("./model/test_logsoftmax/output.bin", &result, &result_size);
+        load_bin_file("./model.test/test_logsoftmax/model.bin", &res, &res_len);
+        load_bin_file("./model.test/test_logsoftmax/input.bin", &input_data, &input_size);
+        load_bin_file("./model.test/test_logsoftmax/output.bin", &result, &result_size);
 
         tStatus ret = T_SUCCESS;
         ret = tInitialize();
@@ -634,7 +634,7 @@ TEST_CASE("test_iqsigmoid","[interface]")
     {
         int8_t *res;
         uint64_t res_len = 0;
-        load_bin_file("./model/test_iqsigmoid/model.bin", &res, &res_len);  
+        load_bin_file("./model.test/test_iqsigmoid/model.bin", &res, &res_len);  
         auto ret =tInitialize();
         REQUIRE(ret == T_SUCCESS);
         int32_t num_memory = 0;
@@ -675,9 +675,9 @@ TEST_CASE("test_iqsigmoid","[interface]")
         uint64_t res_len = 0;
         uint64_t input_size = 0;
         uint64_t result_size = 0;
-        load_bin_file("./model/test_iqsigmoid/model.bin", &res, &res_len);
-        load_bin_file("./model/test_iqsigmoid/input.bin", &input_data, &input_size);
-        load_bin_file("./model/test_iqsigmoid/output.bin", &result, &result_size);
+        load_bin_file("./model.test/test_iqsigmoid/model.bin", &res, &res_len);
+        load_bin_file("./model.test/test_iqsigmoid/input.bin", &input_data, &input_size);
+        load_bin_file("./model.test/test_iqsigmoid/output.bin", &result, &result_size);
 
         tStatus ret = T_SUCCESS;
         ret = tInitialize();
@@ -759,7 +759,7 @@ TEST_CASE("test_layernorm","[interface]")
     {
         int8_t *res;
         uint64_t res_len = 0;
-        load_bin_file("./model/test_layernorm/model.bin", &res, &res_len);  
+        load_bin_file("./model.test/test_layernorm/model.bin", &res, &res_len);  
         auto ret =tInitialize();
         REQUIRE(ret == T_SUCCESS);
         int32_t num_memory = 0;
@@ -800,9 +800,9 @@ TEST_CASE("test_layernorm","[interface]")
         uint64_t res_len = 0;
         uint64_t input_size = 0;
         uint64_t result_size = 0;
-        load_bin_file("./model/test_layernorm/model.bin", &res, &res_len);
-        load_bin_file("./model/test_layernorm/input.bin", &input_data, &input_size);
-        load_bin_file("./model/test_layernorm/output.bin", &result, &result_size);
+        load_bin_file("./model.test/test_layernorm/model.bin", &res, &res_len);
+        load_bin_file("./model.test/test_layernorm/input.bin", &input_data, &input_size);
+        load_bin_file("./model.test/test_layernorm/output.bin", &result, &result_size);
 
         tStatus ret = T_SUCCESS;
         ret = tInitialize();
@@ -884,7 +884,7 @@ TEST_CASE("test_shufflechannel","[interface]")
     {
         int8_t *res;
         uint64_t res_len = 0;
-        load_bin_file("./model/test_shufflechannel/model.bin", &res, &res_len);  
+        load_bin_file("./model.test/test_shufflechannel/model.bin", &res, &res_len);  
         auto ret =tInitialize();
         REQUIRE(ret == T_SUCCESS);
         int32_t num_memory = 0;
@@ -925,9 +925,9 @@ TEST_CASE("test_shufflechannel","[interface]")
         uint64_t res_len = 0;
         uint64_t input_size = 0;
         uint64_t result_size = 0;
-        load_bin_file("./model/test_shufflechannel/model.bin", &res, &res_len);
-        load_bin_file("./model/test_shufflechannel/input.bin", &input_data, &input_size);
-        load_bin_file("./model/test_shufflechannel/output.bin", &result, &result_size);
+        load_bin_file("./model.test/test_shufflechannel/model.bin", &res, &res_len);
+        load_bin_file("./model.test/test_shufflechannel/input.bin", &input_data, &input_size);
+        load_bin_file("./model.test/test_shufflechannel/output.bin", &result, &result_size);
 
         tStatus ret = T_SUCCESS;
         ret = tInitialize();
@@ -1009,7 +1009,7 @@ TEST_CASE("test_gru","[interface]")
     {
         int8_t *res;
         uint64_t res_len = 0;
-        load_bin_file("./model/test_gru/model.bin", &res, &res_len);  
+        load_bin_file("./model.test/test_gru/model.bin", &res, &res_len);  
         auto ret =tInitialize();
         REQUIRE(ret == T_SUCCESS);
         int32_t num_memory = 0;
@@ -1050,9 +1050,9 @@ TEST_CASE("test_gru","[interface]")
         uint64_t res_len = 0;
         uint64_t input_size = 0;
         uint64_t result_size = 0;
-        load_bin_file("./model/test_gru/model.bin", &res, &res_len);
-        load_bin_file("./model/test_gru/input.bin", &input_data, &input_size);
-        load_bin_file("./model/test_gru/output.bin", &result, &result_size);
+        load_bin_file("./model.test/test_gru/model.bin", &res, &res_len);
+        load_bin_file("./model.test/test_gru/input.bin", &input_data, &input_size);
+        load_bin_file("./model.test/test_gru/output.bin", &result, &result_size);
 
         tStatus ret = T_SUCCESS;
         ret = tInitialize();

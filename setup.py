@@ -2,7 +2,7 @@ from setuptools import setup,find_packages
 
 setup(
 	name="pythinker",
-	version="2.1.0",
+	version="2.1.1",
 	description="A DeepLearning inference framework for venus",
 	author="listenai",
 	author_email="lingerthinker@listenai.com",

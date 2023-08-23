@@ -154,6 +154,9 @@ class AvgPool2dInt(Operator, CPUPoolLayout):
 
         pads = self.attrs['pads']
 
+        ou_h = self.outputs[0].shape[2]
+        ou_w = self.outputs[0].shape[3]
+        ou_hw = ou_h * ou_w
         out_size = self.outputs[0].nbytes
         data_size = (
             ALIGN8(kernel_c)
@@ -171,7 +174,7 @@ class AvgPool2dInt(Operator, CPUPoolLayout):
                 * h
             )
             assert data_size1 <= 65536, "only support channel split"
-           kernel_c = 8
+            kernel_c = 8
         if kernel_size & (kernel_size - 1):
             workspace_size = kernel_c * ou_hw * 8
         else:
