@@ -7,7 +7,7 @@
 [![LICENSE](https://img.shields.io/github/license/LISTENAI/thinker.svg?style=flat-square)](https://github.com/LISTENAI/thinker/blob/main/LICENSE)
 [![linux](https://github.com/LISTENAI/thinker/actions/workflows/linux_x86.yml/badge.svg)](https://github.com/LISTENAI/thinker/actions/workflows/linux_x86.yml)
 
-thinker是聆思科技开发的轻量级神经网络推理框架，是聆思科技开源的AI生态工具链LNN(ListenAI Neural Network)的一部分，结合另一个聆思开源的量化训练组件[linger](https://github.com/LISTENAI/linger)可实现产业级深度学习训练推理一体化平台，集深度学习量化训练和引擎推理、LUNA器件库和丰富的辅助组件于一体。LNN是专为聆思AIOT芯片（目前只支持CSK60xx系列）定制开发，助力开发者轻松在聆思VENUS芯片上快速上线AI业务，帮助越来越多嵌入式尤其是AIOT产品实现AI赋能，助力产业智能化升级。目前LNN工具链支持聆思芯片在计算机视觉、语音唤醒、语音识别、离线翻译等10多个AI应用场景中的产品落地。
+thinker是安徽聆思科技和合肥智能语音公司联合开发的轻量级神经网络推理框架，是聆思科技开源的AI生态工具链LNN(ListenAI Neural Network)的一部分，结合另一个聆思开源的量化训练组件[linger](https://github.com/LISTENAI/linger)可实现产业级深度学习训练推理一体化平台，集深度学习量化训练和引擎推理、LUNA器件库和丰富的辅助组件于一体。LNN是专为聆思AIOT芯片（目前只支持CSK60xx系列）定制开发，助力开发者轻松在聆思VENUS芯片上快速上线AI业务，帮助越来越多嵌入式尤其是AIOT产品实现AI赋能，助力产业智能化升级。目前LNN工具链支持聆思芯片在计算机视觉、语音唤醒、语音识别、离线翻译等10多个AI应用场景中的产品落地。
 
 ## 引擎框架
 thinker将引擎执行器中的非核心功能尽量剥离出来放在离线工具中完成  
@@ -84,6 +84,7 @@ chmod +x ./bin/test_thinker
 
 ## 应用示例
 * 鼾声检测[https://github.com/mywang44/snoring_net]
+* 离线翻译[https://github.com/dwzhang00/Offline-translation]
 
 ## 版本说明
 - 请参考[RELEASE](thinker/docs/tutorial/release.md)
