@@ -85,6 +85,7 @@ chmod +x ./bin/test_thinker
 ## 应用示例
 * 鼾声检测[https://github.com/mywang44/snoring_net]
 * 离线翻译[https://github.com/dwzhang00/Offline-translation]
+* 二维码检测[https://github.com/mywang44/YOLOv1_QRcode_Detection]
 
 ## 版本说明
 - 请参考[RELEASE](thinker/docs/tutorial/release.md)
