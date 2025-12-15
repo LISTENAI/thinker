@@ -180,6 +180,7 @@ int thinker_task_test(int loop_count, char *argv[])
 			}
 		}
 
+		printf("Max probability: %d\n", max_probability);
 		printf("Predicted category index: %d\n", predicted_category_index);
 		printf("Predicted label: %s\n", classes[predicted_category_index]);	
 
