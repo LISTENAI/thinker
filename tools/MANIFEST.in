@@ -1,0 +1,4 @@
+include tpacker/executor/operator_attrs.h
+include tpacker/executor/thinker_type.h
+
+recursive-exclude tools/auxiliary *

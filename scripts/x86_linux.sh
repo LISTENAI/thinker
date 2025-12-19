@@ -1,21 +1,20 @@
 set -e
-CMAKE_ROOT=/home/bitbrain/bzcai/anaconda3/bin
 pushd ./
 rm -rf build && mkdir -p build && cd build
-cmake -DCMAKE_BUILD_TYPE="Debug"   \
-    -DTHINKER_SHARED_LIB=ON        \
-    -DTHINKER_PROFILE=OFF          \
-    -DTHINKER_DUMP=OFF             \
-    -DTHINKER_USE_VENUS=ON         \
+cmake -DCMAKE_BUILD_TYPE="Debug"    \
+    -DARCH="x86_64"                 \
+    -DTHINKER_SHARED_LIB=ON         \
+    -DTHINKER_PROFILE=OFF           \
+    -DTHINKER_RESULT_DUMP=ON       \
+    -DTHINKER_RESULT_CRC_PRINT=OFF  \
+    -DTHINKER_RESOUCR_CRC_CHECK=OFF \
+    -DTHINKER_USE_VENUS=OFF         \
+    -DTHINKER_USE_ARCS=OFF          \
+    -DTHINKER_USE_VENUSA=ON         \
+    -DTHINKER_USE_MOSS=OFF          \
+    -DTHINKER_CHECK_PLATFORM=ON     \
     ..
 
 # make VERBOSE=1 -j16
 make -j16
-popd
-
-pushd ./
-rm -rf dist/*
-python setup.py sdist
-
-pip install dist/pythinker*.tar.gz
 popd

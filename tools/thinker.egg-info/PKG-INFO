@@ -1,0 +1,18 @@
+Metadata-Version: 2.4
+Name: thinker
+Version: 3.0.2
+Summary: A DeepLearning inference framework for venus
+Home-page: https://github.com/LISTENAI/thinker
+Author: thinker
+Author-email: leifang@listenai.com
+Classifier: Operating System :: OS Independent
+Classifier: Intended Audience :: Developers and Researchers
+Classifier: License :: OSI Approved :: Apache Software License
+Classifier: Programming Language :: Python
+Requires-Dist: onnx
+Dynamic: author
+Dynamic: author-email
+Dynamic: classifier
+Dynamic: home-page
+Dynamic: requires-dist
+Dynamic: summary

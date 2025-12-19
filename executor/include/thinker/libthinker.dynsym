@@ -1,0 +1,37 @@
+VER_3.0{
+global:
+    tGetVersion;
+	tInitialize;
+    tUninitialize;
+    tGetMemoryPlan;
+    tModelInit;
+    tModelFini;
+    tGetInputCount;
+    tGetInputInfo;
+    tGetInputName;
+    tGetOutputCount;
+    tGetOutputName;
+    tGetInputDataType;
+    tGetOutputDataType;
+    tGetInputShape;
+    tGetOutputShape;
+    tCreateExecutor;
+    tReleaseExecutor;
+    tSetInput;
+    tSetInputByName;
+    tGetOutput;
+    tGetOutputByName;
+    tForward;
+    tUpdateShape;
+    thinkerGetApi;
+    tExecutorStart;
+    tExecutorStop;
+#if THINKER_USE_MTQ
+    tGetLunaListSize;
+    tBuildLunaList;
+    tSubLunaList;
+    tGetListResult;
+#endif
+
+local:*;
+};
