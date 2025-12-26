@@ -1,4 +1,4 @@
-![logo](thinker/docs/images/Thinker_logo.png)
+![logo](docs/images/Thinker_logo.png)
 
 #### English | [简体中文](./README.md)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/thinker.svg)](https://pypi.org/project/thinker)
@@ -8,60 +8,89 @@
 [![LICENSE](https://img.shields.io/github/license/thinker-ai/thinker.svg?style=flat-square)](https://github.com/LISTENAI/thinker/blob/main/LICENSE)
 
 # Welcome to the Thinker GitHub
-* Thinker is based on the AIOT chip CSK60XX independently developed by LISTENAI Technology, combined with another open source quantitative training tool, Linger, can implement an industrial-grade deep learning platform, integrating a deep learning quantitative training and inference framework, LUNA device library, and rich tool components.
-* Thinker helps developers quickly launch AI services on the VENUS chip, helping more and more AIOT products to achieve AI empowerment and realize industrial intelligent upgrades. At present, the linger+thinker tool chain has supported more than 10 AI applications of linger chips in the fields of computer vision, voice wake-up, speech recognition, offline translation, etc.
+Thinker is a lightweight neural network inference framework developed by LISTENAI Technology, combined with the quantization training tool Linger. It provides a complete deep learning platform solution for the Venus, Arcs, and VenusA series chips from LISTENAI. The platform integrates multiple functional modules including quantization training, graph optimization, device adaptation, performance evaluation, result verification, engine inference, and high-performance device libraries, supporting rapid deployment of deep learning algorithms in fields such as computer vision, voice wake-up, speech recognition, and natural language understanding.
 ***
 
 ## Frame Features:
-![thinker/docs/images/struct.png](thinker/docs/images/struct.png)
-### 1. Ultra-lightweight
-As shown in the above framework diagram, the Thinker framework contains two parts: offline analysis tool and engine executor The offline analysis tool contains most of the computational graph pre-processing part, including graph fusion, graph optimization and graph adaptation functions, simulating the executor functions, allocating memory in advance, and stripping the non-computational part of the executor functions as much as possible. The engine executor is mainly responsible for the computational part and other auxiliary debugging functions (optional). The code is streamlined and implemented in pure C language without any dependencies, and it can be easily deployed to CSKXX devices with basically no modifications using the research sample demos.
+![thinker/docs/images/struct.png](docs/images/struct.png)
+### 1. Ultra-lightweight Executor
+- The inference part is divided into offline tools and engine executors, stripping non-computation-related operations.
+- The offline tool tpacker simplifies the computation graph, adapts it to the target platform, and analyzes runtime memory.
+- The executor parses the output of tpacker and executes it in the planned order without additional operations.
+- The executor is implemented in pure C language with full static memory management and no third-party dependencies.
 
 ### 2. Generality
-For regular CV models, after linger's quantization training to export computational graphs, one key package is deployed. It supports multiple input and multiple output computation graphs, dynamic input (variable input size), and 32 common quantization operators in CV models, see the operator [support list](./thinker/docs/support_quant_ops.md) for details.
+- Supports multiple deep learning model structures: images, speech, MLP, attention, transformers, etc.
+- Supports multi-input and multi-output ONNX quantized computation graphs with dynamic shapes.
+- Supports multiple LISTENAI chip platforms, with platform information included in quantization training and switched via macros in the compilation script.
+- Supports 32 common quantization operators (see the operator support list for details).
 
-### 3. High Performance
-The engine actuator is specially adapted for the VENUS architecture of CSK60XX, integrating the LUNA library for core computing, giving full play to the arithmetic power of LUNA by handwriting custom instruction codes, and running common CV models under single thread can approach the peak arithmetic power of the device. The thinker+linger tool chain supports full low-precision computation (int8/int16) to improve inference performance, and adapts the relevant instructions. Compared to floating-point models, quantized models can reduce the number of parameters by 50%-75%, speeding up data access and improving computing efficiency.
-***
+### 3. Usability
+- Rich offline toolset:  
+  Use tpacker to set input/output nodes for subgraph splitting.  
+  tpacker automatically adapts to target devices, requiring only the computation graph path in simple cases.
+- Result comparison:  
+  Use the offline tool tvalidator to align training and simulation results without manual comparison.  
+  Simulation results are bit-level aligned with chip results.   
+  CRC32 comparison can be enabled via compilation script (set THINKER_RESULT_CRC_PRINT true).
+- The offline tool tprofile evaluates algorithm performance through software simulation.
+
+### 4. High Performance
+- Achieves full model quantization (activation int8, parameters int4/int8/int16) via Linger, reducing parameter size by 12.5%-50% and transmission time.
+- Uses DMA pre-fetching and parallel computation strategies to improve inference efficiency.
+- Integrates high-performance device libraries optimized for chip architectures and memory configurations, with custom instruction codes enhancing computing power.
 
 ## Quick Start
-The Linger tool chain includes Linger and Thinker, which are interlinked and must be used jointly; Thinker relies on Linger's computational graph export, and both use the same standard library of operators.
-The entire tool chain is used throughout the life cycle of the model landing and can be roughly divided into six phases.
-### 1. Tool chain installation
-- [pip installation](./thinker/docs/thinker_environment.md)
-- [Source code compilation and installation](./thinker/docs/thinker_build.md)
-- [docker ( linger + thinker ) ](./thinker/docs/thinker_docker.md)
+Thinker and Linger are interconnected and must be used together. The toolchain covers the entire model deployment lifecycle and is divided into the following stages:
+### 1.  Development Environment Setup
+- [Virtual Environment Setup](./thinker/docs/thinker_environment.md)
+- [Source Code Compilation & Installation](./thinker/docs/thinker_build.md)
+- [Docker Image (includes Linger and Thinker)](./thinker/docs/thinker_docker.md)
 
-### 2. Model design
+### 2. Model Design
 After finishing the model structure design, algorithm researchers use random initialization parameters to go through the linger+thinker tool chain, which evaluates the model's parameter adaptability, memory consumption and running efficiency to avoid design rework later on when the application needs are not met.
 
 * [Example Tutorial 2](./thinker/docs/thinker_docker.md)
 
-### 3. Quantitative training and export of models
+### 3. Model Quantization Training & Export
 Linger is a plug-in for pytorch and can be imported with one click. Linger uses QAT quantization, which is completely or basically lossless for CV models. After the quantization training is completed, the model can be exported with a single click using its own tools.
-* [Example Tutorial 3](./thinker/docs/thinker_docker.md)
+* [Example Tutorial 3](./docs/thinker_docker.md)
 
-### 4. Model analysis and packaging
+### 4. Model Analysis & Packing
 Parameter checking of the computational graph, computational graph optimization and memory analysis checking using Thinker's offline tool tpacker. Finally, the computational graph is serialized into the format required by the engine executor and the runtime memory is pre-allocated.
-* [Example Tutorial 4](./thinker/docs/thinker_packer.md)
+* [Example Tutorial 4](./docs/thinker_packer.md)
 
-### 5. Inference execution
+### 5. Simulation Platform Compilation
 Directly load resources serialized by offline tools. Implement computational graphs on VENUS chips with few or even zero modifications.
-* [Example Tutorial 5](./thinker/docs/thinker_run.md)
+* [Example Tutorial 5](./docs/thinker_run.md)
 
-### 6. Auxiliary Functions
+### 6. Simulation Platform Execution & Result Comparison
 View operator performance statistics and intermediate result data
-  * [Example Tutorial 6](./thinker/docs/thinker_performance.md)
+* [Example Tutorial 6](./docs/thinker_performance.md)
+
+### 7. Chip Platform Compilation
+Add the Thinker module to the base project (copy the executor directory and rename it to thinker).
+
+### 8. Chip Platform Execution & Result Comparison
+After compilation, burn and run. Use CRC32 comparison for intermediate results via compilation macros.
+
+### 9. Performance Evaluation Tools
+tprofile evaluates chip performance offline.
+[Usage & Examples](./docs/thinker_profile.md)
+
+### 10. Auxiliary Functions
+View operator performance statistics and intermediate data.
+Auxiliary Tools
 
 ***
 ## Ability Demonstration
-  * [API Interface](./thinker/docs/thinker_api.md)
-  * [Support quantization OP list and restriction description](./thinker/docs/support_quant_ops.md)
+  * [Thinker API](./docs/thinker_api.md)
+  * [Supported Quantization Operators & Limitations](./docs/support_quant_ops.md)
 ***  
 
 ## Communication and Feedback
-* Welcome to submit bugs and suggestions through Github Issues
-* Technical Exchange WeChat Group  
+* Submit bugs and suggestions via GitHub Issues
+* Join the technical discussion WeChat group  
 ***  
 
 ## Citation

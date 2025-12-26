@@ -63,11 +63,10 @@ def Conv1dInt_weight_rearrange(
     """
     kernel_num = weight.shape[0]
     kernel_c = weight.shape[1]
-    kernel_h = weight.shape[2]
-    stride_h = strides[0]
-    stride_w = strides[1] if len(strides) == 2 else 1
-    
-    assert kernel_h == kernels[0]
+    kernel_h = 1
+    kernel_w = weight.shape[2]
+    stride_h = 1
+    stride_w = strides[0]
     
     if weight.layout not in {Layout.NCHW, Layout.NCWH}:
         return weight
@@ -79,11 +78,11 @@ def Conv1dInt_weight_rearrange(
             if group == kernel_num:
                 assert kernel_c == 1
                 num_output_align = ALIGN8(kernel_num)
-                kernel_size = num_output_align * kernel_h
+                kernel_size = num_output_align * kernel_h * kernel_w
                 group = num_output_align
                 assert kernel_size * weight.dtype.itemsize <= 8192, "kernel size of Conv1dInt must be less than 8KB"
 
-                new_weight_data = np.zeros((num_output_align, 1, kernel_h), weight.dtype)
+                new_weight_data = np.zeros((num_output_align, 1, kernel_w), weight.dtype)
                 for p in range(kernel_num):
                     new_weight_data[p, :, :] = weight.data[p, :, :]
 
@@ -103,13 +102,13 @@ def Conv1dInt_weight_rearrange(
             num_output_align = ALIGN2(kernel_num)
             num_input_align = ALIGN8(kernel_c)
 
-            new_weight_data = np.zeros((num_output_align, num_input_align, kernel_h), weight.dtype)
+            new_weight_data = np.zeros((num_output_align, num_input_align, kernel_w), weight.dtype)
             for p in range(kernel_num):
                 for q in range(kernel_c):
                     new_weight_data[p, q, :] = weight.data[p, q, :]
 
             new_weight_data = new_weight_data.transpose(0, 2, 1)
-            new_weight_data = new_weight_data.reshape(-1, 2, kernel_h, num_input_align)
+            new_weight_data = new_weight_data.reshape(-1, 2, kernel_w, num_input_align)
             new_weight_data = new_weight_data.transpose(0, 2, 1, 3)
             shape = new_weight_data.shape
             new_weight_data = new_weight_data.reshape(shape[0], shape[1], shape[2], -1, 8)

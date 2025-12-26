@@ -17,7 +17,7 @@ class LayoutPerfData:
         self.outputs_layout = []
 
 
-class BaseLayout:
+class BaseLayout(object):
     """Base class for layout optimization and performance analysis."""
     
     def get_layout_perf_venus(self, dynamic_shape) -> List[LayoutPerfData]:

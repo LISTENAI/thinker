@@ -14,7 +14,7 @@ thinker是聆思科技开发的轻量级神经网络推理框架，结合量化�
 ## 框架特点
 ![thinker/docs/images/struct.png](docs/images/struct-CH.png)
 ### 1. 超轻量执行器
-  推理部分分为离线工具和引擎执行器，剥离与计算无关操作
+  推理部分分为离线工具包和引擎执行器，将推理计算与非计算模块剥离，提升执行操作
 * 离线组件tpacker负责简化计算图，适配目标平台和分析运行内存
 * 执行器解析tpacker输出的资源，按规划顺序执行，无需额外操作
 * 执行器代码采用纯C语言实现，全静态内存管理，无第三方依赖
@@ -45,7 +45,9 @@ thinker与linger相互衔接，必须配合使用。整个工具链贯穿模型�
 ### 1. 开发环境配置            
 - [虚拟环境构建](./docs/thinker_environment.md)
 - [源码编译安装](./docs/thinker_build.md)
-- [docker镜像](./docs/thinker_docker.md)(包含了linger和thinker)
+- [docker镜像](./docs/thinker_docker.md)
+
+源码和docker镜像二选一
 ### 2. 模型设计阶段
   算法研究人员在完成模型结构设计后，使用随机初始化参数过一遍linger+thinker工具链，评估参数可适配性、内存占用和运行效率，避免后期返工
   

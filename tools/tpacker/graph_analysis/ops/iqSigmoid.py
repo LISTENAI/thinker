@@ -13,9 +13,11 @@ class iqSigmoid(Operator):
         """Infer the output tensor shape and properties based on inputs."""
         inputs = self.inputs
         assert len(inputs) == 1, "iqSigmoid operator must have exactly one input"
+        platform = self.attrs.get("platform", "venus")
 
         X = inputs[0]
-        assert X.dtype == np.int16, "input data type of iqSigmoid must be int16"
+        if platform == "venus":
+            assert X.dtype == np.int16, "input data type of iqSigmoid must be int16"
         # Process input scale
         scale_x = self.attrs.get("scale_x")
         temp = math.log(scale_x, 2)

@@ -24,7 +24,7 @@
 tStatus relu_luna(tTensor *X, tTensor *Y, tTensor *Workspace) 
 {
 	int32_t ret = T_ERR_NO_IMPLEMENTED;
-  uint32_t size = getShapeSize(&(X->shape_));
+  uint32_t total_size = getShapeSize(&(X->shape_));
   uint32_t workspace_size = Workspace ? getShapeSize(&(Workspace->shape_)) : 0;
   int32_t shift = Y->scale_ - X->scale_;
   bool srcInPSRAM = (X->mem_.type_ != 2);
@@ -35,21 +35,30 @@ tStatus relu_luna(tTensor *X, tTensor *Y, tTensor *Workspace)
     int8_t *dst   = (int8_t *)Y->dptr_;
 
     // Helper function to handle data type conversions and memory management
-    if (srcInPSRAM) { // X is psram
-      ret = API_LIB(memcpy_i8o8)((int8_t *)Workspace->dptr_, src, size);
-      if (size > workspace_size)
-        return T_ERR_NO_WORKSPACE;
-      src = (int8_t *)Workspace->dptr_;
+    if (!dstInPSRAM) { // dst in share-memory
+      int8_t *src_temp = src;
+      if (srcInPSRAM) {
+        ret = API_LIB(memcpy_i8o8)((int8_t *)dst, src, total_size);
+        src_temp = (int8_t *)dst;
+      }
+      ret = API_LIB(relu_i8o8)(src_temp, dst, total_size, shift);
     }
-    if (dstInPSRAM) {
-      if (size > workspace_size)
-        return T_ERR_NO_WORKSPACE;
-      dst = (int8_t *)Workspace->dptr_;
-    }
-
-    ret = API_LIB(relu_i8o8)(src, dst, size, shift);
-    if (dstInPSRAM) {
-    	opi_psram_cpy_out((int8_t *)Y->dptr_, dst, size);
+    else {
+      int32_t  past_size = 0;
+      while (past_size < total_size)
+      {
+          int32_t remain_size = total_size - past_size;
+          int32_t cur_size = workspace_size < remain_size ? workspace_size : remain_size;
+          int8_t *src_temp = src;
+          if (srcInPSRAM) {
+            int8_t *src_temp = (int8_t *)Workspace->dptr_;
+            ret = API_LIB(memcpy_i8o8)((int8_t *)src_temp, src + past_size, cur_size);
+          }
+          dst = (int8_t *)Workspace->dptr_;
+          ret = API_LIB(relu_i8o8)(src_temp, dst, cur_size, shift);
+          opi_psram_cpy_out((int8_t *)Y->dptr_ + past_size, dst, cur_size);
+          past_size += cur_size;
+      }
     }
   }
   else if (Int8 == X->dtype_ && Int16 == Y->dtype_) {

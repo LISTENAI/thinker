@@ -5,7 +5,7 @@ this_package_name="thinker"
     
 setup(
 	name=this_package_name,
-	version="3.0.2",
+	version="3.0.3",
 	description="A DeepLearning inference framework for venus",
 	author="thinker",
 	author_email="leifang@listenai.com",

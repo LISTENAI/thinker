@@ -21,20 +21,13 @@ class LinearIntAttrs(OperatorAttrs):
             quant_type = RoundMethod.from_str(self.attrs.get("quant_mode"))
         elif platform == "venus":
             quant_type = QuantType.from_str(self.attrs.get("platform_quant"))
-        
-        self.attrs.update({
-            "transA": self.attrs.get("transA", 0),
-            "transB": self.attrs.get("transB", 1),
-            "alpha": self.attrs.get("alpha", 1.0),
-            "beta": self.attrs.get("beta", 0.0),
-            "quant_mode": quant_type
-        })
+        self.attrs['quant_mode'] = quant_type
 
     def serialize(self) -> bytes:
         """Serialize the attributes into bytes for the LinearInt operation."""
         attrs = tffi.new("LinearIntAttrs *")
-        attrs.transA = self.attrs["transA"]
-        attrs.transB = self.attrs["transB"]
+        attrs.transA = 0
+        attrs.transB = 0
         attrs.quant_type = self.attrs["quant_mode"].value
         return bytes(tffi.buffer(attrs))
 
@@ -82,14 +75,7 @@ class LinearInt(Operator):
         self.outputs[0].scale = int(temp)
 
         # Check shape compatibility based on transpose flags
-        if not self.attrs["transA"] and self.attrs["transB"]:
-            assert x_w == w_shape[-1], f"x_w:{x_w} and w_shape[-1]:{w_shape[-1]}"
-        elif self.attrs["transA"] and self.attrs["transB"]:
-            assert x_h == w_shape[-1], f"x_h:{x_h} and w_shape[-1]:{w_shape[-1]}"
-        elif not self.attrs["transA"] and not self.attrs["transB"]:
-            assert x_w == w_shape[-2], f"x_w:{x_w} and w_shape[0]:{w_shape[0]}"
-        else:
-            assert x_h == w_shape[0], f"x_h:{x_h} and w_shape[0]:{w_shape[0]}"
+        assert x_w == w_shape[-1], f"x_w:{x_w} and w_shape[-1]:{w_shape[-1]}"
 
         # Determine output shape based on input dimensions
         if len(X.shape) == 1:
@@ -194,24 +180,21 @@ class LinearInt(Operator):
 
     def pack_params(self):
         """Pack the parameters for the LinearInt operation, handling weight quantization."""
-        transA = self.attrs["transA"]
-        transB = self.attrs["transB"]
         weight_bits = self.attrs["parameter_bits"]
         weight_data = self.inputs[1].data
         layout = self.inputs[1].layout
+        shape       = weight_data.shape
         platform = self.attrs.get("platform", "venus")
 
+        new_weight_data = weight_data.transpose(1, 0)
+        shape = new_weight_data.shape
         if platform in {"arcs", "venusA"}:
-            assert not transA and transB
             if weight_bits == 4:
-                weight_data = combine4bit_8bit(weight_data)
-            self.inputs[1].update(data=weight_data, shape=weight_data.shape, bits=np.float32(weight_bits / 8), layout=layout)
+                new_weight_data = combine4bit_8bit(new_weight_data)
+            self.inputs[1].update(data=new_weight_data, shape=shape, bits=np.float32(weight_bits / 8), layout=layout)
         elif platform == "venus":
-            if transB:
-                weight = self.inputs[1]
-                if layout == Layout.NCHW:
-                    weight_data = weight_data.transpose(1, 0)
-                    self.inputs[1].update(data=weight_data, shape=weight_data.shape, layout=Layout.NCWH)
+            if layout == Layout.NCHW:
+                self.inputs[1].update(data=new_weight_data, shape=shape, layout=Layout.NCWH)
 
     def flops_counter(self, dynamic_shape) -> int:
         """Calculate the number of floating-point operations (FLOPs) for the LinearInt operation."""

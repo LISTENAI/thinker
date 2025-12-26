@@ -109,17 +109,16 @@ def op_split(ori_graph: Graph, set_out_dev: bool = False, is_dump: bool = False,
             out = node.outputs[0].tensor
 
             ch_in = data.shape[1]
-            h_in = calc_expr(str(data.shape[2]), graph.dynamic_args_max) if is_sympy(data.shape[2]) else data.shape[2]
-            w_in = data.shape[3] if len(data.shape)== 4 else 1
+            h_in = 1
+            w_in = calc_expr(str(data.shape[2]), graph.dynamic_args_max) if is_sympy(data.shape[2]) else data.shape[2]
 
             kernel_n = weight.shape[0]
             kernel_c = weight.shape[1]
-            kernel_h = weight.shape[2]
-            kernel_w = weight.shape[3] if len(weight.shape) == 4 else 1
-
+            kernel_h = 1
+            kernel_w = weight.shape[2]
             ou_c = out.shape[1]
-            ou_h = calc_expr(str(out.shape[2]), graph.dynamic_args_max) if is_sympy(out.shape[2]) else out.shape[2]
-            ou_w = out.shape[3] if len(out.shape) == 4 else 1
+            ou_h = 1
+            ou_w = calc_expr(str(out.shape[2]), graph.dynamic_args_max) if is_sympy(out.shape[2]) else out.shape[2]
             # group conv1d
             if (1 != group) and (group != kernel_n):
                 raise AssertionError("Group Conv1dInt not supported!")
@@ -128,50 +127,51 @@ def op_split(ori_graph: Graph, set_out_dev: bool = False, is_dump: bool = False,
                 if platform == "venus":
                     aligned_kernel = ALIGN16(kernel_n) * kernel_h * kernel_w
                     split_data_size_align = ALIGN8(ch_in) * kernel_h * ((w_in + 8 * stride_w - 1) // (8 * stride_w)) * (8 * stride_w)
-                    data_threshold = 65536
-                    kernel_limit = max(32768, threshold1)
+                    data_limit = 65536
+                    kernel_limit = min(32768, threshold1)
                     out_limit = max(65536, threshold2)
                 elif platform == "arcs":
                     aligned_kernel = ALIGN8(kernel_n) * kerrnel_h * kernel_w
                     split_data_size_align = ALIGN8(ch_in) * kernel_h * ((w_in + 4 * stride_w - 1) // (4 * stride_w)) * (4 * stride_w)
-                    data_threshold = 16384
+                    data_limit = 16384
                     kernel_limit = max(8192, threshold1)
                     out_limit = max(32768, threshold2)
                 else:
                     aligned_kernel = ALIGN8(kernel_n) * ALIGN2(kernel_h) * kernel_w
                     split_data_size_align = ALIGN4(ch_in) * kernel_h * ((w_in + 8 * stride_w - 1) // (8 * stride_w)) * (8 * stride_w)
-                    data_threshold = 32768
+                    data_limit = 32768
                     kernel_limit = max(32768, threshold1)
                     out_limit = max(65536, threshold2)
                 split_out_size = ou_c * ou_w * kernel_h
 
-                assert split_data_size_align <= data_threshold and aligned_kernel <= kernel_limit, \
+                assert split_data_size_align <= data_limit and aligned_kernel <= kernel_limit, \
                 "input size of depthwiseConv1d cannot exceed limit"
             # common conv1d
             else:
+                aligned_kernel_without_cout = ALIGN8(ch_in) * kernel_h * kernel_w
                 if platform == "venus":
-                    aligned_kernel = ALIGN2(kernel_n) * ALIGN8(ch_in) * kernel_h * kernel_w
-                    split_data_size_align = ALIGN8(ch_in) * kernel_h * ((w_in + 8 * stride_w - 1) // (8 * stride_w)) * (8 * stride_w)
-                    data_threshold = 65536
-                    kernel_limit = max(32768, threshold1)
+                    aligned_kernel = ALIGN2(kernel_n) * aligned_kernel_without_cout
+                    align_input_without_h = ALIGN8(ch_in) * ((w_in + 8 * stride_w - 1) // (8 * stride_w)) * (8 * stride_w)
+                    data_limit = 65536
+                    kernel_limit = min(32768, threshold1)
                     out_limit = max(65536, threshold2)
                 elif platform == "arcs":
-                    aligned_kernel = ALIGN2(kernel_n) * ALIGN8(ch_in) * kernel_h * kernel_w
-                    split_data_size_align = ALIGN8(ch_in) * kernel_h * ((w_in + 4 * stride_w - 1) // (4 * stride_w)) * (4 * stride_w)
-                    data_threshold = 16384
+                    aligned_kernel = ALIGN2(kernel_n) * aligned_kernel_without_cout
+                    align_input_without_h = ALIGN8(ch_in) * ((w_in + 4 * stride_w - 1) // (4 * stride_w)) * (4 * stride_w)
+                    data_limit = 16384
                     kernel_limit = max(8192, threshold1)
                     out_limit = max(32768, threshold2)
                 else:
-                    aligned_kernel = ALIGN4(kernel_n) * ALIGN8(ch_in) * kernel_h * kernel_w
-                    split_data_size_align = ALIGN8(ch_in) * kernel_h * ((w_in + 8 * stride_w - 1) // (8 * stride_w)) * (8 * stride_w)
-                    data_threshold = 65536
+                    aligned_kernel = ALIGN4(kernel_n) * aligned_kernel_without_cout
+                    align_input_without_h = ALIGN8(ch_in) * ((w_in + 8 * stride_w - 1) // (8 * stride_w)) * (8 * stride_w)
+                    data_limit = 65536
                     kernel_limit = max(32768, threshold1)
                     out_limit = max(65536, threshold2)
-                split_out_size = ou_c * ou_w
+                out_without_h = ou_c * ou_w
+                assert align_input_without_h <= data_limit, "input size of conv1dInt exceeds the size limit."
 
-                if aligned_kernel <= kernel_limit and split_out_size <= out_limit:
+                if aligned_kernel <= kernel_limit and out_without_h * ou_h <= out_limit:
                     continue
-                flag = _sort_nodes(graph, node.outputs)
 
                 out_size_without_cout   = ou_h * ou_w
                 kernel_size_without_cout  = ALIGN8(ch_in) * kernel_h * kernel_w
@@ -183,6 +183,19 @@ def op_split(ori_graph: Graph, set_out_dev: bool = False, is_dump: bool = False,
                     channel_out_max = min(channel_out_max, (out_limit // out_size_without_cout) & 0xFFFFFFFC)
 
                 split_num   = math.ceil(kernel_n / channel_out_max)  
+
+                if platform in {"venus", "arcs"}:
+                    channel_out_mean = ALIGN2(ou_c // split_num)
+                    while((channel_out_mean + 2) * kernel_size_without_cout <= kernel_limit
+                    and ((channel_out_mean + 2) * ou_w <= out_limit)):
+                        channel_out_mean += 2
+                else:
+                    channel_out_mean = ALIGN4(ou_c // split_num)
+                    while((channel_out_mean + 4) * kernel_size_without_cout <= kernel_limit
+                    and ((channel_out_mean + 4) * ou_w <= out_limit)):
+                        channel_out_mean += 4
+                channel_out_real = channel_out_mean
+
 
                 if split_num == 1:
                     continue
@@ -205,24 +218,22 @@ def op_split(ori_graph: Graph, set_out_dev: bool = False, is_dump: bool = False,
                         if 1 == i:
                             weight_data = node.inputs[i].data
                             if g == split_num - 1:
-                                new_entry.data = weight_data[g * channel_out_max : weight.shape[0]]
+                                new_entry.data = weight_data[g * channel_out_real : weight.shape[0]]
                             else:
-                                new_entry.data = weight_data[g * channel_out_max : (g + 1) * channel_out_max]
+                                new_entry.data = weight_data[g * channel_out_real : (g + 1) * channel_out_real]
                             new_entry.tensor.shape = tuple(new_entry.data.shape)
                         elif 2 == i:
                             bias_data = node.inputs[i].data
                             if g == split_num - 1:
-                                new_entry.data = bias_data[g * channel_out_max : bias_data.shape[0]]
+                                new_entry.data = bias_data[g * channel_out_real : bias_data.shape[0]]
                             else:
-                                new_entry.data = bias_data[g * channel_out_max : (g + 1) * channel_out_max]
+                                new_entry.data = bias_data[g * channel_out_real : (g + 1) * channel_out_real]
                             new_entry.tensor.shape = tuple(new_entry.data.shape)
                         conv_split_node.inputs[i] = new_entry
                         graph.add_entry(new_entry)
 
                     conv_split_out = node.outputs[0].clone()
                     conv_split_out.name += "_{}_{}".format(node.name, g)
-                    if flag & set_out_dev:
-                        conv_split_out.tensor.mem_type = MemType.PSRAM
                     conv_split_node.outputs[0] = conv_split_out
                     graph.add_entry(conv_split_out)
                     add_node_list.append(conv_split_node)
@@ -264,88 +275,93 @@ def op_split(ori_graph: Graph, set_out_dev: bool = False, is_dump: bool = False,
             elif 1 != group and group == kernel_n:
                 if platform == "venus":
                     aligned_kernel = ALIGN16(kernel_n) * kernel_h * kernel_w
-                    split_data_size_align = ALIGN8(ch_in) * kernel_h * ((w_in + 8 * stride_w - 1) // (8 * stride_w)) * (8 * stride_w)
-                    data_threshold = 65536
+                    align_input_without_h = ALIGN8(ch_in) * ((w_in + 8 * stride_w - 1) // (8 * stride_w)) * (8 * stride_w)
+                    data_limit = 65536
                     kernel_limit = max(32768, threshold1)
                     out_limit = max(65536, threshold2)
                 elif platform == "arcs":
                     aligned_kernel = ALIGN8(kernel_n) * kernel_h * kernel_w
-                    split_data_size_align = ALIGN8(ch_in) * kernel_h * ((w_in + 4 * stride_w - 1) // (4 * stride_w)) * (4 * stride_w)
-                    data_threshold = 16384
+                    align_input_without_h = ALIGN8(ch_in) * ((w_in + 4 * stride_w - 1) // (4 * stride_w)) * (4 * stride_w)
+                    data_limit = 16384
                     kernel_limit = max(8192, threshold1)
                     out_limit = max(32768, threshold2)
                 else:
                     aligned_kernel = ALIGN8(kernel_n) * ALIGN2(kernel_h) * kernel_w
-                    split_data_size_align = ALIGN4(ch_in) * kernel_h * ((w_in + 8 * stride_w - 1) // (8 * stride_w)) * (8 * stride_w)
-                    data_threshold = 32768
+                    align_input_without_h = ALIGN4(ch_in) * ((w_in + 8 * stride_w - 1) // (8 * stride_w)) * (8 * stride_w)
+                    data_limit = 32768
                     kernel_limit = max(32768, threshold1)
                     out_limit = max(65536, threshold2)
                 # data_size_align_min         = split_data_size_align * kernel_h
 
-                assert split_data_size_align <= data_threshold and aligned_kernel <= kernel_limit, "min h_in of depthwiseConv2d must not exceed limit"
+                align_input_without_h = calc_expr(str(align_input_without_h), graph.dynamic_args_max) if is_sympy(align_input_without_h) else align_input_without_h
+                assert align_input_without_h * kernel_h <= data_limit, "Splitting into the smallest in_h of depthwiseConv2d must not exceed limit."
+                assert aligned_kernel <= kernel_limit, "The aligned kernel_size should not exceed hardware constraints."
 
             # common convolution
             else:
                 if platform == "venus":
                     aligned_kernel = ALIGN2(kernel_n) * ALIGN8(ch_in) * kernel_h * kernel_w
-                    split_data_size_align = ALIGN8(ch_in) * ((w_in + 8 * stride_w - 1) // (8 * stride_w)) * (8 * stride_w)
-                    data_threshold = 65536
-                    kernel_limit = max(32768, threshold1)
+                    align_input_without_h = ALIGN8(ch_in) * ((w_in + 8 * stride_w - 1) // (8 * stride_w)) * (8 * stride_w)
+                    data_limit = 65536
+                    kernel_limit = min(32768, threshold1) # Venus only supports external splitting
                     out_limit = max(65536, threshold2)
                 elif platform == "arcs":
                     aligned_kernel = ALIGN2(kernel_n) * ALIGN8(ch_in) * kernel_h * kernel_w
-                    split_data_size_align = ALIGN8(ch_in) * ((w_in + 4 * stride_w - 1) // (4 * stride_w)) * (4 * stride_w)
-                    data_threshold = 16384
+                    align_input_without_h = ALIGN8(ch_in) * ((w_in + 4 * stride_w - 1) // (4 * stride_w)) * (4 * stride_w)
+                    data_limit = 16384
                     kernel_limit = max(8192, threshold1)
                     out_limit = max(32768, threshold2)
                 else:
                     aligned_kernel = ALIGN4(kernel_n) * ALIGN8(ch_in) * kernel_h * kernel_w
-                    split_data_size_align = ALIGN8(ch_in) * ((w_in + 8 * stride_w - 1) // (8 * stride_w)) * (8 * stride_w)
-                    data_threshold = 65536
+                    align_input_without_h = ALIGN8(ch_in) * ((w_in + 8 * stride_w - 1) // (8 * stride_w)) * (8 * stride_w)
+                    data_limit = 65536
                     kernel_limit = max(32768, threshold1)
                     out_limit = max(65536, threshold2)
                 out_size = ou_c * ou_h * ou_w
-
-                assert split_data_size_align * kernel_h <= data_threshold, "min h_in of conv2d must not exceed limit!"
+                out_size = calc_expr(str(out_size), graph.dynamic_args_max) if is_sympy(out_size) else out_size
+                align_input_without_h = calc_expr(str(align_input_without_h), graph.dynamic_args_max) if is_sympy(align_input_without_h) else align_input_without_h
+                assert align_input_without_h * kernel_h <= data_limit, "Splitting into the smallest in_h of Conv2d must not exceed limit."
                 if aligned_kernel <= kernel_limit and out_size <= out_limit:
-                    continue   
-                
-                kernel_size_without_cout  = ALIGN8(ch_in) * kernel_h * kernel_w
-                channel_out_max = ou_c
-                if aligned_kernel > kernel_limit:
-                    if platform in {"venus", "arcs"}:
-                        channel_out_max = (kernel_limit // kernel_size_without_cout) & 0xFFFFFFFE
-                    else:
-                        channel_out_max = (kernel_limit // kernel_size_without_cout) & 0xFFFFFFFC
+                    continue
 
                 split_h_out_max = ou_h
-                split_out_size = channel_out_max * ou_w * ou_h
-                if split_data_size_align * h_in > data_threshold:
-                    split_h_in_max  = data_threshold // split_data_size_align
+                split_out_size = out_size
+                if align_input_without_h * h_in > data_limit:
+                    split_h_in_max  = data_limit // align_input_without_h
                     split_h_out_max = max((split_h_in_max - kernel_h - pads[0] + stride_h)  // stride_h, 1)
-                    split_out_size = channel_out_max * ou_w * split_h_out_max
+                    split_out_size = ou_c * ou_w * split_h_out_max
 
+                channel_out_max = ou_c
                 if split_out_size > out_limit:
                     if platform in {"venus", "arcs"}:
-                        channel_out_max = min(channel_out_max, (out_limit // (ou_w * split_h_out_max)) & 0xFFFFFFFE)
+                        channel_out_max = (out_limit // (ou_w * split_h_out_max)) & 0xFFFFFFFE
                     else:
-                        channel_out_max = min(channel_out_max, (out_limit // (ou_w * split_h_out_max)) & 0xFFFFFFFC)
+                        channel_out_max = (out_limit // (ou_w * split_h_out_max)) & 0xFFFFFFFC
+
+                aligned_kernel_without_cout  = ALIGN8(ch_in) * kernel_h * kernel_w
+                if aligned_kernel > kernel_limit:
+                    if platform in {"venus", "arcs"}:
+                        channel_out_max = min((kernel_limit // aligned_kernel_without_cout) & 0xFFFFFFFE, channel_out_max)
+                    else:
+                        channel_out_max = min((kernel_limit // aligned_kernel_without_cout) & 0xFFFFFFFC, channel_out_max)
 
                 split_num   = math.ceil(kernel_n / channel_out_max)
 
                 if split_num == 1:
                     continue
                 
-                channel_out_mean = ALIGN4(math.ceil(ou_c / split_num))
-                while((math.floor((channel_out_mean * ALIGN8(ch_in) * kernel_h * kernel_w) / 32768) + 1) != 
-                math.floor(((channel_out_mean + 4) * ALIGN8(ch_in) * kernel_h * kernel_w) / 32768)):
-                    channel_out_mean += 4
+                if platform in {"venus", "arcs"}:
+                    channel_out_mean = ALIGN2(ou_c // split_num)
+                    while((channel_out_mean + 2) * aligned_kernel_without_cout <= kernel_limit
+                    and ((channel_out_mean + 2) * ou_w * split_h_out_max <= out_limit)):
+                        channel_out_mean += 2
+                else:
+                    channel_out_mean = ALIGN4(ou_c // split_num)
+                    while((channel_out_mean + 4) * aligned_kernel_without_cout <= kernel_limit
+                    and ((channel_out_mean + 4) * ou_w * split_h_out_max <= out_limit)):
+                        channel_out_mean += 4
+                channel_out_real = channel_out_mean
 
-                if (channel_out_mean * ALIGN8(ch_in) * kernel_h * kernel_w <= kernel_limit) and \
-                (channel_out_mean * ou_h * ou_w <= out_limit):
-                    channel_out_max = channel_out_mean
-
-                flag = _sort_nodes(graph, node.outputs)
                 # insert concat node
                 new_node = GraphNode("iqCat", node.name + "_concat")
                 new_node.inputs = []
@@ -365,24 +381,23 @@ def op_split(ori_graph: Graph, set_out_dev: bool = False, is_dump: bool = False,
                         if 1 == i:
                             weight_data = node.inputs[i].data
                             if g == split_num - 1:
-                                new_entry.data = weight_data[g * channel_out_max : weight.shape[0]]
+                                new_entry.data = weight_data[g * channel_out_real : weight.shape[0]]
                             else:
-                                new_entry.data = weight_data[g * channel_out_max : (g + 1) * channel_out_max]
+                                new_entry.data = weight_data[g * channel_out_real : (g + 1) * channel_out_real]
                             new_entry.tensor.shape = tuple(new_entry.data.shape)
                         elif 2 == i:
                             bias_data = node.inputs[i].data
                             if g == split_num - 1:
-                                new_entry.data = bias_data[g * channel_out_max : bias_data.shape[0]]
+                                new_entry.data = bias_data[g * channel_out_real : bias_data.shape[0]]
                             else:
-                                new_entry.data = bias_data[g * channel_out_max : (g + 1) * channel_out_max]
+                                new_entry.data = bias_data[g * channel_out_real : (g + 1) * channel_out_real]
                             new_entry.tensor.shape = tuple(new_entry.data.shape)
                         conv_split_node.inputs[i] = new_entry
                         graph.add_entry(new_entry)
 
                     conv_split_out = node.outputs[0].clone()
                     conv_split_out.name += "_{}_{}".format(node.name, g)
-                    if flag & set_out_dev:
-                        conv_split_out.tensor.mem_type = MemType.PSRAM               
+            
                     conv_split_node.outputs[0] = conv_split_out
                     graph.add_entry(conv_split_out)
                     add_node_list.append(conv_split_node)
@@ -397,8 +412,6 @@ def op_split(ori_graph: Graph, set_out_dev: bool = False, is_dump: bool = False,
                 for i in range(1, len(node.outputs)):
                     del graph.entries[node.outputs[i].name]
 
-                if flag & set_out_dev:
-                    _label_nodes(graph, new_node2.outputs) 
                 del_node_list.append(node)         
                 add_node_list.append(new_node)
 
@@ -430,46 +443,47 @@ def op_split(ori_graph: Graph, set_out_dev: bool = False, is_dump: bool = False,
                 if platform == "venus":
                     aligned_kernel = ALIGN16(kernel_n) * kernel_h * kernel_w
                     split_data_size_align = ALIGN8(ch_in) * kernel_h * ((w_in + 8 * stride_w - 1) // (8 * stride_w)) * (8 * stride_w)
-                    data_threshold = 65536
+                    data_limit = 65536
                     kernel_limit = max(32768, threshold1)
                     out_limit = max(65536, threshold1)
                 elif platform == "arcs":
                     aligned_kernel = ALIGN8(kernel_n) * kernel_h * kernel_w
                     split_data_size_align = ALIGN8(ch_in) * kernel_h * ((w_in + 4 * stride_w - 1) // (4 * stride_w)) * (4 * stride_w)
-                    data_threshold = 16384
+                    data_limit = 16384
                     kernel_limit = max(8192, threshold1)
                     out_limit = max(32768, threshold2)
                 else:
                     aligned_kernel = ALIGN8(kernel_n) * ALIGN2(kernel_h) * kernel_w
                     split_data_size_align = ALIGN4(ch_in) * kernel_h * ((w_in + 8 * stride_w - 1) // (8 * stride_w)) * (8 * stride_w)
-                    data_threshold = 32768
+                    data_limit = 32768
                     kernel_limit = max(32768, threshold1)
                     out_limit = max(65536, threshold2)
 
-                assert split_data_size_align <= data_threshold and aligned_kernel <= kernel_limit, "min h_in of depthwiseConv2d must not exceed limit"
+                assert split_data_size_align <= data_limit and aligned_kernel <= kernel_limit, "min h_in of depthwiseConv2d must not exceed limit"
             # common ConvTranspose2dInt
             else:
                 if platform == "venus":
                     aligned_kernel = ALIGN2(kernel_n) * ALIGN8(ch_in) * kernel_h * kernel_w
                     split_data_size_align = ALIGN8(ch_in) * ((w_in + 8 * stride_w - 1) // (8 * stride_w)) * (8 * stride_w)
-                    data_threshold = 65536
+                    data_limit = 65536
                     kernel_limit = max(32768, threshold1)
                     out_limit = max(65536, threshold2)
                 elif platform == "arcs":
                     aligned_kernel = ALIGN2(kernel_n) * ALIGN8(ch_in) * kernel_h * kernel_w
                     split_data_size_align = ALIGN8(ch_in) * ((w_in + 4 * stride_w - 1) // (4 * stride_w)) * (4 * stride_w)
-                    data_threshold = 16384
+                    data_limit = 16384
                     kernel_limit = max(8192, threshold1)
                     out_limit = max(32768, threshold2)
                 else:
                     aligned_kernel = ALIGN4(kernel_n) * ALIGN8(ch_in) * kernel_h * kernel_w
                     split_data_size_align = ALIGN8(ch_in) * ((w_in + 8 * stride_w - 1) // (8 * stride_w)) * (8 * stride_w)
-                    data_threshold = 65536
+                    data_limit = 65536
                     kernel_limit = max(32768, threshold1)
                     out_limit = max(65536, threshold2)
                 out_size = ou_c * ou_h * ou_w
-
-                assert split_data_size_align * kernel_h <= data_threshold, "min h_in of ConvTranspose2dInt must not exceed limit!"
+                out_size = calc_expr(str(out_size), graph.dynamic_args_max) if is_sympy(out_size) else out_size
+                split_data_size_align = calc_expr(str(split_data_size_align), graph.dynamic_args_max) if is_sympy(split_data_size_align) else split_data_size_align
+                assert split_data_size_align * kernel_h <= data_limit, "min h_in of ConvTranspose2dInt must not exceed limit!"
                 if aligned_kernel <= kernel_limit and out_size <= out_limit:
                     continue
 
@@ -485,8 +499,8 @@ def op_split(ori_graph: Graph, set_out_dev: bool = False, is_dump: bool = False,
 
                 split_h_out_max = ou_h
                 split_out_size = channel_out_max * ou_w * ou_h
-                if split_data_size_align * h_in > data_threshold:
-                    split_h_in_max  = data_threshold // split_data_size_align
+                if split_data_size_align * h_in > data_limit:
+                    split_h_in_max  = data_limit // split_data_size_align
                     split_h_out_max = max((split_h_in_max - kernel_h - pads[0] + stride_h)  // stride_h, 1)
                     split_out_size = channel_out_max * ou_w * split_h_out_max
 
@@ -556,12 +570,11 @@ def op_split(ori_graph: Graph, set_out_dev: bool = False, is_dump: bool = False,
         elif node.op_type == "LinearInt":
             data            = node.inputs[0].tensor
             weight          = node.inputs[1].tensor
-            transB          = node.attrs["transB"]
             M   = 1
             for i in range(len(data.shape)-1):
                 M *= data.shape[i]
-            L   = weight.shape[0] if transB else weight.shape[1]
-            N   = weight.shape[1] if transB else weight.shape[0]
+            L   = weight.shape[0]
+            N   = weight.shape[1]
             assert N == data.shape[-1]
 
             split_num = 1
@@ -571,7 +584,7 @@ def op_split(ori_graph: Graph, set_out_dev: bool = False, is_dump: bool = False,
                     left_size_align     = ALIGN4(M) * ALIGN8(N)
                     right_size_align    = ALIGN8(N) * ALIGN4(L)
                     left_size_limit     = 65536
-                    right_size_limit    = max(32768, threshold3)
+                    right_size_limit    = threshold3
                     int8_condition_r    = right_size_align
                     while int8_condition_r > right_size_limit:
                         split_num       += 1
@@ -581,7 +594,7 @@ def op_split(ori_graph: Graph, set_out_dev: bool = False, is_dump: bool = False,
                     left_size_align     = ALIGN4(M) * ALIGN2(N)
                     right_size_align    = ALIGN2(N) * ALIGN4(L)
                     left_size_limit     = 32768
-                    right_size_limit    = max(16384, threshold3)
+                    right_size_limit    = threshold3
                     int8_condition_r    = right_size_align
                     while int8_condition_r > right_size_limit:
                         split_num       += 1
@@ -591,7 +604,7 @@ def op_split(ori_graph: Graph, set_out_dev: bool = False, is_dump: bool = False,
                     left_size_align     = ALIGN2(M) * ALIGN2(N)
                     right_size_align    = ALIGN2(N) * ALIGN2(L)
                     left_size_limit     = 16384
-                    right_size_limit    = max(8192, threshold3)
+                    right_size_limit    = 8192
                     int8_condition_r    = right_size_align
                     while int8_condition_r > right_size_limit:
                         split_num       += 1

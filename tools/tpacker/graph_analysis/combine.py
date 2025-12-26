@@ -65,7 +65,7 @@ def _graph_bind_device(graph: Graph, device: Device, dy_memory: Dict[str, Tuple[
             raise ImportError(f"platform:{platform} do not support {node.op_type}!")
 
         for i in range(len(node.inputs)):
-            data_size = np.prod(node.inputs[i].tensor.shape)
+            data_size = np.prod(node.inputs[i].tensor.shape) * node.inputs[i].tensor.bits
             if is_sympy(data_size):
                 data_size = calc_expr(str(data_size), graph.dynamic_args_max)
             if node.inputs[i].is_constant():
@@ -81,7 +81,7 @@ def _graph_bind_device(graph: Graph, device: Device, dy_memory: Dict[str, Tuple[
                 node.inputs[i].tensor.mem_type = MemType.SHARE_MEM
 
         for i in range(len(node.outputs)):
-            data_size = np.prod(node.outputs[i].tensor.shape)
+            data_size = np.prod(node.outputs[i].tensor.shape) * node.outputs[i].tensor.bits
             if is_sympy(data_size):
                 data_size = calc_expr(str(data_size), graph.dynamic_args_max)
             if node.outputs[i].name in dy_memory:

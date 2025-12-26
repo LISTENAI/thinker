@@ -150,7 +150,9 @@ def Conv2dInt_weight_rearrange(
 
             assert weight.layout in {Layout.NCHW, Layout.NCWH}
             new_weight.data = new_weight_data
-            new_weight.shape = new_weight_data.shape
+            new_weight.shape = new_weight.data.shape
+            if weight_bits == 4:
+                new_weight.data = combine4bit_8bit(new_weight_data)
             new_weight.bits = np.float32(weight_bits / 8.0)
 
             if data.layout == Layout.NCHW:

@@ -27,6 +27,7 @@ class Cast(Operator):
         """Infer output tensor with specified data type."""
         X = self.inputs[0]
         Y = X.clone(shape=X.shape, scale=int(X.scale))
+        Y.data  = X.data
         Y.dtype = np.dtype(self.attrs["to"])
         Y.bits = Y.dtype.itemsize
         self.outputs = [Y]

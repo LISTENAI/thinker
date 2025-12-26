@@ -35,30 +35,31 @@ def get_Conv1dInt_workspace(
 
     workspace_size = 0
     group_align = ALIGN16(group)
-    stride_h = strides[0]
-    stride_w = 1
-    kernel_h = kernels[0]
-    kernel_w = 1
-    pad_t = pads[0]
-    pad_b = pads[1]
+    stride_h = 1
+    stride_w = strides[0]
+    kernel_h = 1
+    kernel_w = kernels[0]
+    pad_l = pads[0]
+    pad_r = pads[1]
 
     c_in = data.shape[1]
-    h_in = data.shape[2]
-    w_in = 1
+    h_in = 1
+    w_in = data.shape[2]
     data_size = ALIGN8(c_in) * 8 * h_in
     c_ou = out.shape[1]
-    h_ou = out.shape[2]
+    h_ou = 1
+    w_ou = out.shape[2]
     out_size = out.nbytes
 
-    if kernel_h < 6:
-        weight_size = ALIGN2(c_ou) * ALIGN8(c_in) * kernel_h
+    if kernel_w < 6:
+        weight_size = ALIGN2(c_ou) * ALIGN8(c_in) * kernel_w * kernel_h
         assert weight_size <= 32768 or data_size <= 65536
-        if h_in >= 65536 and weight_size <= 32768:
+        if w_in >= 65536 and weight_size <= 32768:
             split_num = 1
-            tmp_in_h = h_in
-            ou_h = (h_in + pad_t + pad_b - kernel_h) // stride_h + 1
-            data_size_without_h = ALIGN8(c_in) * 8
-            while tmp_in_h * data_size_without_h > 65536 or (ou_h % split_num) != 0:
+            tmp_in_w = w_in
+            ou_w = (w_in + pad_l + pad_r - kernel_w) // stride_w + 1
+            data_size_without_w = ALIGN8(c_in) * 8
+            while tmp_in_w * data_size_without_h > 65536 or (ou_h % split_num) != 0:
                 split_num += 1
                 tmp_in_h = ((ou_h * stride_h) / split_num) + kernel_h - stride_h
                 assert split_num < h_in and split_num < h_ou
@@ -112,25 +113,25 @@ def Conv1dInt_weight_rearrange(
     """
     kernel_num = weight.shape[0]
     kernel_c = weight.shape[1]
-    kernel_h = weight.shape[2]
-    assert kernel_h == kernels[0]
-    kernel_w = 1
-    stride_w = strides[1] if len(strides) == 2 else 1
+    kernel_h = 1
+    kernel_w = weight.shape[2]
+    stride_h = 1
+    stride_w = strides[0]
 
     if weight.layout not in {Layout.NCHW, Layout.NCWH}:
         return weight
 
-    if kernel_h > 5:
+    if kernel_w > 5:
         new_weight = weight.clone()
         new_weight.data = weight.data.transpose(2, 1, 0)
         new_weight.shape = new_weight.data.shape
         new_weight.layout = Layout.WHCN
         return new_weight
     else:
-        h_in = data.shape[2]
-        w_in = data.shape[3] if len(data.shape) == 4 else 1
+        h_in = 1
+        w_in = data.shape[2]
         data_size = ((w_in + 8 * stride_w - 1) // (8 * stride_w)) * (8 * stride_w) * ALIGN8(kernel_c) * h_in
-        assert (data_size * data.dtype.itemsize <= 65536 and ALIGN8(kernel_c) < 512), "input size of Conv1dInt exceed limit"
+        assert data_size * data.dtype.itemsize <= 65536, "input size of Conv1dInt exceed limit"
 
         weight.data = weight.data.reshape(kernel_num, kernel_c, kernel_h, kernel_w)
 

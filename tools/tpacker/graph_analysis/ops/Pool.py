@@ -49,7 +49,7 @@ class PoolAttrs(OperatorAttrs):
         return bytes(tffi.buffer(attrs))
 
 @register_op
-class MaxPool(Operator):
+class MaxPool(Operator, PoolLayout):
     def __init__(self, attrs: Optional[Dict[str, Any]] = None):
         """Initialize the MaxPool operator with given attributes."""
         self.attrs = PoolAttrs(attrs)
@@ -70,9 +70,26 @@ class MaxPool(Operator):
         pads = attr2tuple(pads, (0, 0, 0, 0))
         ceil_mode = self.attrs.get("ceil_mode", 0)
         layout = self.attrs.get("layout", "NCHW")
+        platform = self.attrs.get("platform", "venus")
 
         h_in = calc_expr(str(X.shape[2]), dynamic_shape) if is_sympy(X.shape[2]) else X.shape[2]
         w_in = calc_expr(str(X.shape[3]), dynamic_shape) if is_sympy(X.shape[3]) else X.shape[3]
+
+        if (kernels[0] != h_in + pads[0] + pads[-2]) and (kernels[1] != w_in + pads[1] + pads[-1]):
+            if platform == "venus":
+                assert 1 <= kernels[0] <= 5, "kernel_w for Conv2dInt exceed limit"
+                assert 1 <= kernels[1] <= 5, "kernel_h for Conv2dInt exceed limit"
+                assert 0 <= pads[0] <= 4, "pad_left for Conv2dInt exceed limit"
+                assert 0 <= pads[1] <= 4, "pad_up for Conv2dInt exceed limit"
+                assert 0 <= pads[2] <= 4, "pad_right for Conv2dInt exceed limit"
+                assert 0 <= pads[3] <= 4, "pad_down for Conv2dInt exceed limit"
+            elif platform in ("arcs", "venusa"):
+                assert 1<= kernels[0] <= 12, "kernel_w for Conv2dInt exceed limit"
+                assert 1<= kernels[1] <= 12, "kernel_h for Conv2dInt exceed limit"
+                assert 0 <= pads[0] <= 11, "pad_left for Conv2dInt exceed limit"
+                assert 0 <= pads[1] <= 11, "pad_up for Conv2dInt exceed limit"
+                assert 0 <= pads[2] <= 11, "pad_right for Conv2dInt exceed limit"
+                assert 0 <= pads[3] <= 11, "pad_down for Conv2dInt exceed limit"
 
         shape = calc_pool2d_output_shape(X.shape, kernels, strides, (1, 1), pads, ceil_mode, layout)
         Y = X.clone(shape=tuple(shape), scale=X.scale)
@@ -124,7 +141,7 @@ class MaxPool(Operator):
         return int(np.prod(yshape))
 
 @register_op
-class AvgPool2dInt(Operator):
+class AvgPool2dInt(Operator, PoolLayout):
     def __init__(self, attrs: Optional[Dict[str, Any]] = None):
         """Initialize the AvgPool2dInt operator with given attributes."""
         self.attrs = PoolAttrs(attrs)
@@ -146,11 +163,24 @@ class AvgPool2dInt(Operator):
         ceil_mode = self.attrs["ceil_mode"]
         layout = self.attrs.get("layout", "NCHW")
 
+        # Infer scale
+        scale_x = self.attrs.get("scale_x")
+        temp = math.log(scale_x[0], 2) if isinstance(scale_x, tuple) else math.log(scale_x, 2)
+        assert abs(temp - int(temp)) < 0.000001
+        if X.scale != -1:
+            assert X.scale == int(temp), "Scale mismatch"
+        else:
+            self.inputs[0].scale = int(temp)
+
+        scale_o = self.attrs.get("scale_o")
+        temp = math.log(scale_o[0], 2) if isinstance(scale_o, tuple) else math.log(scale_o, 2)
+        assert abs(temp - int(temp)) < 0.000001
+
         h_in = calc_expr(str(X.shape[2]), dynamic_shape) if is_sympy(X.shape[2]) else X.shape[2]
         w_in = calc_expr(str(X.shape[3]), dynamic_shape) if is_sympy(X.shape[3]) else X.shape[3]
 
         shape = calc_pool2d_output_shape(X.shape, kernels, strides, (1, 1), pads, ceil_mode, layout)
-        Y = X.clone(shape=tuple(shape), scale=X.scale)
+        Y = X.clone(shape=tuple(shape), scale=int(temp))
         self.outputs = [Y]
 
     def get_workspace(self) -> List[Tensor]:
