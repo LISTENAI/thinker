@@ -1,4 +1,0 @@
-[console_scripts]
-tpacker = tpacker.tpacker:main
-tprofile = tprofile.src.onnx_profile:main
-tvalidator = tvalidator.validator:main
