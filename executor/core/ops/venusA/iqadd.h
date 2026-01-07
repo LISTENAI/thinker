@@ -34,10 +34,10 @@ int32_t iqadd_luna(tTensor *X1, tTensor *X2, tTensor *Temp, tTensor *Y)
     }
 
     // Get tensor size and data pointers
-    size_t total_size = getTensorSize(X1);
     void *src1 = (void *)X1->dptr_;
     void *src2 = (void *)X2->dptr_;
     void *dst = (void *)Y->dptr_;
+    size_t total_size = getTensorSize(X1);
 
     // Determine memory types
     bool x1_in_psram = (X1->mem_.type_ != 2);
@@ -54,7 +54,7 @@ int32_t iqadd_luna(tTensor *X1, tTensor *X2, tTensor *Temp, tTensor *Y)
         case Int8:
         {
             int32_t workspace_size = Temp ? Temp->shape_.dims_[0] : 0;
-            int8_t *workspace = Temp ? Temp->dptr_ : NULL;
+            int8_t *workspace = Temp ? (int8_t *)Temp->dptr_ : NULL;
             int8_t *dst_temp = y_in_psram ? workspace : (int8_t *)dst;
             if ((x1_in_psram == x2_in_psram) && (shift1 == 0) && (shift2 == 0))
             {
@@ -129,7 +129,7 @@ int32_t iqadd_luna(tTensor *X1, tTensor *X2, tTensor *Temp, tTensor *Y)
         case Int16:
         {
             int32_t workspace_size = Temp ? Temp->shape_.dims_[0] >> 1 : 0;
-            int16_t *workspace = Temp ? Temp->dptr_ : NULL;
+            int16_t *workspace = Temp ? (int16_t *)Temp->dptr_ : NULL;
             int16_t *dst_temp = y_in_psram ? workspace : (int16_t *)dst;
             if ((x1_in_psram == x2_in_psram) && (shift1 == 0) && (shift2 == 0))
             {
@@ -204,7 +204,7 @@ int32_t iqadd_luna(tTensor *X1, tTensor *X2, tTensor *Temp, tTensor *Y)
         case Int32:
         {
             int32_t workspace_size = Temp ? Temp->shape_.dims_[0] >> 2 : 0;
-            int32_t *workspace = Temp ? Temp->dptr_ : NULL;
+            int32_t *workspace = Temp ? (int32_t *)Temp->dptr_ : NULL;
             int32_t *dst_temp = y_in_psram ? workspace : (int32_t *)dst;
             if ((x1_in_psram == x2_in_psram) && (shift1 == 0) && (shift2 == 0))
             {

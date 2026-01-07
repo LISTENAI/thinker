@@ -23,79 +23,60 @@
 
 
 // 合并连续且递增的轴索引块，重新排序axes，并更新shape
-static int32_t merge_transpose_axes(uint32_t *axes, uint32_t *shape, uint32_t *dims) {
-    if (*dims <= 1)
-        return T_SUCCESS;
-    else if (*dims > 4)
-      return T_ERR_INVALID_PARA;
+int32_t merge_transpose_axes(uint32_t *axes, uint32_t *shape, uint32_t *dims) {
+    if (*dims <= 1 || *dims > 5)
+      return *dims <= 1 ? T_SUCCESS : T_ERR_INVALID_PARA;
 
     // 临时数组存储合并后的结果
-    int32_t temp_axes[4];
-    uint32_t temp_shape[4];
+    int32_t temp_axes[5] = {0};
+    uint32_t temp_shape[5] = {0};
     uint32_t temp_count = 0;
 
     uint32_t read_idx = 0;
+    uint32_t start_axis = -1;
+    uint32_t continue_len = 0;
+    for (uint32_t read_idx = 0; read_idx < *dims;) {  
+      uint32_t start = read_idx;
 
-    while (read_idx < *dims) {
-        uint32_t start = read_idx;
-        
-        // 找到连续递增的块
-        while (read_idx < *dims - 1 && axes[read_idx + 1] == axes[read_idx] + 1) {
-            read_idx++;
-        }
-        
-        // 计算当前块的最小轴值（作为合并后的轴代表）
-        int32_t min_axis = axes[start]; // 由于是连续递增，起始值就是最小值
-        
-        // 计算当前块的shape乘积
-        uint32_t merged_shape = 1;
-        for (int32_t i = start; i <= read_idx; i++) {
-            merged_shape *= shape[i];
-        }
-        
-        // 存储合并结果
-        temp_axes[temp_count] = min_axis;
-        temp_shape[temp_count] = merged_shape;
-        temp_count++;
-        
+      while (read_idx < *dims - 1 && axes[read_idx + 1] == axes[read_idx] + 1) {
         read_idx++;
+      }
+      if (start != read_idx) {
+        start_axis = axes[start];
+        continue_len = read_idx - start;
+      }
+      temp_axes[temp_count] = axes[start];
+      read_idx++;
+      temp_count++;
     }
-    
-    // 按原始顺序重新编码
-    // 创建映射：原轴值 -> 新轴值
-    int max_axis = -1;
-    for (int i = 0; i < temp_count; i++) {
-        if (temp_axes[i] > max_axis) {
-            max_axis = temp_axes[i];
+
+    temp_count = 0;
+    if (continue_len) {
+      for (int32_t i = 0; i < *dims; i++) {
+        if (i == start_axis) {
+          temp_shape[temp_count] = 1;
+          for (int32_t j = 0; j <= continue_len; j++) {
+            temp_shape[temp_count] *= shape[j + start_axis];
+          }
+          i += continue_len;
         }
-    }
-    
-    // 创建映射数组，标记哪些轴值存在
-    int exists[max_axis + 1];
-    memset(exists, 0, sizeof(exists));
-    for (int i = 0; i < temp_count; i++) {
-        exists[temp_axes[i]] = 1;
-    }
-    
-    // 按顺序分配新索引
-    int new_index = 0;
-    for (int i = 0; i <= max_axis; i++) {
-        if (exists[i]) {
-            exists[i] = new_index++;  // 存储新索引
+        else {
+          temp_shape[temp_count] = shape[i];
         }
+        temp_count++;
+      }
     }
-    
-    // 应用映射
-    for (int i = 0; i < temp_count; i++) {
-        temp_axes[i] = exists[temp_axes[i]];  // 获取新索引
-    }
-    
-    // 将排序后的结果复制回原数组
+
     for (int32_t i = 0; i < temp_count; i++) {
-        axes[i] = temp_axes[i];
-        shape[i] = temp_shape[i];
+      if (temp_axes[i] <= start_axis) {
+          axes[i] = temp_axes[i];
+      }
+      else {
+        axes[i] = temp_axes[i] - continue_len;
+      }
+      shape[i] = temp_shape[i];
     }
-    *dims = temp_count;
+    *dims = (temp_count != 0) ? temp_count : *dims;
     
     return T_SUCCESS;
 }
@@ -110,9 +91,9 @@ int32_t X(Forward)(tOperator *op, tTensor **tensors, int32_t num_tensor, tDMA_Li
   tTensor *workspace = NULL;
   int32_t workspace_size = 0;
 
-  if ((attrs->ndim_ != X->shape_.ndim_) || (attrs->ndim_ >4) || (X->dtype_ != Int8))
-    return T_ERR_INVALID_PARA;
   tStatus ret = T_ERR_NO_IMPLEMENTED;
+  if ((attrs->ndim_ != X->shape_.ndim_) || (attrs->ndim_ > 5))
+    return ret;
 
 #if THINKER_USE_VENUS || THINKER_USE_ARCS || THINKER_USE_VENUSA
 #if THINKER_PROFILE
@@ -129,11 +110,11 @@ int32_t X(Forward)(tOperator *op, tTensor **tensors, int32_t num_tensor, tDMA_Li
   int32_t in_is_psram = (X->mem_.type_ != 2) ? 1 : 0;
   int32_t ou_is_psram = (Y->mem_.type_ != 2) ? 1 : 0;
 
-  uint32_t axes[4];
+  uint32_t axes[5];
   for (int32_t i = 0; i < attrs->ndim_; i++) {
     axes[i] = attrs->axes_[i];
   }
-  uint32_t shape[4];
+  uint32_t shape[5];
   for (int32_t i = 0; i < attrs->ndim_; i++) {
     shape[i] = X->shape_.dims_[i];
   }

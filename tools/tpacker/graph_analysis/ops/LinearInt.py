@@ -186,13 +186,15 @@ class LinearInt(Operator):
         shape       = weight_data.shape
         platform = self.attrs.get("platform", "venus")
 
-        new_weight_data = weight_data.transpose(1, 0)
-        shape = new_weight_data.shape
         if platform in {"arcs", "venusA"}:
             if weight_bits == 4:
-                new_weight_data = combine4bit_8bit(new_weight_data)
+                new_weight_data = combine4bit_8bit(weight_data)
+            else:
+                new_weight_data = weight_data
             self.inputs[1].update(data=new_weight_data, shape=shape, bits=np.float32(weight_bits / 8), layout=layout)
         elif platform == "venus":
+            new_weight_data = weight_data.transpose(1, 0)
+            shape = new_weight_data.shape
             if layout == Layout.NCHW:
                 self.inputs[1].update(data=new_weight_data, shape=shape, layout=Layout.NCWH)
 

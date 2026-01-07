@@ -20,7 +20,7 @@ class Colors:
     MAGENTA = '\033[95m'
     CYAN = '\033[96m'
 
-TRANSPARENT_OPS = {'Reshape', 'Transpose', 'Gather', 'Squueze', 'Unsqueeze', 'Slice', 'Split', 'MaxPool',\
+TRANSPARENT_OPS = {'Reshape', 'Transpose', 'Gather', 'Squeeze', 'Unsqueeze', 'Slice', 'Split', 'MaxPool',\
                     'Relu', 'Clip', 'Prelu', 'Resize'}
 
 def parse_attribute_and_name(node):
@@ -210,8 +210,12 @@ class ONNXModel:
                             break # Break from consumers loop, this path is done
                         else:
                             # input do not need to be quantized
-                            print(f"    -> ACTION: generate normal input <{original_source}>, shape is {self.input_info[original_source].shape}.")
-                            thinker_input = np.random.randint(-128, 128, size=self.input_info[original_source].shape, dtype=self.input_info[original_source].dtype)
+                            if self.inputs is not None:
+                                print(f"    -> ACTION: use provided input <{original_source}>, shape is {self.input_info[original_source].shape}.")
+                                thinker_input = self.inputs[i]
+                            else:
+                                print(f"    -> ACTION: generate normal input <{original_source}>, shape is {self.input_info[original_source].shape}.")
+                                thinker_input = np.random.randint(-128, 128, size=self.input_info[original_source].shape, dtype=self.input_info[original_source].dtype)
                             onnxrunner_input = torch.from_numpy(thinker_input).cpu()
                             inputs_dict[original_source] = (onnxrunner_input, thinker_input)
                             print(f"    -> SUCCESS: normal input <{original_source}> generated.")

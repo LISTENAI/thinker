@@ -81,16 +81,16 @@ int32_t X(Forward)(tOperator *op, tTensor **tensors, int32_t num_tensor, tDMA_Li
         workspace = tensors[op->num_input_ + op->num_output_];
         tTensor *dma_temp = ((tTensor **)tensors)[op->num_input_ + op->num_output_ + 1];
         tTensor i2h_w_temp = i2h_w[0];
-        i2h_w_temp.dptr_ = (int8_t *)dma_temp->dptr_;
+        i2h_w_temp.dptr_ = (addr_type)((int8_t *)dma_temp->dptr_);
         
         tTensor h2h_w_temp = h2h_w[0];
-        h2h_w_temp.dptr_ = (int8_t *)i2h_w_temp.dptr_ + getShapeSize(&(i2h_w_temp.shape_)) * i2h_w_temp.byte_;
+        h2h_w_temp.dptr_ = (addr_type)((int8_t *)i2h_w_temp.dptr_ + getShapeSize(&(i2h_w_temp.shape_)) * i2h_w_temp.byte_);
 
         tTensor i2h_bias_temp = i2h_bias[0];
-        i2h_bias_temp.dptr_ = (int8_t *)h2h_w_temp.dptr_ + getShapeSize(&(h2h_w_temp.shape_)) * h2h_w_temp.byte_;
+        i2h_bias_temp.dptr_ = (addr_type)((int8_t *)h2h_w_temp.dptr_ + getShapeSize(&(h2h_w_temp.shape_)) * h2h_w_temp.byte_);
 
         tTensor h2h_bias_temp = h2h_bias[0];
-        h2h_bias_temp.dptr_ = (int8_t *)i2h_bias_temp.dptr_ + getShapeSize(&(i2h_bias_temp.shape_)) * i2h_bias_temp.byte_;
+        h2h_bias_temp.dptr_ = (addr_type)((int8_t *)i2h_bias_temp.dptr_ + getShapeSize(&(i2h_bias_temp.shape_)) * i2h_bias_temp.byte_);
         
         ret = lstmint_luna(input, t_hidden_in, t_cell_in, &i2h_w_temp, &h2h_w_temp,
                         &i2h_bias_temp, &h2h_bias_temp, t_seq, output, hidden_o, hidden_c, attr, workspace);

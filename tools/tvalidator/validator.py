@@ -336,35 +336,39 @@ class ThinkerValidator:
         validator = Validator(self.onnx_model.model, "data/onnxrunner_int", "workspace/data", self.tensor_shapes)
         validator.compare()
 
-def parse_dynamic_cfg(cfg_items: List[str]) -> Dict:
+def parse_dynamic_cfg(cfg_input) -> Dict:
     """
-    Parse dynamic config from key=value,key2=value2 format.
-    Example:
-        ["seq_len=32,384,32", "foo=1,2"]
+    Parse dynamic config.
+    Supports input as a single string: "key=v1:v2,key2=v3:v4"
     """
     cfg: Dict = {}
 
-    if not cfg_items:
-        return None
+    if not cfg_input:
+        return cfg
 
-    for item in cfg_items:
+    if isinstance(cfg_input, list):
+        items = cfg_input
+    else:
+        items = [x.strip() for x in cfg_input.split(',') if x.strip()]
+
+    for item in items:
         if '=' not in item:
             raise ValueError(
                 f"Invalid --cfg format '{item}', expected key=value"
             )
 
-        key, value = item.split('=', 1)
+        key, value_str = item.split('=', 1)
         key = key.strip()
-        value = value.strip()
+        value_str = value_str.strip()
 
         if not key:
             raise ValueError(f"Empty key in --cfg '{item}'")
 
         try:
-            values = tuple(int(v) for v in value.split(','))
+            values = tuple(int(v) for v in value_str.split(':'))
         except ValueError:
             raise ValueError(
-                f"Invalid value for --cfg '{item}', only integer values are supported"
+                f"Invalid value for --cfg '{item}', only integer values separated by ':' are supported"
             )
 
         cfg[key] = values
@@ -378,7 +382,7 @@ def main():
     parser.add_argument('-r', '--res_path', type=str, required=False, help='Model Resource path. Required for manual packaging.')
     parser.add_argument('-l', '--lib_path', type=str, required=False, help='Thinker dynamic library. Required when executed outside the project root directory.')
     parser.add_argument('-i', '--input_path', nargs='+', type=str, required=False, help='One or more input paths. Required when input is specified manually.')
-    parser.add_argument('--cfg', action='append', type=str, help='Dynamic config in key=value format')
+    parser.add_argument('--cfg', type=str, default=None, help='Dynamic config in key=value format')
     
     args = parser.parse_args()
     dynamic_cfg = parse_dynamic_cfg(args.cfg)

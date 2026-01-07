@@ -45,26 +45,26 @@ value：以逗号分隔的整数列表，通常表示 (min, max, step)
 - **value**：以逗号分隔的整数列表，通常表示 (min, max, step)。 
 ### 示例
 ```bash
---cfg seq_len=32,384,32
+--cfg seq_len=32:384:32
 ```
 ## 🚀 使用示例
 ### 1️⃣ 模型不需要手动打包，仅提供ONNX
 ```bash
 tvalidator \
-  -o model/track_id/arcs_trackid20250919.onnx \
+  -g model/track_id/arcs_trackid20250919.onnx \
   -l bin/libthinker.so
 ```
 ### 2️⃣ 模型需要手动打包，同时提供ONNX和打包后的资源
 ```bash
 tvalidator \
-  -o model/track_id/arcs_trackid20250919.onnx \
+  -g model/track_id/arcs_trackid20250919.onnx \
   -r model/track_id/arcs_trackid20250919.bin \
   -l bin/libthinker.so
 ```
 ### 3️⃣ 使用自定义的输入验证一致性
 ```bash
 tvalidator \
-  -o model/track_id/arcs_trackid20250919.onnx \
+  -g model/track_id/arcs_trackid20250919.onnx \
   -r model/track_id/arcs_trackid20250919.bin \
   -l bin/libthinker.so \
   -i input_0.npy input_1.npy
@@ -72,10 +72,10 @@ tvalidator \
 ### 4️⃣ 验证动态shape图
 ```bash
 tvalidator \
-  -o model/track_id/arcs_trackid20250919.onnx \
+  -g model/track_id/arcs_trackid20250919.onnx \
   -r model/track_id/arcs_trackid20250919.bin \
   -l bin/libthinker.so \
-  --cfg seq_len=32,384,32
+  --cfg seq_len=32:384:32,yinsu_len=1:80:1
 ```
 ## 🧪 输出结果说明
 在执行一致性验证后，**ThinkerValidator** 会根据比对结果输出两种状态信息：

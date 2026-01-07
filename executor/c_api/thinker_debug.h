@@ -54,15 +54,15 @@ void write_file(char *output_name, tTensor *tensor) {
     
     // Build file path with shape information
     uint32_t shape_dim = tensor->shape_.ndim_;
-    sprintf(save_path, "./workspace/data/%s##", output_name);
+    snprintf(save_path, "./workspace/data/%s##", output_name);
     size_t size = 1;
     for (int32_t j = 0; j < shape_dim; ++j) {
         size *= tensor->shape_.dims_[j];
         strcpy(temp, save_path);
-        sprintf(save_path, "%s_%d", temp, tensor->shape_.dims_[j]);
+        snprintf(save_path, "%s_%d", temp, tensor->shape_.dims_[j]);
     }
     strcpy(temp, save_path);
-    sprintf(save_path, "%s.bin", temp);
+    snprintf(save_path, "%s.bin", temp);
     
     // Calculate data size and CRC32
     int8_t *data = (int8_t *)tensor->dptr_;
@@ -98,15 +98,15 @@ void write_file(char *output_name, tTensor *tensor) {
     
     // Build file path with shape information
     uint32_t shape_dim = tensor->shape_.ndim_;
-    sprintf(save_path, "./workspace/data/%s##", output_name);
+    snprintf(save_path, "./workspace/data/%s##", output_name);
     size_t size = 1;
     for (int32_t j = 0; j < shape_dim; ++j) {
         size *= tensor->shape_.dims_[j];
         strcpy(temp, save_path);
-        sprintf(save_path, "%s_%d", temp, tensor->shape_.dims_[j]);
+        snprintf(save_path, "%s_%d", temp, tensor->shape_.dims_[j]);
     }
     strcpy(temp, save_path);
-    sprintf(save_path, "%s.bin", temp);
+    snprintf(save_path, "%s.bin", temp);
     
     // Write binary data
     FILE *fp = fopen(save_path, "wb");
@@ -151,15 +151,23 @@ void write_file(char *output_name, tTensor *tensor) {
     
     // Build file path with shape information
     uint32_t shape_dim = tensor->shape_.ndim_;
-    sprintf(save_path, "./workspace/data/%s##", output_name);
+    snprintf(save_path, sizeof(save_path), "./workspace/data/%s##", output_name);
     size_t size = 1;
     for (int32_t j = 0; j < shape_dim; ++j) {
         size *= tensor->shape_.dims_[j];
-        strcpy(temp, save_path);
-        sprintf(save_path, "%s_%d", temp, tensor->shape_.dims_[j]);
+        strncpy(temp, save_path, sizeof(temp) - 1);
+        temp[sizeof(temp) - 1] = '\0';
+        int remaining = sizeof(save_path) - strlen(save_path) - 1;
+        if (remaining > 0) {
+            snprintf(save_path + strlen(save_path), remaining, "_%d", tensor->shape_.dims_[j]);
+        }
     }
     strcpy(temp, save_path);
-    sprintf(save_path, "%s.txt", temp);
+    temp[sizeof(temp) - 1] = '\0';
+    int remaining = sizeof(save_path) - strlen(save_path) - 1;
+    if (remaining > 0) {
+        snprintf(save_path + strlen(save_path), remaining, ".txt");
+    }
     
     FILE *fp = fopen(save_path, "wt");
     if (fp == NULL) {

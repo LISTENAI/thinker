@@ -47,21 +47,19 @@ def _add_pack_node(graph: Graph, src_name: str, src_layout: Layout, dst_name: st
     src_entry = graph.entries[src_name]
     dst_entry = src_entry.clone()
     dst_entry.name = dst_name
+    dst_entry.set_graph_normal()
     dst_entry.layout = dst_layout
     graph.add_entry(dst_entry)
-    
-    pack_node = GraphNode("Packing", f"{dst_name}_packing")
+    # Update performance based on layout conversion
+    pack_node = GraphNode("Packing", dst_name + "_packing")
     pack_node.inputs = [src_entry]
     pack_node.outputs = [dst_entry]
     pack_node.op = create_operator("Packing", {}, [src_entry.tensor], [dst_entry.tensor])
-    
-    # Update performance based on layout conversion
-    perfs = pack_node.op.get_layout_perf(graph.dynamic_shape)
-    for perf in perfs:
-        if perf.inputs_layout[0] == src_layout:
-            graph.performance += perf.performance
+    permute_perfs = pack_node.op.get_layout_perf(graph.dynamic_shape)
+    for permute_perf in permute_perfs:
+        if permute_perf.inputs_layout[0] == src_layout:
+            graph.performance += permute_perf.performance
             break
-    
     graph.add_node(pack_node)
 
 def _get_entry_by_name(graph: Graph, src_name: str) -> GraphEntry:

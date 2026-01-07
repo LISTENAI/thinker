@@ -101,9 +101,9 @@ int32_t transpose_luna(tTensor *X, tTensor *Y, tTensor * workspace, uint32_t dim
                     }
 
                     for (int32_t i = 0; i < batch; i++) {
-                        void *src = (void *)((int8_t *)src + i * one_batch_size);
-                        void *dst = (void *)((int8_t *)dst + i * one_batch_size);
-                        ret = luna_trans_axis_q7(src, dst, new_shape, new_axis, 3);
+                        void *src_temp = (void *)((int8_t *)src + i * one_batch_size);
+                        void *dst_temp = (void *)((int8_t *)dst + i * one_batch_size);
+                        ret = luna_trans_axis_q7(src_temp, dst_temp, new_shape, new_axis, 3);
                     }
                 }
                 else {
@@ -166,11 +166,10 @@ int32_t transpose_luna(tTensor *X, tTensor *Y, tTensor * workspace, uint32_t dim
                     }
                     if (one_batch_size <= workspace_size) {
                         for (int32_t i = 0; i < batch; i++) {
-                            void *src = (void *)((int8_t *)src + i * one_batch_size);
-                            void *dst = (void *)((int8_t *)dst + i * one_batch_size);
+                            void *dst_temp = (void *)((int8_t *)dst + i * one_batch_size);
                             int8_t *src_temp = (int8_t *)workspace->dptr_;
-                            memcpy(src_temp, src, one_batch_size);
-                            ret = luna_trans_axis_q7(src_temp, dst, new_shape, new_axis, 3);
+                            memcpy(src_temp, src + i * one_batch_size, one_batch_size);
+                            ret = luna_trans_axis_q7(src_temp, dst_temp, new_shape, new_axis, 3);
                         }
                     }
                     else {
@@ -197,7 +196,7 @@ int32_t transpose_luna(tTensor *X, tTensor *Y, tTensor * workspace, uint32_t dim
                         memcpy(src_temp, src, total_size);
                     }
                     ret = luna_mat_trans_q7(src_temp, dst_temp, row, col);
-                    opi_psram_cpy_out(dst, dst_temp, total_size);
+                    memcpy(dst, dst_temp, total_size);
                 }
                 else if (total_size > 65536) {
                     int8_t *src_temp = (int8_t *)src;
@@ -221,7 +220,7 @@ int32_t transpose_luna(tTensor *X, tTensor *Y, tTensor * workspace, uint32_t dim
                     }
 
                     ret = luna_split_mat_trans_q7(src_temp, dst_temp, row, col, split_num);
-                    opi_psram_cpy_out(dst, dst_temp, total_size);
+                    memcpy(dst, dst_temp, total_size);
                 }
                 else
                     ret = T_ERR_NO_WORKSPACE;
@@ -231,13 +230,13 @@ int32_t transpose_luna(tTensor *X, tTensor *Y, tTensor * workspace, uint32_t dim
                 int8_t *dst_temp = (int8_t *)workspace->dptr_;
                 if ((!srcInPSRAM) && (total_size <= workspace_size)) {
                     ret = luna_trans_axis_q7(src, dst_temp, shape, axes, dims);
-                    opi_psram_cpy_out(dst, dst_temp, total_size);
+                    memcpy(dst, dst_temp, total_size);
                 }
                 else if (srcInPSRAM && (total_size * 2 <= workspace_size)) {
                     int8_t *src_temp = (int8_t *)workspace->dptr_ + total_size;
                     memcpy(src_temp, src, total_size);
                     ret = luna_trans_axis_q7(src_temp, dst_temp, shape, axes, dims);
-                    opi_psram_cpy_out(dst, dst_temp, total_size);
+                    memcpy(dst, dst_temp, total_size);
                 }
                 else if (0 == axes[0]) {// convert to 2D
                     int32_t batch = shape[0];
@@ -258,7 +257,7 @@ int32_t transpose_luna(tTensor *X, tTensor *Y, tTensor * workspace, uint32_t dim
                                 memcpy(src_temp, src + i * one_batch_size, one_batch_size);
                             }
                             ret = luna_mat_trans_q7(src_temp, dst_temp, shape[1], shape[2]);
-                            opi_psram_cpy_out(dst + i * one_batch_size, dst_temp, one_batch_size);
+                            memcpy(dst + i * one_batch_size, dst_temp, one_batch_size);
                         }
                     }
                     else if (one_batch_size > 65536) {
@@ -285,7 +284,7 @@ int32_t transpose_luna(tTensor *X, tTensor *Y, tTensor * workspace, uint32_t dim
                             }
 
                             ret = luna_split_mat_trans_q7(src_temp, dst_temp, shape[1], shape[2], split_num);
-                            opi_psram_cpy_out(dst + i * one_batch_size, dst_temp, one_batch_size);
+                            memcpy(dst + i * one_batch_size, dst_temp, one_batch_size);
                         }
                     }
                     else
@@ -313,7 +312,7 @@ int32_t transpose_luna(tTensor *X, tTensor *Y, tTensor * workspace, uint32_t dim
                                 int8_t *dst_temp = (int8_t *)workspace->dptr_;
                                 memcpy(src_temp, src + i * one_batch_size, one_batch_size);
                                 ret = luna_trans_axis_q7(src_temp, dst_temp, new_shape, new_axis, 3);
-                                opi_psram_cpy_out(dst + i * one_batch_size, dst_temp, total_size);
+                                memcpy(dst + i * one_batch_size, dst_temp, total_size);
                             }
                         }
                         else 
@@ -325,7 +324,7 @@ int32_t transpose_luna(tTensor *X, tTensor *Y, tTensor * workspace, uint32_t dim
                                 int8_t *src_temp = (int8_t *)src + one_batch_size;
                                 int8_t *dst_temp = (int8_t *)workspace->dptr_;
                                 ret = luna_trans_axis_q7(src_temp, dst_temp, new_shape, new_axis, 3);
-                                opi_psram_cpy_out(dst + i * one_batch_size, dst_temp, total_size);
+                                memcpy(dst + i * one_batch_size, dst_temp, total_size);
                             }
                         }
                         else 

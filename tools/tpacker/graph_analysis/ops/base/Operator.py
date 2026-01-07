@@ -112,10 +112,10 @@ class Operator(BaseLayout):
             layout = output.layout
             shape = output.shape
             if layout == Layout.NHWC:
-                output.shape = (shape[0], shape[2], shape[3], shape[1])
+                output.shape = (shape[0], shape[2], shape[3], shape[1]) if len(shape) == 4 else (shape[0], shape[2], shape[1])
                 output.layout = Layout.NHWC
             elif layout == Layout.NCWH:
-                output.shape = (shape[0], shape[1], shape[3], shape[2])
+                output.shape = (shape[0], shape[1], shape[3], shape[2]) if len(shape) == 4 else (shape[0], shape[2], shape[1])
                 output.layout = Layout.NCWH
 
         if op_type in {'Conv2dInt', 'ConvTranspose2dInt'}:
