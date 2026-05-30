@@ -63,7 +63,13 @@ class GluInt(Operator):
 
     def get_workspace(self):
         """Calculate the required workspace for the GluInt operation."""
-        workspace_size = np.prod(self.inputs[0].shape) * 7
+        axis = self.attrs['dim']
+        M = 1
+        for i in range(axis):
+            M *= self.inputs[0].shape[i]
+        N = self.inputs[0].shape[axis]
+        workspace_size = M * N * 7
+
         if workspace_size != 0:
             return [Tensor.from_shape([workspace_size], np.int8, MemType.SHARE_MEM)]
         return []

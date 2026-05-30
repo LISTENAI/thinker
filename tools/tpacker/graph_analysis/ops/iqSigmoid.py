@@ -55,10 +55,7 @@ class iqSigmoid(Operator):
         if platform == "venus":
             assert X.mem_type == MemType.SHARE_MEM, "input mem_type of iqSigmoid must be share memory"
             workspace_size = data_size * 2 if X.scale != 11 else 0
-        elif platform == "arcs":
-            assert X.mem_type == MemType.SHARE_MEM, "input mem_type of iqSigmoid must be share memory"
-            workspace_size = data_size * 4
-        elif platform == "venusA":
+        elif platform in {"arcs", "venusA"}:
             if X.dtype == np.int8:
                 workspace_size = ALIGN4(data_size * 2) + data_size * 4
             elif X.dtype == np.int16:

@@ -27,9 +27,9 @@ class Clip(Operator, BaseLayout):
 
     def infer_tensor(self, dynamic_shape):
         """Infer output tensor with clipped values."""
-        assert len(self.inputs) in {1, 3}, "Clip operator expects 1 or 3 input tensors"
+        assert len(self.inputs) in (1, 3), "Clip operator expects 1 or 3 input tensors"
         X = self.inputs[0]
-        assert X.dtype in {np.int8, np.int16, np.int32}, "Input must be int8, int16, or int32"
+        assert X.dtype in (np.int8, np.int16, np.int32), "Input must be int8, int16, or int32"
 
         Y = X.clone()
 

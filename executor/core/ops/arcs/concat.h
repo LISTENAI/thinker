@@ -15,51 +15,6 @@
 #endif
 #include "thinker_status.h"
 
-void scale_requant8bit_cpu(int8_t *src, int8_t *dst, int32_t size, int8_t scale)
-{
-  int32_t i = 0;
-  if (scale > 0)
-  {
-    for (i = 0; i < size; i++)
-      dst[i] = SATURATE_8BITS(src[i] << scale);
-  }
-  else
-  {
-    for (i = 0; i < size; i++)
-      dst[i] = floor(src[i] * pow(2, scale) + 0.5);
-  }
-}
-
-void scale_requant16bit_cpu(int16_t *src, int16_t *dst, int32_t size, int8_t scale)
-{
-  int32_t i = 0;
-  if (scale > 0)
-  {
-    for (i = 0; i < size; i++)
-      dst[i] = SATURATE_16BITS(src[i] << scale);
-  }
-  else
-  {
-    for (i = 0; i < size; i++)
-      dst[i] = floor(src[i] * pow(2, scale) + 0.5);
-  }
-}
-
-void scale_requant32bit_cpu(int32_t *src, int32_t *dst, int32_t size, int8_t scale)
-{
-  int32_t i = 0;
-  if (scale > 0)
-  {
-    for (i = 0; i < size; i++)
-      dst[i] = src[i] << scale;
-  }
-  else
-  {
-    for (i = 0; i < size; i++)
-      dst[i] = SATURATE_8BITS(floor(src[i] * pow(2, scale) + 0.5));
-  }
-}
-
 int32_t concat_luna(tTensor **tensors, int32_t axis, int32_t input_num, tTensor *workspace, tTensor *output) {
   int32_t leading = 1, middle = 1, trailing = 1;
   for (int32_t i = 0; i < axis; ++i) 
@@ -243,67 +198,6 @@ int32_t concat_luna(tTensor **tensors, int32_t axis, int32_t input_num, tTensor 
             }
           }
           dst  += hw_curr;
-        }
-      }
-    }
-  }
-  else if (Int16 == output->dtype_) {
-    int16_t *dst = (int16_t *)output->dptr_;
-    if (leading == 1) {    // 最外层维度进行拼接
-      for (int32_t i = 0; i < input_num; ++i)  // 支持多个输入
-      {
-        if (Int16 != tensors[i]->dtype_)
-          return T_ERR_INVALID_DATATYPE;
-
-        int16_t *src 		= (int16_t *)tensors[i]->dptr_;
-        int32_t input_scale = tensors[i]->scale_;
-        int32_t hw_curr 	= tensors[i]->shape_.dims_[axis] * trailing;
-        if (0 == hw_curr)
-          continue;
-
-        if (input_scale != output_scale) {
-          scale_requant16bit_cpu(src, dst + i * hw_curr * 2, hw_curr, output_scale-input_scale);
-        }
-        else {
-        	if (2 == output->mem_.type_) {
-        		THINKER_RET_CHECK(API_LIB(memcpy_i8o8)((int8_t *)dst + i * hw_curr * 2, (int8_t *)src, hw_curr * 2), "luna_memcpy_i8o8");
-        	}
-        	else {
-        		opi_psram_cpy_out((int8_t *)dst + i * hw_curr * 2, (int8_t *)src, hw_curr * 2);
-        	}
-        }
-      }
-    }
-    else {                // 中间或者最里层维度拼接
-      for (int32_t i = 0; i < input_num; ++i) { // 支持多个输入
-        if (Int16 != tensors[i]->dtype_)
-          return T_ERR_INVALID_DATATYPE;
-
-        int16_t *src        = (int16_t *)tensors[i]->dptr_;
-        int32_t input_scale = tensors[i]->scale_;
-        int32_t hw_curr     = tensors[i]->shape_.dims_[axis] * trailing;
-        if (0 == hw_curr)
-          continue;
-
-        if (input_scale != output_scale) {   // 输入输出scale值不一致
-          for (int32_t l = 0; l < leading; l++) {
-            int16_t *indptr_curr = (int16_t *)src + l * hw_curr;
-            int16_t *output_ptr  = (int16_t *)dst + l * hw + i * hw_curr;
-
-            scale_requant16bit_cpu(indptr_curr, output_ptr, hw_curr, output_scale-input_scale);
-          }
-        }
-        else { 
-          for (int32_t l = 0; l < leading; l++) {
-            int16_t *indptr_curr = (int16_t *)src + l * hw_curr;
-            int16_t *output_ptr  = (int16_t *)dst + l * hw + i * hw_curr;
-            if (2 == output->mem_.type_) {
-            	THINKER_RET_CHECK(API_LIB(memcpy_i8o8)((int8_t *)output_ptr, (int8_t *)indptr_curr, hw_curr * 2), "luna_memcpy_i8o8");
-            }
-            else {
-            	opi_psram_cpy_out((int8_t *)output_ptr, (int8_t *)indptr_curr, hw_curr * 2);
-            }
-          }
         }
       }
     }

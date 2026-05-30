@@ -13,6 +13,414 @@
 #define API_LIB(api) luna_##api
 #endif
 
+static int32_t iqmul_workspace_bytes(tTensor *Temp) {
+    return Temp ? (int32_t)Temp->shape_.dims_[0] : 0;
+}
+
+static int32_t iqmul_workspace_need(int32_t cur_size, int32_t input_bytes,
+                                    int32_t output_bytes, int32_t x1_in_psram,
+                                    int32_t x2_in_psram, int32_t y_in_psram) {
+    int32_t workspace_size = 0;
+    if (x1_in_psram) {
+        workspace_size += ALIGN4(cur_size * input_bytes);
+    }
+    if (x2_in_psram) {
+        workspace_size += ALIGN4(cur_size * input_bytes);
+    }
+    if (y_in_psram) {
+        workspace_size += cur_size * output_bytes;
+    }
+    return workspace_size;
+}
+
+static int32_t iqmul_split_size(size_t remain_size, int32_t input_bytes,
+                                int32_t output_bytes, int32_t x1_in_psram,
+                                int32_t x2_in_psram, int32_t y_in_psram,
+                                int32_t workspace_size) {
+    int32_t bytes_once = x1_in_psram * input_bytes + x2_in_psram * input_bytes +
+                         y_in_psram * output_bytes;
+    int32_t cur_size;
+
+    if (bytes_once == 0) {
+        return remain_size > 0x7fffffff ? 0x7fffffff : (int32_t)remain_size;
+    }
+
+    cur_size = workspace_size / bytes_once;
+    if (remain_size < (size_t)cur_size) {
+        cur_size = (int32_t)remain_size;
+    }
+    while (cur_size > 0 &&
+           iqmul_workspace_need(cur_size, input_bytes, output_bytes,
+                                x1_in_psram, x2_in_psram, y_in_psram) > workspace_size) {
+        cur_size--;
+    }
+    return cur_size;
+}
+
+static int32_t iqmul_broadcast_workspace_need(int32_t cur_c, int32_t hw,
+                                              int32_t x1_in_psram,
+                                              int32_t x2_in_psram,
+                                              int32_t y_in_psram) {
+    int32_t cur_size = cur_c * hw;
+    int32_t workspace_size = ALIGN4(hw);
+
+    if (x2_in_psram) {
+        workspace_size += ALIGN4(cur_c);
+    }
+    workspace_size += ALIGN4(cur_size);
+    if (x1_in_psram) {
+        workspace_size += ALIGN4(cur_size);
+    }
+    if (y_in_psram) {
+        workspace_size += cur_size;
+    }
+    return workspace_size;
+}
+
+static int32_t iqmul_broadcast_split_c(int32_t remain_c, int32_t hw,
+                                       int32_t x1_in_psram,
+                                       int32_t x2_in_psram,
+                                       int32_t y_in_psram,
+                                       int32_t workspace_size) {
+    int32_t left = 1;
+    int32_t right = remain_c;
+    int32_t best = 0;
+
+    while (left <= right) {
+        int32_t mid = (left + right) >> 1;
+        if (iqmul_broadcast_workspace_need(mid, hw, x1_in_psram,
+                                           x2_in_psram, y_in_psram) <= workspace_size) {
+            best = mid;
+            left = mid + 1;
+        } else {
+            right = mid - 1;
+        }
+    }
+    return best;
+}
+
+static int32_t iqmul_scalar_i8(tTensor *lhs, tTensor *Y, tTensor *Temp,
+                               int8_t scalar, size_t size, int32_t shift) {
+    int32_t x1_in_psram = (lhs->mem_.type_ != 2);
+    int32_t y_in_psram = (Y->mem_.type_ != 2);
+    int32_t workspace_size = iqmul_workspace_bytes(Temp);
+    int8_t *workspace = Temp ? (int8_t *)Temp->dptr_ : NULL;
+    size_t past_size = 0;
+
+    if (Y->dtype_ != Int8) {
+        return T_ERR_INVALID_DATATYPE;
+    }
+    if ((x1_in_psram || y_in_psram) && (workspace == NULL || workspace_size <= 0)) {
+        return T_ERR_NO_WORKSPACE;
+    }
+
+    while (past_size < size) {
+        int32_t cur_size = iqmul_split_size(size - past_size, sizeof(int8_t),
+                                            sizeof(int8_t), x1_in_psram, 0,
+                                            y_in_psram, workspace_size);
+        int8_t *p_tmp = workspace;
+        int8_t *src = (int8_t *)lhs->dptr_ + past_size;
+        int8_t *dst = (int8_t *)Y->dptr_ + past_size;
+        int8_t *src_temp = src;
+        int8_t *dst_temp = dst;
+
+        if (cur_size <= 0) {
+            return T_ERR_NO_WORKSPACE;
+        }
+        if (x1_in_psram) {
+            src_temp = p_tmp;
+            THINKER_RET_CHECK(API_LIB(memcpy_i8o8)(src_temp, src, cur_size * sizeof(int8_t)), "luna_memcpy_i8o8");
+            p_tmp += ALIGN4(cur_size * sizeof(int8_t));
+        }
+        if (y_in_psram) {
+            dst_temp = p_tmp;
+        }
+
+        THINKER_RET_CHECK(API_LIB(scale_i8i8o8)(src_temp, scalar, dst_temp,
+                                                cur_size, shift), "luna_scale_i8i8o8");
+        if (y_in_psram) {
+            opi_psram_cpy_out(dst, dst_temp, cur_size * sizeof(int8_t));
+        }
+        past_size += cur_size;
+    }
+    return T_SUCCESS;
+}
+
+static int32_t iqmul_scalar_i16(tTensor *lhs, tTensor *Y, tTensor *Temp,
+                                int16_t scalar, size_t size, int32_t shift) {
+    int32_t x1_in_psram = (lhs->mem_.type_ != 2);
+    int32_t y_in_psram = (Y->mem_.type_ != 2);
+    int32_t workspace_size = iqmul_workspace_bytes(Temp);
+    int32_t output_bytes = Y->byte_;
+    int8_t *workspace = Temp ? (int8_t *)Temp->dptr_ : NULL;
+    size_t past_size = 0;
+
+    if (Y->dtype_ != Int16 && Y->dtype_ != Int8) {
+        return T_ERR_INVALID_DATATYPE;
+    }
+    if ((x1_in_psram || y_in_psram) && (workspace == NULL || workspace_size <= 0)) {
+        return T_ERR_NO_WORKSPACE;
+    }
+
+    while (past_size < size) {
+        int32_t cur_size = iqmul_split_size(size - past_size, sizeof(int16_t),
+                                            output_bytes, x1_in_psram, 0,
+                                            y_in_psram, workspace_size);
+        int8_t *p_tmp = workspace;
+        int16_t *src = (int16_t *)lhs->dptr_ + past_size;
+        int8_t *dst = (int8_t *)Y->dptr_ + past_size * output_bytes;
+        int16_t *src_temp = src;
+        int8_t *dst_temp = dst;
+
+        if (cur_size <= 0) {
+            return T_ERR_NO_WORKSPACE;
+        }
+        if (x1_in_psram) {
+            src_temp = (int16_t *)p_tmp;
+            THINKER_RET_CHECK(API_LIB(memcpy_i8o8)((int8_t *)src_temp, (int8_t *)src, cur_size * sizeof(int16_t)), "luna_memcpy_i8o8");
+            p_tmp += ALIGN4(cur_size * sizeof(int16_t));
+        }
+        if (y_in_psram) {
+            dst_temp = p_tmp;
+        }
+
+        if (Y->dtype_ == Int16) {
+            THINKER_RET_CHECK(API_LIB(scale_i16i16o16)(src_temp, scalar,
+                                                       (int16_t *)dst_temp,
+                                                       cur_size, shift), "luna_scale_i16i16o16");
+        } else {
+            THINKER_RET_CHECK(API_LIB(scale_i16i16o8)(src_temp, scalar,
+                                                      (int8_t *)dst_temp,
+                                                      cur_size, shift), "luna_scale_i16i16o8");
+        }
+        if (y_in_psram) {
+            opi_psram_cpy_out(dst, dst_temp, cur_size * output_bytes);
+        }
+        past_size += cur_size;
+    }
+    return T_SUCCESS;
+}
+
+static int32_t iqmul_scalar_i32(tTensor *lhs, tTensor *Y, tTensor *Temp,
+                                int32_t scalar, size_t size, int32_t shift) {
+    int32_t x1_in_psram = (lhs->mem_.type_ != 2);
+    int32_t y_in_psram = (Y->mem_.type_ != 2);
+    int32_t workspace_size = iqmul_workspace_bytes(Temp);
+    int8_t *workspace = Temp ? (int8_t *)Temp->dptr_ : NULL;
+    size_t past_size = 0;
+
+    if (Y->dtype_ != lhs->dtype_ || Y->byte_ != sizeof(int32_t)) {
+        return T_ERR_INVALID_DATATYPE;
+    }
+    if ((x1_in_psram || y_in_psram) && (workspace == NULL || workspace_size <= 0)) {
+        return T_ERR_NO_WORKSPACE;
+    }
+
+    while (past_size < size) {
+        int32_t cur_size = iqmul_split_size(size - past_size, sizeof(int32_t),
+                                            sizeof(int32_t), x1_in_psram, 0,
+                                            y_in_psram, workspace_size);
+        int8_t *p_tmp = workspace;
+        int32_t *src = (int32_t *)lhs->dptr_ + past_size;
+        int32_t *dst = (int32_t *)Y->dptr_ + past_size;
+        int32_t *src_temp = src;
+        int32_t *dst_temp = dst;
+
+        if (cur_size <= 0) {
+            return T_ERR_NO_WORKSPACE;
+        }
+        if (x1_in_psram) {
+            src_temp = (int32_t *)p_tmp;
+            THINKER_RET_CHECK(API_LIB(memcpy_i8o8)((int8_t *)src_temp, (int8_t *)src, cur_size * sizeof(int32_t)), "luna_memcpy_i8o8");
+            p_tmp += ALIGN4(cur_size * sizeof(int32_t));
+        }
+        if (y_in_psram) {
+            dst_temp = (int32_t *)p_tmp;
+        }
+
+        THINKER_RET_CHECK(API_LIB(scale_i32i32o32)(src_temp, scalar, dst_temp,
+                                                   cur_size, shift), "luna_scale_i32i32o32");
+        if (y_in_psram) {
+            opi_psram_cpy_out(dst, dst_temp, cur_size * sizeof(int32_t));
+        }
+        past_size += cur_size;
+    }
+    return T_SUCCESS;
+}
+
+static int32_t iqmul_vec_i8(tTensor *lhs, tTensor *rhs, tTensor *Y,
+                            tTensor *Temp, size_t size, int32_t shift) {
+    int32_t x1_in_psram = (lhs->mem_.type_ != 2);
+    int32_t x2_in_psram = (rhs->mem_.type_ != 2);
+    int32_t y_in_psram = (Y->mem_.type_ != 2);
+    int32_t workspace_size = iqmul_workspace_bytes(Temp);
+    int8_t *workspace = Temp ? (int8_t *)Temp->dptr_ : NULL;
+    size_t past_size = 0;
+
+    if (Y->dtype_ != Int8) {
+        return T_ERR_INVALID_DATATYPE;
+    }
+    if ((x1_in_psram || x2_in_psram || y_in_psram) && (workspace == NULL || workspace_size <= 0)) {
+        return T_ERR_NO_WORKSPACE;
+    }
+
+    while (past_size < size) {
+        int32_t cur_size = iqmul_split_size(size - past_size, sizeof(int8_t),
+                                            sizeof(int8_t), x1_in_psram,
+                                            x2_in_psram, y_in_psram, workspace_size);
+        int8_t *p_tmp = workspace;
+        int8_t *src1 = (int8_t *)lhs->dptr_ + past_size;
+        int8_t *src2 = (int8_t *)rhs->dptr_ + past_size;
+        int8_t *dst = (int8_t *)Y->dptr_ + past_size;
+        int8_t *src1_temp = src1;
+        int8_t *src2_temp = src2;
+        int8_t *dst_temp = dst;
+
+        if (cur_size <= 0) {
+            return T_ERR_NO_WORKSPACE;
+        }
+        if (x1_in_psram) {
+            src1_temp = p_tmp;
+            THINKER_RET_CHECK(API_LIB(memcpy_i8o8)((int8_t *)src1_temp, (int8_t *)src1, cur_size * sizeof(int8_t)), "luna_memcpy_i8o8");
+            p_tmp += ALIGN4(cur_size * sizeof(int8_t));
+        }
+        if (x2_in_psram) {
+            src2_temp = p_tmp;
+            THINKER_RET_CHECK(API_LIB(memcpy_i8o8)((int8_t *)src2_temp, (int8_t *)src2, cur_size * sizeof(int8_t)), "luna_memcpy_i8o8");
+            p_tmp += ALIGN4(cur_size * sizeof(int8_t));
+        }
+        if (y_in_psram) {
+            dst_temp = p_tmp;
+        }
+
+        THINKER_RET_CHECK(API_LIB(mul_i8i8o8)(src1_temp, src2_temp, dst_temp,
+                                              cur_size, shift), "luna_mul_i8i8o8");
+        if (y_in_psram) {
+            opi_psram_cpy_out(dst, dst_temp, cur_size * sizeof(int8_t));
+        }
+        past_size += cur_size;
+    }
+    return T_SUCCESS;
+}
+
+static int32_t iqmul_vec_i16(tTensor *lhs, tTensor *rhs, tTensor *Y,
+                             tTensor *Temp, size_t size, int32_t shift) {
+    int32_t x1_in_psram = (lhs->mem_.type_ != 2);
+    int32_t x2_in_psram = (rhs->mem_.type_ != 2);
+    int32_t y_in_psram = (Y->mem_.type_ != 2);
+    int32_t workspace_size = iqmul_workspace_bytes(Temp);
+    int32_t output_bytes = Y->byte_;
+    int8_t *workspace = Temp ? (int8_t *)Temp->dptr_ : NULL;
+    size_t past_size = 0;
+
+    if (Y->dtype_ != Int16 && Y->dtype_ != Int8) {
+        return T_ERR_INVALID_DATATYPE;
+    }
+    if ((x1_in_psram || x2_in_psram || y_in_psram) && (workspace == NULL || workspace_size <= 0)) {
+        return T_ERR_NO_WORKSPACE;
+    }
+
+    while (past_size < size) {
+        int32_t cur_size = iqmul_split_size(size - past_size, sizeof(int16_t),
+                                            output_bytes, x1_in_psram,
+                                            x2_in_psram, y_in_psram, workspace_size);
+        int8_t *p_tmp = workspace;
+        int16_t *src1 = (int16_t *)lhs->dptr_ + past_size;
+        int16_t *src2 = (int16_t *)rhs->dptr_ + past_size;
+        int8_t *dst = (int8_t *)Y->dptr_ + past_size * output_bytes;
+        int16_t *src1_temp = src1;
+        int16_t *src2_temp = src2;
+        int8_t *dst_temp = dst;
+
+        if (cur_size <= 0) {
+            return T_ERR_NO_WORKSPACE;
+        }
+        if (x1_in_psram) {
+            src1_temp = (int16_t *)p_tmp;
+            THINKER_RET_CHECK(API_LIB(memcpy_i8o8)((int8_t *)src1_temp, (int8_t *)src1, cur_size * sizeof(int16_t)), "luna_memcpy_i8o8");
+            p_tmp += ALIGN4(cur_size * sizeof(int16_t));
+        }
+        if (x2_in_psram) {
+            src2_temp = (int16_t *)p_tmp;
+            THINKER_RET_CHECK(API_LIB(memcpy_i8o8)((int8_t *)src2_temp, (int8_t *)src2, cur_size * sizeof(int16_t)), "luna_memcpy_i8o8");
+            p_tmp += ALIGN4(cur_size * sizeof(int16_t));
+        }
+        if (y_in_psram) {
+            dst_temp = p_tmp;
+        }
+
+        if (Y->dtype_ == Int16) {
+            THINKER_RET_CHECK(API_LIB(mul_i16i16o16)(src1_temp, src2_temp,
+                                                     (int16_t *)dst_temp,
+                                                     cur_size, shift), "luna_mul_i16i16o16");
+        } else {
+            THINKER_RET_CHECK(API_LIB(mul_i16i16o8)(src1_temp, src2_temp,
+                                                    (int8_t *)dst_temp,
+                                                    cur_size, shift), "luna_mul_i16i16o8");
+        }
+        if (y_in_psram) {
+            opi_psram_cpy_out(dst, dst_temp, cur_size * output_bytes);
+        }
+        past_size += cur_size;
+    }
+    return T_SUCCESS;
+}
+
+static int32_t iqmul_vec_i32(tTensor *lhs, tTensor *rhs, tTensor *Y,
+                             tTensor *Temp, size_t size, int32_t shift) {
+    int32_t x1_in_psram = (lhs->mem_.type_ != 2);
+    int32_t x2_in_psram = (rhs->mem_.type_ != 2);
+    int32_t y_in_psram = (Y->mem_.type_ != 2);
+    int32_t workspace_size = iqmul_workspace_bytes(Temp);
+    int8_t *workspace = Temp ? (int8_t *)Temp->dptr_ : NULL;
+    size_t past_size = 0;
+
+    if (Y->dtype_ != lhs->dtype_ || Y->byte_ != sizeof(int32_t)) {
+        return T_ERR_INVALID_DATATYPE;
+    }
+    if ((x1_in_psram || x2_in_psram || y_in_psram) && (workspace == NULL || workspace_size <= 0)) {
+        return T_ERR_NO_WORKSPACE;
+    }
+
+    while (past_size < size) {
+        int32_t cur_size = iqmul_split_size(size - past_size, sizeof(int32_t),
+                                            sizeof(int32_t), x1_in_psram,
+                                            x2_in_psram, y_in_psram, workspace_size);
+        int8_t *p_tmp = workspace;
+        int32_t *src1 = (int32_t *)lhs->dptr_ + past_size;
+        int32_t *src2 = (int32_t *)rhs->dptr_ + past_size;
+        int32_t *dst = (int32_t *)Y->dptr_ + past_size;
+        int32_t *src1_temp = src1;
+        int32_t *src2_temp = src2;
+        int32_t *dst_temp = dst;
+
+        if (cur_size <= 0) {
+            return T_ERR_NO_WORKSPACE;
+        }
+        if (x1_in_psram) {
+            src1_temp = (int32_t *)p_tmp;
+            THINKER_RET_CHECK(API_LIB(memcpy_i8o8)((int8_t *)src1_temp, (int8_t *)src1, cur_size * sizeof(int32_t)), "luna_memcpy_i8o8");
+            p_tmp += ALIGN4(cur_size * sizeof(int32_t));
+        }
+        if (x2_in_psram) {
+            src2_temp = (int32_t *)p_tmp;
+            THINKER_RET_CHECK(API_LIB(memcpy_i8o8)((int8_t *)src2_temp, (int8_t *)src2, cur_size * sizeof(int32_t)), "luna_memcpy_i8o8");
+            p_tmp += ALIGN4(cur_size * sizeof(int32_t));
+        }
+        if (y_in_psram) {
+            dst_temp = (int32_t *)p_tmp;
+        }
+
+        THINKER_RET_CHECK(API_LIB(mul_i32i32o32)(src1_temp, src2_temp, dst_temp,
+                                                 cur_size, shift), "luna_mul_i32i32o32");
+        if (y_in_psram) {
+            opi_psram_cpy_out(dst, dst_temp, cur_size * sizeof(int32_t));
+        }
+        past_size += cur_size;
+    }
+    return T_SUCCESS;
+}
+
 /**
  * @brief Performs vector multiplication with broadcast for specific tensor shapes
  * @param lhs Left-hand side tensor
@@ -23,15 +431,77 @@
  * @return int32_t Operation status
  */
 int32_t calc_vec_mul_luna_b2b2_broadcast_h1w1(tTensor *lhs, tTensor *rhs, tTensor *Y, tTensor *Temp, int32_t shift) {
+    int32_t n = lhs->shape_.dims_[0];
     int32_t c = lhs->shape_.dims_[1];
     int32_t h = lhs->shape_.dims_[2];
     int32_t w = lhs->shape_.dims_[3];
-    int8_t *p_tmp1 = (int8_t *)Temp->dptr_;
-    int8_t *p_tmp2 = p_tmp1 + c;
+    int32_t rhs_n = rhs->shape_.dims_[0];
+    int32_t hw = h * w;
+    int32_t x1_in_psram = (lhs->mem_.type_ != 2);
+    int32_t x2_in_psram = (rhs->mem_.type_ != 2);
+    int32_t y_in_psram = (Y->mem_.type_ != 2);
+    int32_t workspace_size = iqmul_workspace_bytes(Temp);
+    int32_t max_c;
+    int8_t *workspace;
+    int8_t *ones;
 
-    THINKER_RET_CHECK(API_LIB(memset_i8o8)(p_tmp1, 1, h * w), "luna_memset_i8o8");
-    THINKER_RET_CHECK(API_LIB(mat_mul_i8i8o8)((int8_t *)rhs->dptr_, p_tmp1, p_tmp2, c, 1, h * w, 0), "luna_mul_i8i8o8");
-    THINKER_RET_CHECK(API_LIB(mul_i8i8o8)((int8_t *)lhs->dptr_, p_tmp2, (int8_t *)Y->dptr_, c * h * w, shift), "luna_mul_i8i8o8");
+    if (lhs->dtype_ != Int8 || rhs->dtype_ != Int8 || Y->dtype_ != Int8) {
+        return T_ERR_INVALID_DATATYPE;
+    }
+    if (Temp == NULL || Temp->dptr_ == 0) {
+        return T_ERR_NO_WORKSPACE;
+    }
+
+    max_c = iqmul_broadcast_split_c(c, hw, x1_in_psram, x2_in_psram,
+                                    y_in_psram, workspace_size);
+    if (max_c <= 0) {
+        return T_ERR_NO_WORKSPACE;
+    }
+
+    workspace = (int8_t *)Temp->dptr_;
+    ones = workspace;
+
+    THINKER_RET_CHECK(API_LIB(memset_i8o8)(ones, 1, hw), "luna_memset_i8o8");
+
+    for (int32_t b = 0; b < n; b++) {
+        int32_t rhs_batch_offset = (rhs_n == 1) ? 0 : b * c;
+        for (int32_t ch = 0; ch < c; ch += max_c) {
+            int32_t cur_c = MIN(max_c, c - ch);
+            int32_t cur_size = cur_c * hw;
+            int8_t *p_tmp = workspace + ALIGN4(hw);
+            int8_t *lhs_cur = (int8_t *)lhs->dptr_ + (b * c + ch) * hw;
+            int8_t *rhs_cur = (int8_t *)rhs->dptr_ + rhs_batch_offset + ch;
+            int8_t *dst_cur = (int8_t *)Y->dptr_ + (b * c + ch) * hw;
+            int8_t *rhs_temp = rhs_cur;
+            int8_t *rhs_broadcast;
+            int8_t *lhs_temp = lhs_cur;
+            int8_t *dst_temp = dst_cur;
+
+            if (x2_in_psram) {
+                rhs_temp = p_tmp;
+                THINKER_RET_CHECK(API_LIB(memcpy_i8o8)(rhs_temp, rhs_cur, cur_c * sizeof(int8_t)), "luna_memcpy_i8o8");
+                p_tmp += ALIGN4(cur_c * sizeof(int8_t));
+            }
+            rhs_broadcast = p_tmp;
+            p_tmp += ALIGN4(cur_size * sizeof(int8_t));
+            if (x1_in_psram) {
+                lhs_temp = p_tmp;
+                THINKER_RET_CHECK(API_LIB(memcpy_i8o8)(lhs_temp, lhs_cur, cur_size * sizeof(int8_t)), "luna_memcpy_i8o8");
+                p_tmp += ALIGN4(cur_size * sizeof(int8_t));
+            }
+            if (y_in_psram) {
+                dst_temp = p_tmp;
+            }
+
+            THINKER_RET_CHECK(API_LIB(mat_mul_i8i8o8)(rhs_temp, ones, rhs_broadcast,
+                                                       cur_c, 1, hw, 0), "luna_mat_mul_i8i8o8");
+            THINKER_RET_CHECK(API_LIB(mul_i8i8o8)(lhs_temp, rhs_broadcast, dst_temp,
+                                                  cur_size, shift), "luna_mul_i8i8o8");
+            if (y_in_psram) {
+                opi_psram_cpy_out(dst_cur, dst_temp, cur_size * sizeof(int8_t));
+            }
+        }
+    }
 
     return T_SUCCESS;
 }
@@ -56,43 +526,44 @@ int32_t iqmul_luna(tTensor *lhs, tTensor *rhs, tTensor *Y, tTensor *Temp, iqBina
         return T_ERR_INVALID_PARA;
     }
 
-    if ((lhs->dtype_ != rhs->dtype_) || (lhs->dtype_ != Y->dtype_))
+    if (lhs->dtype_ != rhs->dtype_)
         return T_ERR_INVALID_DATATYPE;
 
     if (lhs->shape_.ndim_ == 4 && rhs->shape_.ndim_ == 4 &&
         lhs->shape_.dims_[1] == rhs->shape_.dims_[1] &&
-        rhs->shape_.dims_[2] == 1 && rhs->shape_.dims_[3] == 1) {
-        if (lhs->dtype_ == Int8)
-            THINKER_RET_CHECK(calc_vec_mul_luna_b2b2_broadcast_h1w1(lhs, rhs, Y, Temp, shift), "calc_vec_mul_luna_b2b2_broadcast_h1w1");
-        else
-            return T_ERR_INVALID_DATATYPE;
+        rhs->shape_.dims_[2] == 1 && rhs->shape_.dims_[3] == 1 &&
+        (rhs->shape_.dims_[0] == 1 || rhs->shape_.dims_[0] == lhs->shape_.dims_[0])) {
+        THINKER_RET_CHECK(calc_vec_mul_luna_b2b2_broadcast_h1w1(lhs, rhs, Y, Temp, shift), "calc_vec_mul_luna_b2b2_broadcast_h1w1");
     } 
     else if (rhs->shape_.ndim_ == 0) {
         if (rhs->dtype_ == Int8) {
             int8_t scalar = *(int8_t *)rhs->dptr_;
-            THINKER_RET_CHECK(API_LIB(scale_i8i8o8)((int8_t *)lhs->dptr_, scalar, (int8_t *)Y->dptr_, size, shift), "luna_scalar_i8i8o8");
+            THINKER_RET_CHECK(iqmul_scalar_i8(lhs, Y, Temp, scalar, size, shift), "iqmul_scalar_i8");
         } 
         else if (rhs->dtype_ == Int16) {
             int16_t scalar = *(int16_t *)rhs->dptr_;
-            THINKER_RET_CHECK(API_LIB(scale_i16i16o16)((int16_t *)lhs->dptr_, scalar, (int16_t *)Y->dptr_, size, shift), "luna_scalar_i16i16o16");
+            THINKER_RET_CHECK(iqmul_scalar_i16(lhs, Y, Temp, scalar, size, shift), "iqmul_scalar_i16");
         } 
-        else if (rhs->dtype_ == Float32) {
-            int32_t scalar = (int32_t)*(float *)rhs->dptr_;
-            THINKER_RET_CHECK(API_LIB(scale_i32i32o32)((int32_t *)lhs->dptr_, scalar, (int32_t *)Y->dptr_, size, shift), "luna_scalar_i32i32o32");
+        else if (rhs->dtype_ == Int32) {
+            int32_t scalar = *(int32_t *)rhs->dptr_;
+            THINKER_RET_CHECK(iqmul_scalar_i32(lhs, Y, Temp, scalar, size, shift), "iqmul_scalar_i32");
         } 
         else {
             return T_ERR_INVALID_DATATYPE;
         }
     } 
     else {
+        if (!equalShape(&lhs->shape_, &rhs->shape_)) {
+            return T_ERR_INVALID_DATATYPE;
+        }
         if (rhs->dtype_ == Int8) {
-            THINKER_RET_CHECK(API_LIB(mul_i8i8o8)((int8_t *)lhs->dptr_, (int8_t *)rhs->dptr_, (int8_t *)Y->dptr_, size, shift), "luna_mul_i8i8o8");
+            THINKER_RET_CHECK(iqmul_vec_i8(lhs, rhs, Y, Temp, size, shift), "iqmul_vec_i8");
         } 
         else if (rhs->dtype_ == Int16) {
-            THINKER_RET_CHECK(API_LIB(mul_i16i16o16)((int16_t *)lhs->dptr_, (int16_t *)rhs->dptr_, (int16_t *)Y->dptr_, size, shift), "luna_mul_i16i16o16");
+            THINKER_RET_CHECK(iqmul_vec_i16(lhs, rhs, Y, Temp, size, shift), "iqmul_vec_i16");
         } 
-        else if (rhs->dtype_ == Float32) {
-            THINKER_RET_CHECK(API_LIB(mul_i32i32o32)((int32_t *)lhs->dptr_, (int32_t *)rhs->dptr_, (int32_t *)Y->dptr_, size, shift), "luna_mul_i32i32o32");
+        else if (rhs->dtype_ == Int32) {
+            THINKER_RET_CHECK(iqmul_vec_i32(lhs, rhs, Y, Temp, size, shift), "iqmul_vec_i32");
         } 
         else {
             return T_ERR_INVALID_DATATYPE;

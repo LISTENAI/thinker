@@ -45,9 +45,8 @@ class ThinkerRunner:
     def _init_dump_dir(self):
         dump_dir = 'workspace/data'
         if os.path.exists(dump_dir):
-            return
-        else:
-            Path(dump_dir).mkdir(parents=True, exist_ok=True)
+            os.system("rm -rf {}".format(dump_dir))
+        Path(dump_dir).mkdir(parents=True, exist_ok=True)
 
 
     def _init_platform(self):

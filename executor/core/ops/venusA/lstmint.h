@@ -163,7 +163,7 @@ static int32_t luna_lstm_q7_int8_inner(luna_lstm_param_t *params, int32_t t, int
     THINKER_RET_CHECK(API_LIB(scale_i32i32o32)(G_o, 1, G_o, hidden_size, 16), "luna_scale_i32i32o32");
     
     int32_t *cell_new = (int32_t *)p_cell_in;
-    int32_t *hidden_new = (int32_t *)p_h_in;
+    int32_t *hidden_new = (int32_t *)gates_input + hidden_size * 4;
     
     THINKER_RET_CHECK(API_LIB(mul_i32i32o32)(p_cell_in, G_f, cell_new, hidden_size, 0), "luna_mul_i32i32o32");
     THINKER_RET_CHECK(API_LIB(mul_i32i32o32)(G_i, G_c, hidden_new, hidden_size, 0), "luna_mul_i32i32o32");

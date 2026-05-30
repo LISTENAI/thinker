@@ -7,7 +7,20 @@ import onnx
 import struct
 import numpy as np
 from typing import Dict, List, Tuple
-from onnx import mapping, NodeProto, TensorProto, AttributeProto
+from onnx import NodeProto, TensorProto, AttributeProto
+
+try:
+    from onnx import mapping
+except ImportError:
+    from onnx import _mapping as _onnx_mapping_internal
+
+    class _OnnxMapping:
+        TENSOR_TYPE_TO_NP_TYPE = {
+            tensor_type: tensor_dtype.np_dtype
+            for tensor_type, tensor_dtype in _onnx_mapping_internal.TENSOR_TYPE_MAP.items()
+        }
+
+    mapping = _OnnxMapping()
 
 from .enum_defines import Colors, ModelConfig
 from .save_model import save_to_onnx_model

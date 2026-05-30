@@ -222,7 +222,7 @@ tStatus tGetMemoryPlan(tMemory* memory_list, int32_t* num_memory,
 
   inst_size += ALIGN16(scalar_graph->num_scalars_*sizeof(double)); 
 
-  inst_size += ALIGN16(sizeof(tDMA_List));
+  inst_size += ALIGN16(THINKER_DMA_LIST_SIZE(dma_hdr.count_));
   tMemory inst_memory;
   inst_memory.size_ = inst_size;
   inst_memory.dptr_ = 0;
@@ -604,7 +604,7 @@ tStatus tCreateExecutor(const tModelHandle model_hdl, tExecHandle *hdl,
   inst_size += ALIGN16(sizeof(tExecInst));
   inst_size += ALIGN16(model->num_memory_ * sizeof(tMemory));
   inst_size += ALIGN16(model->num_tensor_ * sizeof(tTensor));
-  inst_size += ALIGN16(sizeof(tDMA_List));
+  inst_size += ALIGN16(THINKER_DMA_LIST_SIZE(model->dma_info_->count_));
   tMemory inst_memory;
 
   for (i = 0; i < num_memory; i++) {
@@ -997,8 +997,8 @@ tStatus tForward(const tExecHandle hdl) {
 #endif
       int32_t result_crc = crc32_calc(data, data_size);
       printf("crc32_calc = 0x%08x, data = [0x%08x-0x%08x-0x%08x], name = %s\n", result_crc,
-            ((uint32_t *)(data))[0], ((uint32_t *)(data + data_size / 2))[0],
-            ((uint32_t *)(data + data_size - 4))[0], name_list[tensor_id].name_);
+            ((uint32_t *)(data))[0], ((uint32_t *)(data + ALIGN32(data_size / 2)))[0],
+            ((uint32_t *)(data + ALIGN32(data_size - 4)))[0], name_list[tensor_id].name_);
     }
 #endif
     PROFILE_END

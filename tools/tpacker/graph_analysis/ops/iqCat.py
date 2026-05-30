@@ -103,7 +103,7 @@ class iqCat(Operator, BaseLayout):
         data_type = None
         mem_flag = 0
 
-        if platform != "venusA":
+        if platform == "venus":
             for i, entry in enumerate(inputs):
                 scale_name = f'scale_x_{i}'
                 scale_x = self.attrs.get(scale_name)

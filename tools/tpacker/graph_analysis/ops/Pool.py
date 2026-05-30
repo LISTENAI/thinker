@@ -212,12 +212,12 @@ class AvgPool2dInt(Operator, PoolLayout):
         ou_h, ou_w = self.outputs[0].shape[2:4]
         out_size = self.outputs[0].nbytes
 
-        if (kernel_h == h_in + pads[0] + pads[-2]) and (kernel_w == w_in + pads[1] + pads[-1]):
+        if (kernel_h == h_in + pads[0] + pads[-2]) and (kernel_w == w_in + pads[1] + pads[-1]):  # global averagepooling
             split_num = 1
             split_ch = c_in
             c_last = 0
             input_condition = ALIGN8(c_in) * h_in * w_in
-            if input_condition > 65536:
+            if input_condition > 16384:
                 split_ch = 8
                 split_num = math.floor(c_in * 8)
                 c_last = c_in - split_num * 8
@@ -230,7 +230,7 @@ class AvgPool2dInt(Operator, PoolLayout):
             split_ch = c_in
             c_last = 0
             input_condition = ALIGN8(c_in) * h_in * ((w_in + 8 * stride_w - 1) // (8 * stride_w)) * (8 * stride_w)
-            if input_condition > 65536:
+            if input_condition > 16384:
                 split_ch = 8
                 split_num = math.floor(c_in * 8)
                 c_last = c_in - split_num * 8
@@ -240,7 +240,7 @@ class AvgPool2dInt(Operator, PoolLayout):
                 platform = self.attrs.get("platform", "venus")
                 workspace_size = split_ch * ou_h * ou_w * 2 if platform == "venus" else split_ch * ou_h * ou_w * 4
 
-        return [Tensor.from_shape([workspace_size], np.int8, self.inputs[0].mem_type)]
+        return [Tensor.from_shape([workspace_size], np.int8, MemType.SHARE_MEM)]
 
     def flops_counter(self, dynamic_shape) -> int:
         """Calculate the number of floating-point operations (FLOPs) for the AvgPool2dInt operation."""

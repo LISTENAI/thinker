@@ -126,7 +126,7 @@ int32_t maxpool_luna(const tTensor* X, tTensor* Y, tTensor* Temp, PoolAttrs *att
         // Case 3: Split input height processing
         else if (2 == Y->mem_.type_) { //split input H
             /////only support H
-            int32_t input_limit_without_h = (luna_quant_ceil(in_c, 3) << 3) * (luna_quant_ceil(in_w, (3 + log2n_stride_w)) << (3 + log2n_stride_w));
+            int32_t input_limit_without_h = (luna_quant_ceil(in_c, 3) << 3) * (luna_quant_ceil(in_w, (2 + log2n_stride_w)) << (2 + log2n_stride_w));
             int32_t split_num = 1;
             int32_t tmp_in_h = in_h;
             while ((tmp_in_h * input_limit_without_h > workspace_size) || ((ou_h % split_num) != 0))

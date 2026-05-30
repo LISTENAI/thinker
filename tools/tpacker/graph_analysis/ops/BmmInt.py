@@ -81,6 +81,7 @@ class BmmInt(iqBinaryOperator):
         int8_condition_r = ALIGN8(N) * ALIGN4(L)
         split_M = M
 
+        workspace_bytes = 0
         platform = self.attrs.get("platform", "venus")
         if platform == "venus":
             if int8_condition_l > 65536:
@@ -95,7 +96,6 @@ class BmmInt(iqBinaryOperator):
             assert int8_condition_r <= 32768, "Input2 size must not exceed 32KB"
 
             # Calculate workspace size
-            workspace_bytes = 0
             if self.inputs[0].mem_type != MemType.SHARE_MEM and self.outputs[0].mem_type != MemType.SHARE_MEM:
                 workspace_bytes = split_M * max(N, L) + split_M * L * 4
             elif self.inputs[0].mem_type != MemType.SHARE_MEM:
@@ -105,9 +105,14 @@ class BmmInt(iqBinaryOperator):
 
             if self.inputs[1].mem_type != MemType.SHARE_MEM:
                 workspace_bytes += N * L
+        elif platform == "venusA":
+            if self.outputs[0].mem_type != MemType.SHARE_MEM:
+                workspace_bytes = M * L
+        else:
+            assert self.outputs[0].mem_type == MemType.SHARE_MEM
+        if workspace_bytes != 0:
+            return [Tensor.from_shape([workspace_bytes], np.int8, MemType.SHARE_MEM)]
 
-            if workspace_bytes != 0:
-                return [Tensor.from_shape([workspace_bytes], np.int8, MemType.SHARE_MEM)]
         return []
 
     def flops_counter(self, dynamic_shape) -> int:

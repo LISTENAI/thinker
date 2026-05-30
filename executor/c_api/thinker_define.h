@@ -25,13 +25,19 @@
 // Version macros
 #define THINKER_VERSION_MAJOR 3
 #define THINKER_VERSION_MINOR 0
-#define THINKER_VERSION_PATCH 10
+#define THINKER_VERSION_PATCH 11
 #define THINKER_VERSION      \
   STR(THINKER_VERSION_MAJOR) \
   "." STR(THINKER_VERSION_MINOR) "." STR(THINKER_VERSION_PATCH)
 
+#if THINKER_USE_VENUS || THINKER_USE_ARCS || THINKER_USE_VENUSA
 #if THINKER_USE_VENUS
 #include "core/ops/venus/luna/luna.h"
+#elif THINKER_USE_ARCS
+#include "core/ops/arcs/luna/luna.h"
+#else
+#include "core/ops/venusa/luna/luna.h"
+#endif
 #define VENUS_VERSION  \
     STR(LUNA_VER_MAJOR)"."STR(LUNA_VER_MINOR)"."STR(LUNA_VER_PATCH)"."STR(LUNA_VER_BUILD)
 #else
@@ -95,8 +101,11 @@ typedef struct _thinker_DMA_ {
 typedef struct _thinker_DMA_list_ {
     uint32_t cout_;         // Current count
     uint32_t total_;        // Total count
-    thinkerDMA dma_[320];   // Array of DMA operations
+    thinkerDMA dma_[1];     // Variable-length array of DMA operations
 } tDMA_List;
+
+#define THINKER_DMA_LIST_SIZE(count) \
+    (sizeof(tDMA_List) + (((count) > 0 ? (count) - 1 : 0) * sizeof(thinkerDMA)))
 
 // Hyperparameter structure
 typedef struct _thinker_Hypeparam_ {

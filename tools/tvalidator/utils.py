@@ -150,7 +150,7 @@ class ONNXModel:
 
         inputs_dict = {}
         processed_graph_inputs = set()
-        
+
         print(f"  Starting forward search from graph inputs...{Colors.RESET}")
         for i, graph_input in enumerate(self.graph_input):
             if graph_input.name in processed_graph_inputs: continue
@@ -160,15 +160,15 @@ class ONNXModel:
             queue = deque([(graph_input.name, graph_input.name)])
             visited_tensors = {graph_input.name}
             input_ready = False
-            while queue and not input_ready: 
+            while queue and not input_ready:
                 current_tensor, original_source = queue.popleft()
                 consumers = consumer_map.get(current_tensor, [])
-                
+
                 for consumer_node, consumer_index in consumers:
                     if consumer_node.op_type in self.__quant_op_configs:
                         print(f"    -> Path reached potential target '{consumer_node.name}' at its input index {consumer_index}.")
                         config = self.__quant_op_configs[consumer_node.op_type]
-                        
+
                         # Dynamically check if the connection is to a quantizable slot
                         matched_quant_input_info = None
                         for quant_input_info in config['quantizable_inputs']:
@@ -176,7 +176,7 @@ class ONNXModel:
                             if actual_index == consumer_index:
                                 matched_quant_input_info = quant_input_info
                                 break
-                        
+
                         if matched_quant_input_info:
                             print(f"    -> SUCCESS: Connection matches the defined quantizable input '{matched_quant_input_info['name']}'.")
                             _, attrs = parse_attribute_and_name(consumer_node)
@@ -197,7 +197,11 @@ class ONNXModel:
                                     data_dtype = np.int16
                                 else:
                                     data_dtype = np.int32
-                            
+
+                                if consumer_node.op_type == "LSTMInt" and matched_quant_input_info['scale_attr'] == "scale_c": ###LSTMInt 算子的cell固定为int32类型，但实际数据为int16
+                                    data_bits = 16
+                                    data_dtype = np.int32
+
                                 bound_val = math.pow(2, data_bits-1)
                                 thinker_input = np.random.randint(-bound_val, bound_val, size = self.input_info[original_source].shape, dtype=data_dtype)
                             onnxrunner_input = torch.from_numpy((thinker_input - zp_val).astype(np.float32) / scale_val).cpu()
@@ -250,7 +254,7 @@ class ONNXModel:
                 if input_ready:
                     break
         return inputs_dict
-        
+
     def _init_quant_op_configs(self):
         self.__quant_op_configs = {
             'AvgPool2dInt': {
@@ -311,25 +315,25 @@ class ONNXModel:
             },
             'GRUInt': {
                 'quantizable_inputs': [
-                    {'name': 'sequence_input', 
-                     'locator_logic': {'type': 'static', 'index': 0}, 
-                     'scale_attr': 'scale_x', 
+                    {'name': 'sequence_input',
+                     'locator_logic': {'type': 'static', 'index': 0},
+                     'scale_attr': 'scale_x',
                      'zp_attr': 'x_zero_point'},
-                    {'name': 'initial_hidden', 
-                     'locator_logic': {'type': 'conditional', 'arg': 'num_inputs', 'cases': [{'if_equal': 7, 'index': 1}, {'if_equal': 8, 'index': 2}]}, 
-                     'scale_attr': 'scale_h', 
+                    {'name': 'initial_hidden',
+                     'locator_logic': {'type': 'conditional', 'arg': 'num_inputs', 'cases': [{'if_equal': 7, 'index': 1}, {'if_equal': 8, 'index': 2}]},
+                     'scale_attr': 'scale_h',
                      'zp_attr': 'h_zero_point'},
                 ]
             },
             'QGRU': {
                 'quantizable_inputs': [
-                    {'name': 'sequence_input', 
-                     'locator_logic': {'type': 'static', 'index': 0}, 
-                     'scale_attr': 'scale_x', 
+                    {'name': 'sequence_input',
+                     'locator_logic': {'type': 'static', 'index': 0},
+                     'scale_attr': 'scale_x',
                      'zp_attr': 'x_zero_point'},
-                    {'name': 'initial_hidden', 
-                     'locator_logic': {'type': 'conditional', 'arg': 'num_inputs', 'cases': [{'if_equal': 7, 'index': 1}, {'if_equal': 8, 'index': 2}]}, 
-                     'scale_attr': 'scale_h', 
+                    {'name': 'initial_hidden',
+                     'locator_logic': {'type': 'conditional', 'arg': 'num_inputs', 'cases': [{'if_equal': 7, 'index': 1}, {'if_equal': 8, 'index': 2}]},
+                     'scale_attr': 'scale_h',
                      'zp_attr': 'h_zero_point'},
                 ]
             },
@@ -451,17 +455,17 @@ class ONNXModel:
             },
             'LSTMInt': {
                 'quantizable_inputs': [
-                    {'name': 'sequence_input', 
-                     'locator_logic': {'type': 'static', 'index': 0}, 
-                     'scale_attr': 'scale_x', 
+                    {'name': 'sequence_input',
+                     'locator_logic': {'type': 'static', 'index': 0},
+                     'scale_attr': 'scale_x',
                      'zp_attr': 'i_zero_point'},
-                    {'name': 'initial_hidden', 
-                     'locator_logic': {'type': 'conditional', 'arg': 'num_inputs', 'cases': [{'if_equal': 7, 'index': 1}, {'if_equal': 8, 'index': 2}]}, 
-                     'scale_attr': 'scale_h', 
+                    {'name': 'initial_hidden',
+                     'locator_logic': {'type': 'conditional', 'arg': 'num_inputs', 'cases': [{'if_equal': 7, 'index': 1}, {'if_equal': 8, 'index': 2}]},
+                     'scale_attr': 'scale_h',
                      'zp_attr': 'h_zero_point'},
-                    {'name': 'initial_cell', 
-                     'locator_logic': {'type': 'conditional', 'arg': 'num_inputs', 'cases': [{'if_equal': 7, 'index': 2}, {'if_equal': 8, 'index': 3}]}, 
-                     'scale_attr': 'scale_c', 
+                    {'name': 'initial_cell',
+                     'locator_logic': {'type': 'conditional', 'arg': 'num_inputs', 'cases': [{'if_equal': 7, 'index': 2}, {'if_equal': 8, 'index': 3}]},
+                     'scale_attr': 'scale_c',
                      'zp_attr': 'c_zero_point'}
                 ]
             },
@@ -476,6 +480,16 @@ class ONNXModel:
                 ]
             },
             'SoftmaxInt': {
+                'quantizable_inputs': [
+                    {
+                        'name': 'input',
+                        'locator_logic': {'type': 'static', 'index': 0},
+                        'scale_attr': 'scale_x',
+                        'zp_attr': 'data_zero_point'
+                    }
+                ]
+            },
+            'QGelu': {
                 'quantizable_inputs': [
                     {
                         'name': 'input',

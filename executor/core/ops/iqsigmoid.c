@@ -31,7 +31,7 @@ int32_t X(Forward)(tOperator *op, tTensor **tensors, int32_t num_tensor, tDMA_Li
     // Get input, output, and workspace tensors
     tTensor *X = tensors[0];
     tTensor *Y = tensors[1];
-    tTensor *workspace = (num_tensor > (op->num_input_ + op->num_output_)) ? tensors[2] : NULL;
+    tTensor *workspace = (num_tensor > (op->num_input_ + op->num_output_)) ? tensors[op->num_input_ + op->num_output_] : NULL;
 
 #if THINKER_USE_VENUS || THINKER_USE_ARCS || THINKER_USE_VENUSA
 #if THINKER_PROFILE

@@ -2,7 +2,7 @@ import math
 import numpy as np
 
 from ..utils import AutoPad, CeilMode, combine4bit_8bit
-from ....enum_defines import Layout, MemType, ALIGN2, ALIGN8, ALIGN16
+from ....enum_defines import Layout, MemType, ALIGN2, ALIGN4, ALIGN8, ALIGN16
 
 
 def get_Conv2dInt_workspace(
@@ -34,15 +34,33 @@ def get_Conv2dInt_workspace(
     group_align = ALIGN16(group)
     stride_h, stride_w = strides
     kernel_h, kernel_w = kernels
-    pad_l, pad_r, pad_t, pad_b = pads
+    pad_up, pad_left, pad_down, pad_right = pads
     c_in, h_in, w_in = data.shape[1:4]
-    c_ou, h_ou, w_ou = out.shape[1:4]
+    ou_c, ou_h, ou_w = out.shape[1:4]
+    kernel_extent_h = (kernel_h - 1) * dilations[0] + 1
+    out_bytes = out.dtype.itemsize
 
-    if data.dtype == np.int8 and weight.dtype == np.int8:
-        if out.mem_type != MemType.SHARE_MEM:
-            return out.nbytes
-    elif data.dtype == np.int16 and weight.dtype == np.int16:
-        return c_in * kernel_h * kernel_w * h_ou * w_ou * 2 + out.nbytes * 4
+    log2n_stride_w = stride_w >> 1
+    align_w_shift = 2 + log2n_stride_w
+    align_w = ((w_in + (1 << align_w_shift) - 1) // (1 << align_w_shift)) << align_w_shift
+    data_size_withouth = align_w * ALIGN8(c_in)
+    assert data_size_withouth * kernel_extent_h <= 16384, "input size of conv2dInt on acrs must less than 16KB"
+
+    def split_workspace_size():
+        target_elements = 16384 // data_size_withouth
+        split_ou_h = max((target_elements - kernel_extent_h + stride_h) // stride_h, 1)
+        split_ou_h = min(split_ou_h, ou_h)
+        split_in_h = (split_ou_h - 1) * stride_h + kernel_extent_h
+        input_size = ALIGN4(c_in * split_in_h * w_in)
+        output_size = ou_c * split_ou_h * ou_w * out_bytes
+        return input_size + output_size
+
+    if group != 1:
+        if group == ou_c and out.mem_type != MemType.SHARE_MEM:  # Depthwise convolution
+            return min(out.nbytes, split_workspace_size())
+    else:
+        if weight.dtype == np.int8 and out.mem_type != MemType.SHARE_MEM:
+            return min(out.nbytes, split_workspace_size())
 
     return 0
 

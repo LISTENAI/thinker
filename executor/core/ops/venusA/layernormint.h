@@ -309,12 +309,12 @@ int32_t layernormalint_venus(const tTensor *X, const tTensor *W, const tTensor *
     int16_t *p_src2_int16= (int16_t *)p_tmp;
 	int32_t *p_src2     = (int32_t *)(p_tmp + ALIGN2(T) * sizeof(int16_t)); // T * sizeof(int32_t)
 
-    int16_t *p_numerator_int16 = (int16_t *)p_tmp;
-	int32_t *p_numerator= (int32_t *)(p_tmp + ALIGN2(T) * sizeof(int16_t)); // T * sizeof(int32_t)
+    int16_t *p_numerator_int16 = (int16_t *)p_tmp + 2;
+	int32_t *p_numerator= (int32_t *)(p_tmp + ALIGN2(T) * sizeof(int16_t) + 4); // T * sizeof(int32_t)
 
-    int16_t *p_weight_int16 = (int16_t *)p_tmp; // T * sizeof(int32_t)
-    int32_t *p_weight   = (int32_t *)(p_tmp + ALIGN2(T) * sizeof(int16_t)); // T * sizeof(int32_t)
-	int32_t *p_y1       = (int32_t *)(p_tmp  + T * sizeof(int32_t) + ALIGN2(T) * sizeof(int16_t));
+    int16_t *p_weight_int16 = (int16_t *)p_tmp + 2; // T * sizeof(int32_t)
+    int32_t *p_weight   = (int32_t *)(p_tmp + ALIGN2(T) * sizeof(int16_t) + 4); // T * sizeof(int32_t)
+	int32_t *p_y1       = (int32_t *)(p_tmp  + T * sizeof(int32_t) + ALIGN2(T) * sizeof(int16_t) + 4);
 
 	int32_t *p_y2       = p_y1;
 
@@ -327,23 +327,23 @@ int32_t layernormalint_venus(const tTensor *X, const tTensor *W, const tTensor *
         if (Y->mem_.mem_type_ != 2) {
             p_dst_once = (int8_t *)p_tmp;
         }
-        int32_t sum_x, sum_x2;
-        THINKER_RET_CHECK(API_LIB(vector_sum_i8o32)(p_src_once, &sum_x, T, 0), "luna_vector_sum_i8o32");        // sum(x)
+        int32_t *sum_x = (int32_t *)p_tmp;
+        int32_t *sum_x2 = (int32_t *)p_tmp + 1;
         THINKER_RET_CHECK(API_LIB(mul_i8i8o16)(p_src_once, p_src_once, p_src2_int16, T, 0), "luna_mul_i8i8o16"); //not support mul_i8i8o32
         THINKER_RET_CHECK(API_LIB(scale_i16i16o32)(p_src2_int16, 1, p_src2, T, 0), "luna_scale_i16i16o32");     // x^2
-        THINKER_RET_CHECK(API_LIB(vector_sum_i32o32)(p_src2, &sum_x2, T, 0), "luna_vector_sum_i32o32");          // sum(x^2)
+        THINKER_RET_CHECK(API_LIB(vector_sum_i32o32)(p_src2, sum_x2, T, 0), "luna_vector_sum_i32o32");          // sum(x^2)
+        THINKER_RET_CHECK(API_LIB(vector_sum_i8o32)(p_src_once, sum_x, T, 0), "luna_vector_sum_i8o32");        // sum(x)
 
-        int64_t denominator = (int64_t)(T * sum_x2) - (int64_t)(sum_x * sum_x); // N * sum(x^2) - (sum(x))^2
+        int64_t denominator = (int64_t)(T * sum_x2[0]) - (int64_t)(sum_x[0] * sum_x[0]); // N * sum(x^2) - (sum(x))^2
         denominator = denominator + q_eps;
 
         int32_t label_shift = 0;
-        int32_t *p_weight   = p_src2;
         denominator = calc_sqrt_reciprocal((const int64_t)denominator, q_x, &label_shift);  // 1/N
 
         THINKER_RET_CHECK(API_LIB(scale_i8i8o16)(p_src_once, 1, p_numerator_int16, T, 0), "luna_scale_i8i8o16");
         THINKER_RET_CHECK(API_LIB(scale_i16i16o32)(p_numerator_int16, 1, p_numerator, T, 0), "luna_scale_i16i16o32");
         THINKER_RET_CHECK(API_LIB(scale_i32i32o32)(p_numerator, T, p_numerator, T, 0), "luna_scale_i32i32o32");                // T*x
-        THINKER_RET_CHECK(API_LIB(offset_i32i32o32)(p_numerator, (0 - sum_x), p_numerator, T, 0), "luna_offset_i32i32o32");
+        THINKER_RET_CHECK(API_LIB(offset_i32i32o32)(p_numerator, (0 - sum_x[0]), p_numerator, T, 0), "luna_offset_i32i32o32");
         THINKER_RET_CHECK(API_LIB(scale_i32i32o32)(p_numerator, denominator, (int32_t *)p_y1, T, label_shift), "luna_scale_i32i32o32");
 
         if (W->dtype_ == Int8) {

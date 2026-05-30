@@ -74,6 +74,8 @@ class LSTMInt(Operator):
             self.weight_index = 1
         elif len(inputs) == 6:
             self.weight_index = 2
+        elif len(inputs) == 7:
+            self.weight_index = 3
         elif len(inputs) == 8:
             self.inputs[2].dtype = inputs[0].dtype
             self.weight_index = 4

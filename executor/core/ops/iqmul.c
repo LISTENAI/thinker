@@ -33,7 +33,7 @@ int32_t X(Forward)(tOperator *op, tTensor **tensors, int32_t num_tensor, tDMA_Li
     iqBinaryAttrs *attrs = (iqBinaryAttrs *)((int8_t *)op + op->attr_offset_);
     
     // Get workspace tensor
-    tTensor *workspace = ((tTensor **)tensors)[num_tensor - 1];
+    tTensor *workspace = num_tensor > (op->num_input_ + op->num_output_) ? ((tTensor **)tensors)[num_tensor - 1] : NULL;
     
 #if THINKER_USE_VENUS || THINKER_USE_ARCS || THINKER_USE_VENUSA
 #if THINKER_PROFILE

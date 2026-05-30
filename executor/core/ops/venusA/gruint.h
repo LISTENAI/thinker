@@ -217,7 +217,7 @@ int32_t gruint_luna(tTensor *input, tTensor *history_h, tTensor *i2h_w, tTensor 
     int32_t step_size = gru_param.input_size * gru_param.batch_size;
     int32_t out_step_size = gru_param.hidden_size * gru_param.batch_size;
     int8_t *p_input = (int8_t *)input->dptr_;
-    int8_t *p_tmp = 0;
+    int8_t *p_tmp = NULL;
     int32_t tmp_size = 0;
     if (params->layout != 0 && batch_size != 1)
     {

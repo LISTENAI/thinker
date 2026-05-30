@@ -129,8 +129,8 @@ int32_t iqadd_luna(tTensor *X1, tTensor *X2, tTensor *Temp, tTensor *Y) {
                 {
                     int32_t remain_size = total_size - past_size;
                     int32_t cur_size = (workspace_size >> factor) < remain_size ? (workspace_size >> factor) : remain_size;
-
-                    int8_t *src1_temp = dst_temp;
+                    dst_temp = y_in_psram ? workspace : (int8_t *)dst + past_size;
+                    int8_t *src1_temp = y_in_psram ? workspace : (int8_t *)dst + past_size;
                     THINKER_RET_CHECK(API_LIB(scale_i8i8o8)((int8_t *)src1 + past_size, shift1_0, (int8_t *)src1_temp, cur_size, shift1_1), "luna_scale_i8i8o8");
                     int8_t *src2_temp = y_in_psram ? (workspace + cur_size) : workspace;
                     THINKER_RET_CHECK(API_LIB(scale_i8i8o8)((int8_t *)src2 + past_size, shift2_0, (int8_t *)src2_temp, cur_size, shift2_1), "luna_scale_i8i8o8");

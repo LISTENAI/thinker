@@ -1,5 +1,14 @@
 # Release Notes
 
+## v3.0.11 - 2026-05-30
+
+- 版本升级至 `3.0.11`，同步 C API 与 Python 包版本；C API 内存规划改为按 DMA 条目数动态计算 `tDMA_List` 大小，并修正 CRC 调试输出的地址对齐。
+- 优化 Arcs 执行器算子：`Conv2dInt` 改为在 luna 接口外部按 H 维拆分并根据 workspace 确定拆分颗粒度，`AvgPool2dInt` 支持通道拆分和 PSRAM 输出，`iqMul`/`iqSigmoid` 增强 PSRAM 输出拆分与 workspace 校验，`iqSigmoid` 保证 `opi_psram_cpy_out` 拷贝大小按 4 字节对齐。
+- 优化 VenusA 执行器算子：重构 `iqMul` 标量/逐元素/broadcast 路径的输入输出 PSRAM 处理和拆分计算，补充 `BmmInt` PSRAM 输出写回，并修正 `iqAdd`、`LayerNormInt`、`LstmInt`、`GRUInt` 等实现细节。
+- 完善 tpacker 图分析与 workspace 估算：更新 Arcs `Conv2dInt`、`iqMul`、`iqSigmoid` 拆分场景的 workspace 计算，调整 `BmmInt`、`Clip`、`GLUInt`、`LstmInt`、`Pool`、`iqCat` 等算子分析逻辑，并清理/简化 `op_split` 中旧的拆分路径。
+- 改进工具链兼容性与验证流程：`load_model` 兼容新版 ONNX mapping，内存报告改用 `getpass.getuser()`，tvalidator 每次运行清理 dump 目录，补充 `QGelu` 量化输入配置并修正 LSTM cell 输入数据类型生成。
+- 更新 Arcs、Venus、VenusA 平台 luna/opi/thinker 静态库与 Linux64 运行库，补充 chip 侧 BSP/driver/debug/release 库文件。
+
 ## v3.0.10 - 2026-05-16
 
 - 版本升级至 `3.0.10`，同步 C API 与 Python 包版本；安装脚本调整为卸载/安装 `thinker` sdist 包，并默认关闭 tpacker dump。
