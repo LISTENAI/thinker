@@ -36,7 +36,7 @@
 #elif THINKER_USE_ARCS
 #include "core/ops/arcs/luna/luna.h"
 #else
-#include "core/ops/venusa/luna/luna.h"
+#include "core/ops/venusA/luna/luna.h"
 #endif
 #define VENUS_VERSION  \
     STR(LUNA_VER_MAJOR)"."STR(LUNA_VER_MINOR)"."STR(LUNA_VER_PATCH)"."STR(LUNA_VER_BUILD)
