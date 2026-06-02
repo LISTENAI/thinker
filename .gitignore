@@ -26,6 +26,7 @@ scripts/CMakeCache.txt
 scripts/Makefile
 
 pythinker.egg-info
+thinker.egg-info
 cmake_*
 CMakeCache*
 CMakeFiles
@@ -33,4 +34,3 @@ CMakeFiles
 dist
 tags
 
-memory.txt
