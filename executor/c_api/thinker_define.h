@@ -25,23 +25,39 @@
 // Version macros
 #define THINKER_VERSION_MAJOR 3
 #define THINKER_VERSION_MINOR 0
-#define THINKER_VERSION_PATCH 11
-#define THINKER_VERSION      \
-  STR(THINKER_VERSION_MAJOR) \
-  "." STR(THINKER_VERSION_MINOR) "." STR(THINKER_VERSION_PATCH)
+#define THINKER_VERSION_PATCH 12
+#define THINKER_VERSION        STR(THINKER_VERSION_MAJOR)   "." STR(THINKER_VERSION_MINOR) "." STR(THINKER_VERSION_PATCH)
 
-#if THINKER_USE_VENUS || THINKER_USE_ARCS || THINKER_USE_VENUSA
-#if THINKER_USE_VENUS
-#include "core/ops/venus/luna/luna.h"
-#elif THINKER_USE_ARCS
-#include "core/ops/arcs/luna/luna.h"
-#else
-#include "core/ops/venusA/luna/luna.h"
+#define THINKER_TARGET_PLATFORM_NONE   0
+#define THINKER_TARGET_PLATFORM_VENUS  1
+#define THINKER_TARGET_PLATFORM_ARCS   2
+#define THINKER_TARGET_PLATFORM_VENUSA 3
+
+#ifndef DTHINKER_TARGET_PLATFORM
+#define DTHINKER_TARGET_PLATFORM THINKER_TARGET_PLATFORM_NONE
 #endif
-#define VENUS_VERSION  \
-    STR(LUNA_VER_MAJOR)"."STR(LUNA_VER_MINOR)"."STR(LUNA_VER_PATCH)"."STR(LUNA_VER_BUILD)
+
+#if DTHINKER_TARGET_PLATFORM == THINKER_TARGET_PLATFORM_VENUS
+#include "core/ops/venus/luna/luna.h"
+#define THINKER_TARGET_PLATFORM_NAME "venus"
+#define THINKER_TARGET_PLATFORM_RESOURCE_TAG 0
+#elif DTHINKER_TARGET_PLATFORM == THINKER_TARGET_PLATFORM_ARCS
+#include "core/ops/arcs/luna/luna.h"
+#define THINKER_TARGET_PLATFORM_NAME "arcs"
+#define THINKER_TARGET_PLATFORM_RESOURCE_TAG 2
+#elif DTHINKER_TARGET_PLATFORM == THINKER_TARGET_PLATFORM_VENUSA
+#include "core/ops/venusA/luna/luna.h"
+#define THINKER_TARGET_PLATFORM_NAME "venusA"
+#define THINKER_TARGET_PLATFORM_RESOURCE_TAG 3
 #else
-#define VENUS_VERSION   "0.0.0.0"
+#define THINKER_TARGET_PLATFORM_NAME "generic"
+#define THINKER_TARGET_PLATFORM_RESOURCE_TAG -1
+#endif
+
+#if DTHINKER_TARGET_PLATFORM != THINKER_TARGET_PLATFORM_NONE
+#define VENUS_VERSION     STR(LUNA_VER_MAJOR) "." STR(LUNA_VER_MINOR) "." STR(LUNA_VER_PATCH) "." STR(LUNA_VER_BUILD)
+#else
+#define VENUS_VERSION "0.0.0.0"
 #endif
 
 // Alignment macros for memory alignment
@@ -104,8 +120,7 @@ typedef struct _thinker_DMA_list_ {
     thinkerDMA dma_[1];     // Variable-length array of DMA operations
 } tDMA_List;
 
-#define THINKER_DMA_LIST_SIZE(count) \
-    (sizeof(tDMA_List) + (((count) > 0 ? (count) - 1 : 0) * sizeof(thinkerDMA)))
+#define THINKER_DMA_LIST_SIZE(count)     (sizeof(tDMA_List) + (((count) > 0 ? (count) - 1 : 0) * sizeof(thinkerDMA)))
 
 // Hyperparameter structure
 typedef struct _thinker_Hypeparam_ {

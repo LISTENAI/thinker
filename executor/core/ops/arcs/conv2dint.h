@@ -348,8 +348,8 @@ int32_t conv2dint_luna(tTensor *X, tTensor *W, tTensor *Bias, tTensor *Y, tTenso
     if ((k_h <= 12) && (k_w <= 12)) { // Kernel size in [1, 12]
         if (attrs->group == 1) { // Common convolution
             if (ou_is_psram && output_size > workspace_size) {
-                return conv2dint_luna_split_output_h(X, W, Bias, Y, temp,
-                                                     workspace_size, &conv_attrs, 0);
+                THINKER_RET_CHECK(conv2dint_luna_split_output_h(X, W, Bias, Y, temp,
+                                                     workspace_size, &conv_attrs, 0), "conv2dint_luna_split_output_h");
             }
             conv_attrs.reserved = 0;
             THINKER_RET_CHECK(luna_split_conv_para_pack(&conv_attrs, &conv_static_para, LUNA_CONV), "luna_split_conv_para_pack");
@@ -363,8 +363,8 @@ int32_t conv2dint_luna(tTensor *X, tTensor *W, tTensor *Bias, tTensor *Y, tTenso
             }
         } else if (attrs->group == input_c && attrs->group == output_c) { // Depthwise convolution
             if (ou_is_psram && output_size > workspace_size) {
-                return conv2dint_luna_split_output_h(X, W, Bias, Y, temp,
-                                                     workspace_size, &conv_attrs, 1);
+                THINKER_RET_CHECK(conv2dint_luna_split_output_h(X, W, Bias, Y, temp,
+                                                     workspace_size, &conv_attrs, 1), "conv2dint_luna_split_output_h");
             }
             conv_attrs.reserved = 0;
             THINKER_RET_CHECK(luna_split_conv_para_pack(&conv_attrs, &conv_static_para, LUNA_DEPTHWISE), "luna_split_conv_para_pack");
@@ -383,7 +383,10 @@ int32_t conv2dint_luna(tTensor *X, tTensor *W, tTensor *Bias, tTensor *Y, tTenso
         printf("conv2d do not support: kernel > 12\n");
         return T_ERR_INVALID_PARA;
     }
-
+#if !(defined(WIN32) || defined(linux))
+    if (ou_is_psram)
+        HAL_FlushInvalidateDCache_by_Addr((uint32_t *)(Y->dptr_), output_size);
+#endif
     return T_SUCCESS;
 }
 

@@ -111,8 +111,14 @@ tStatus tUninitialize() {
  */
 tStatus tGetMemoryPlan(tMemory* memory_list, int32_t* num_memory,
                        const int8_t* res, const uint64_t size) {
-  tModelHeader *res_hdr = (tModelHeader *)res;
+  if (memory_list == NULL || num_memory == NULL) {
+    return T_ERR_INVALID_PARA;
+  }
+  if (res == NULL || size == 0) {
+    return T_ERR_RES_MISSING;
+  }
 
+  tModelHeader *res_hdr = (tModelHeader *)res;
   if (res_hdr->total_size_ > size) {
     return T_ERR_RES_INCOMPLETE;
   }
@@ -130,32 +136,13 @@ tStatus tGetMemoryPlan(tMemory* memory_list, int32_t* num_memory,
  }
 #endif
 
-#if THINKER_CHECK_PLATFORM
-#if THINKER_USE_VENUS
- if (res_hdr->reserved != 0) {
-  printf("Incompatible resource for venus platform!\n");
-  printf("Please choose the correct platform!\n");
-  return T_ERR_INVALID_PLATFROM;
- }
-#elif THINKER_USE_MARS
- if (res_hdr->reserved != 1) {
-  printf("Incompatible resource for mars platform!\n");
-  printf("Please choose the correct platform!\n");
-  return T_ERR_INVALID_PLATFROM;
- }
-#elif THINKER_USE_ARCS
- if (res_hdr->reserved != 2) {
-  printf("Incompatible resource for arcs platform!\n");
-  printf("Please choose the correct platform!\n");
-  return T_ERR_INVALID_PLATFROM;
- }
-#elif THINKER_USE_VENUSA
- if (res_hdr->reserved != 3) {
-  printf("Incompatible resource for venusA platform!\n");
-  printf("Please choose the correct platform!\n");
-  return T_ERR_INVALID_PLATFROM;
- }
-#endif
+#if DTHINKER_TARGET_CHECK
+  if (THINKER_TARGET_PLATFORM_RESOURCE_TAG >= 0 &&
+      res_hdr->reserved != THINKER_TARGET_PLATFORM_RESOURCE_TAG) {
+    printf("Incompatible resource for %s platform!\n", THINKER_TARGET_PLATFORM_NAME);
+    printf("Please choose the correct platform!\n");
+    return T_ERR_INVALID_PLATFROM;
+  }
 #endif
 
   // Calculate model instance size
@@ -169,6 +156,7 @@ tStatus tGetMemoryPlan(tMemory* memory_list, int32_t* num_memory,
   tParameterList param_hdr = *(tParameterList *)(res + res_hdr->param_offset_);
   tDebugList debug_hdr = *(tDebugList *)(res + res_hdr->debug_offset_);
   tDMAList dma_hdr = *(tDMAList *)(res + res_hdr->dma_offset_);
+  int32_t has_shape_infer = res_hdr->debug_offset_ > res_hdr->shape_infer_offset_;
 
   model_inst_size += ALIGN16(mem_hdr.total_count_ * sizeof(tMemory));
   model_inst_size += ALIGN16(tensor_hdr.count_ * sizeof(tTensor));
@@ -194,14 +182,18 @@ tStatus tGetMemoryPlan(tMemory* memory_list, int32_t* num_memory,
 
   // Add parameter memory
   tMemory *shared_memory = (tMemory *)(res + res_hdr->memory_offset_ + mem_hdr.offset_);
+  uint8_t *param_ptr = (uint8_t *)res + res_hdr->param_offset_ + param_hdr.offset_;
 
   for (int32_t i = 0; i < mem_hdr.shared_count_; ++i) {
-    tParameter *params = (tParameter *)((uint8_t *)res + res_hdr->param_offset_ + param_hdr.header_size_);
-
+    if ((uint32_t)i >= param_hdr.count_) {
+      return T_ERR_RES_INCOMPLETE;
+    }
+    tParameter *param = (tParameter *)param_ptr;
     memory_list[num] = shared_memory[i];
-    memory_list[num].dptr_ = (addr_type)((int8_t *)params + params->offset_);
+    memory_list[num].dptr_ = (addr_type)(param_ptr + param->offset_);
     memory_list[num].mem_type_ = 2;
     num += 1;
+    param_ptr += param->offset_ + param->size_;
   }
 
   // Add runtime memory
@@ -212,17 +204,27 @@ tStatus tGetMemoryPlan(tMemory* memory_list, int32_t* num_memory,
   }
 
   // Calculate execution instance size
-  tShapeInferHdr *shape_hdr = (tShapeInferHdr *)((char *)res + res_hdr->shape_infer_offset_);
-  tScalarGraph *scalar_graph = (tScalarGraph *)((char*)shape_hdr + shape_hdr->graph_offset_);
+  uint32_t num_shape_scalars = 0;
+  uint64_t total_size = 0;
+  if (has_shape_infer) {
+    tShapeInferHdr *shape_hdr =
+        (tShapeInferHdr *)((char *)res + res_hdr->shape_infer_offset_);
+    tScalarGraph *scalar_graph =
+        (tScalarGraph *)((char *)shape_hdr + shape_hdr->graph_offset_);
+    num_shape_scalars = scalar_graph->num_scalars_;
+    total_size += ALIGN16(sizeof(tScalarGraph));
+    total_size += ALIGN16(shape_hdr->graph_size_);
+    total_size += ALIGN16(shape_hdr->num_id_pair_ * sizeof(tTenDimPair));
+    total_size += ALIGN16(shape_hdr->num_dy_axis_ * sizeof(tDyAxisInfo));
+  }
 
   int32_t inst_size = 0;
   inst_size += ALIGN16(sizeof(tExecInst));
   inst_size += ALIGN16(mem_hdr.total_count_ * sizeof(tMemory));
   inst_size += ALIGN16(tensor_hdr.count_ * sizeof(tTensor));
-
-  inst_size += ALIGN16(scalar_graph->num_scalars_*sizeof(double)); 
-
+  inst_size += ALIGN16(num_shape_scalars * sizeof(double));
   inst_size += ALIGN16(THINKER_DMA_LIST_SIZE(dma_hdr.count_));
+
   tMemory inst_memory;
   inst_memory.size_ = inst_size;
   inst_memory.dptr_ = 0;
@@ -232,10 +234,6 @@ tStatus tGetMemoryPlan(tMemory* memory_list, int32_t* num_memory,
   num += 1;
 
   // Calculate shape inference workspace size
-  uint64_t total_size    = ALIGN16(sizeof(tScalarGraph));
-  total_size             += ALIGN16(shape_hdr->graph_size_);
-  total_size             += ALIGN16(shape_hdr->num_id_pair_ * sizeof(tTenDimPair));
-  total_size             += ALIGN16(shape_hdr->num_dy_axis_ * sizeof(tDyAxisInfo));
   tMemory tShapeInfer_memory = { total_size, 1, 4, 0};
   memory_list[num] = tShapeInfer_memory;
   num += 1;
@@ -258,9 +256,13 @@ tStatus tGetMemoryPlan(tMemory* memory_list, int32_t* num_memory,
 #endif
 tStatus tModelInit(tModelHandle* hdl, const int8_t* res, const uint64_t size,
                    const tMemory *memory_list, const int32_t num_memory) {
+
   tModelHeader *res_hdr = (tModelHeader *)res;
-  int8_t *cpu_memory = NULL;
   int32_t i, j;
+  int32_t has_shape_infer = 0;
+  if (hdl == NULL || memory_list == NULL || num_memory <= 0) {
+    return T_ERR_INVALID_PARA;
+  }
   if (res == NULL || size == 0) {
     return T_ERR_RES_MISSING;
   }
@@ -280,6 +282,8 @@ tStatus tModelInit(tModelHandle* hdl, const int8_t* res, const uint64_t size,
   }
 #endif
 
+  has_shape_infer = res_hdr->debug_offset_ > res_hdr->shape_infer_offset_;
+
   int32_t inst_size = 0;
   inst_size += ALIGN16(sizeof(tModel));
   tMemoryList mem_hdr = *(tMemoryList *)(res + res_hdr->memory_offset_);
@@ -289,6 +293,8 @@ tStatus tModelInit(tModelHandle* hdl, const int8_t* res, const uint64_t size,
   tParameterList param_hdr = *(tParameterList *)(res + res_hdr->param_offset_);
   tDebugList debug_hdr = *(tDebugList *)(res + res_hdr->debug_offset_);
   tDMAList dma_hdr = *(tDMAList *)(res + res_hdr->dma_offset_);
+
+  (void)param_hdr;
 
   inst_size += ALIGN16(mem_hdr.total_count_ * sizeof(tMemory));
   inst_size += ALIGN16(tensor_hdr.count_ * sizeof(tTensor));
@@ -329,13 +335,14 @@ tStatus tModelInit(tModelHandle* hdl, const int8_t* res, const uint64_t size,
 
   j = 0;
   for (i = 0; i < inst->num_shared_memory_; ++i) {
-    while (j < num_memory) {
-      if (memory_list[j].mem_type_ == 2) {
-        inst->memory_[i] = memory_list[j];
-        break;
-      }
+    while (j < num_memory && memory_list[j].mem_type_ != 2) {
       j++;
     }
+    if (j >= num_memory) {
+      return T_ERR_INVALID_PARA;
+    }
+    inst->memory_[i] = memory_list[j];
+    j++;
   }
 
   ptr += ALIGN16(inst->num_memory_ * sizeof(tMemory));
@@ -397,17 +404,23 @@ tStatus tModelInit(tModelHandle* hdl, const int8_t* res, const uint64_t size,
     tensor->dptr_ = memory->dptr_ + offset;
   }
 
-
   inst->shape_infer = (tShapeInfer *)ptr;
-
-  for(i = 0; i < num_memory; i++){
-    if(memory_list[i].mem_type_ == 4) {
+  memset(inst->shape_infer, 0, sizeof(tShapeInfer));
+  for (i = 0; i < num_memory; i++) {
+    if (memory_list[i].mem_type_ == 4) {
       inst->shape_infer->inst_memory_ = memory_list[i];
     }
   }
-  THINKER_RET_CHECK(tShapeInferInit((char *)res + res_hdr->shape_infer_offset_, inst->shape_infer), "tShapeInferInit");
+  if (has_shape_infer) {
+    if (inst->shape_infer->inst_memory_.size_ == 0) {
+      return T_ERR_INVALID_PARA;
+    }
+    THINKER_RET_CHECK(
+        tShapeInferInit((char *)res + res_hdr->shape_infer_offset_,
+                        inst->shape_infer),
+        "tShapeInferInit");
+  }
   ptr += ALIGN16(sizeof(tShapeInfer));
-
 
   inst->debug_info = (tDebugList *)ptr;
   inst->debug_info->tensor_name_count_ = debug_hdr.tensor_name_count_;
@@ -438,14 +451,16 @@ tStatus tModelInit(tModelHandle* hdl, const int8_t* res, const uint64_t size,
  * @return Status code
  */
 tStatus tModelFini(tModelHandle hdl) {
+  if (hdl == 0) {
+    return T_ERR_INVALID_INST;
+  }
 #if !THINKER_USE_ACL
   tModel *model = (tModel *)~hdl;
   if (model == NULL || model->flag_ != THINKER_INST_FLAG) {
     return T_ERR_INVALID_INST;
   }
-
-  return T_SUCCESS;
 #endif
+  return T_SUCCESS;
 }
 
 /**
@@ -454,7 +469,13 @@ tStatus tModelFini(tModelHandle hdl) {
  * @return Number of input tensors
  */
 int32_t tGetInputCount(const tModelHandle hdl) {
+  if (hdl == 0) {
+    return T_ERR_INVALID_INST;
+  }
   tModel *model = (tModel *)~hdl;
+  if (model == NULL || model->flag_ != THINKER_INST_FLAG) {
+    return T_ERR_INVALID_INST;
+  }
   return model->num_input_;
 }
 
@@ -467,11 +488,14 @@ int32_t tGetInputCount(const tModelHandle hdl) {
  */
 tStatus tGetInputInfo(const tExecHandle hdl, const int32_t idx,
                   tData *input) {
+  if (hdl == 0) {
+    return T_ERR_INVALID_INST;
+  }
   tExecInst *inst = (tExecInst *)~hdl;
-  tModel *model = inst->model_;
   if (inst == NULL || inst->flag_ != THINKER_INST_FLAG) {
     return T_ERR_INVALID_INST;
   }
+  tModel *model = inst->model_;
 
   if (idx < 0 || idx >= model->num_input_) {
     return T_ERR_INDEX_OF_BOUND;
@@ -500,7 +524,16 @@ tStatus tGetInputInfo(const tExecHandle hdl, const int32_t idx,
  * @return Input name string
  */
 const char *tGetInputName(const tModelHandle hdl, const int32_t idx) {
+  if (hdl == 0) {
+    return NULL;
+  }
   tModel *model = (tModel *)~hdl;
+  if (model == NULL || model->flag_ != THINKER_INST_FLAG) {
+    return NULL;
+  }
+  if (idx < 0 || idx >= model->num_input_) {
+    return NULL;
+  }
   return model->io_names_ + idx * model->io_name_len_;
 }
 
@@ -510,6 +543,9 @@ const char *tGetInputName(const tModelHandle hdl, const int32_t idx) {
  * @return Number of output tensors
  */
 int32_t tGetOutputCount(const tModelHandle hdl) {
+  if (hdl == 0) {
+    return T_ERR_INVALID_INST;
+  }
   tModel *model = (tModel *)~hdl;
   if (model == NULL || model->flag_ != THINKER_INST_FLAG) {
     return T_ERR_INVALID_INST;
@@ -525,9 +561,20 @@ int32_t tGetOutputCount(const tModelHandle hdl) {
  * @return Output name string
  */
 const char *tGetOutputName(const tModelHandle hdl, const int32_t idx) {
+  if (hdl == 0) {
+    return NULL;
+  }
   tModel *model = (tModel *)~hdl;
-  int32_t id = idx + model->num_input_;
-  return model->io_names_ + id * model->io_name_len_;
+  if (model == NULL || model->flag_ != THINKER_INST_FLAG) {
+    return NULL;
+  }
+  if (idx < 0 || idx >= model->num_output_) {
+    return NULL;
+  }
+  {
+    int32_t id = idx + model->num_input_;
+    return model->io_names_ + id * model->io_name_len_;
+  }
 }
 
 /**
@@ -537,9 +584,20 @@ const char *tGetOutputName(const tModelHandle hdl, const int32_t idx) {
  * @return Data type
  */
 tDType tGetInputDataType(const tModelHandle hdl, const int32_t idx) {
+  if (hdl == 0) {
+    return DTypeUndefined;
+  }
   tModel *model = (tModel *)~hdl;
-  tTensor *tensor = model->tensor_ + model->io_tensors_[idx];
-  return tensor->dtype_;
+  if (model == NULL || model->flag_ != THINKER_INST_FLAG) {
+    return DTypeUndefined;
+  }
+  if (idx < 0 || idx >= model->num_input_) {
+    return DTypeUndefined;
+  }
+  {
+    tTensor *tensor = model->tensor_ + model->io_tensors_[idx];
+    return tensor->dtype_;
+  }
 }
 
 /**
@@ -549,10 +607,21 @@ tDType tGetInputDataType(const tModelHandle hdl, const int32_t idx) {
  * @return Data type
  */
 tDType tGetOutputDataType(const tModelHandle hdl, const int32_t idx) {
+  if (hdl == 0) {
+    return DTypeUndefined;
+  }
   tModel *model = (tModel *)~hdl;
-  tTensor *tensor =
-      model->tensor_ + model->io_tensors_[idx + model->num_input_];
-  return tensor->dtype_;
+  if (model == NULL || model->flag_ != THINKER_INST_FLAG) {
+    return DTypeUndefined;
+  }
+  if (idx < 0 || idx >= model->num_output_) {
+    return DTypeUndefined;
+  }
+  {
+    tTensor *tensor =
+        model->tensor_ + model->io_tensors_[idx + model->num_input_];
+    return tensor->dtype_;
+  }
 }
 
 /**
@@ -562,9 +631,21 @@ tDType tGetOutputDataType(const tModelHandle hdl, const int32_t idx) {
  * @return Input shape
  */
 tShape tGetInputShape(const tModelHandle hdl, const int32_t idx) {
+  tShape shape = {0};
+  if (hdl == 0) {
+    return shape;
+  }
   tModel *model = (tModel *)~hdl;
-  tTensor *tensor = model->tensor_ + model->io_tensors_[idx];
-  return tensor->shape_;
+  if (model == NULL || model->flag_ != THINKER_INST_FLAG) {
+    return shape;
+  }
+  if (idx < 0 || idx >= model->num_input_) {
+    return shape;
+  }
+  {
+    tTensor *tensor = model->tensor_ + model->io_tensors_[idx];
+    return tensor->shape_;
+  }
 }
 
 /**
@@ -574,10 +655,22 @@ tShape tGetInputShape(const tModelHandle hdl, const int32_t idx) {
  * @return Output shape
  */
 tShape tGetOutputShape(const tModelHandle hdl, const int32_t idx) {
+  tShape shape = {0};
+  if (hdl == 0) {
+    return shape;
+  }
   tModel *model = (tModel *)~hdl;
-  tTensor *tensor =
-      model->tensor_ + model->io_tensors_[idx + model->num_input_];
-  return tensor->shape_;
+  if (model == NULL || model->flag_ != THINKER_INST_FLAG) {
+    return shape;
+  }
+  if (idx < 0 || idx >= model->num_output_) {
+    return shape;
+  }
+  {
+    tTensor *tensor =
+        model->tensor_ + model->io_tensors_[idx + model->num_input_];
+    return tensor->shape_;
+  }
 }
 
 /**
@@ -593,25 +686,39 @@ tShape tGetOutputShape(const tModelHandle hdl, const int32_t idx) {
 #endif
 tStatus tCreateExecutor(const tModelHandle model_hdl, tExecHandle *hdl,
                         const tMemory *memory_list, const int32_t num_memory) {
-  tModel *model = (tModel *)~model_hdl;
-  if (hdl == NULL) {
+  if (hdl == NULL || memory_list == NULL || num_memory <= 0 || model_hdl == 0) {
     return T_ERR_INVALID_PARA;
+  }
+  tModel *model = (tModel *)~model_hdl;
+  if (model == NULL || model->flag_ != THINKER_INST_FLAG) {
+    return T_ERR_INVALID_INST;
   }
 
   uint16_t i = 0;
   uint16_t j = 0;
   int32_t inst_size = 0;
+  uint32_t num_shape_scalars = 0;
+  int32_t has_exec_memory = 0;
   inst_size += ALIGN16(sizeof(tExecInst));
   inst_size += ALIGN16(model->num_memory_ * sizeof(tMemory));
   inst_size += ALIGN16(model->num_tensor_ * sizeof(tTensor));
+  if (model->shape_infer != NULL && model->shape_infer->graph_ != NULL) {
+    num_shape_scalars = model->shape_infer->graph_->num_scalars_;
+  }
+  inst_size += ALIGN16(num_shape_scalars * sizeof(double));
   inst_size += ALIGN16(THINKER_DMA_LIST_SIZE(model->dma_info_->count_));
   tMemory inst_memory;
+  memset(&inst_memory, 0, sizeof(inst_memory));
 
   for (i = 0; i < num_memory; i++) {
     if (memory_list[i].mem_type_ == 1) {
       assert(inst_size <= memory_list[i].size_);
       inst_memory = memory_list[i];
+      has_exec_memory = 1;
     }
+  }
+  if (!has_exec_memory) {
+    return T_ERR_INVALID_PARA;
   }
 
   int8_t *ptr = (int8_t *)(inst_memory.dptr_);
@@ -640,17 +747,20 @@ tStatus tCreateExecutor(const tModelHandle model_hdl, tExecHandle *hdl,
   memcpy(inst->tensor_, model->tensor_, model->num_tensor_ * sizeof(tTensor));
   ptr += ALIGN16(model->num_tensor_ * sizeof(tTensor));
 
-  tMemory *memory = NULL;
   for (i = 0; i < model->num_tensor_; ++i) {
     tTensor *tensor = inst->tensor_ + i;
+    tMemory *memory = NULL;
+    if (tensor->mem_id_ < model->num_shared_memory_) {
+      continue;
+    }
     for (j = model->num_shared_memory_; j < model->num_memory_; j++) {
       if (tensor->mem_.type_ == inst->memory_[j].dev_type_) {
         memory = &inst->memory_[j];
         break;
       }
     }
-    if (tensor->mem_id_ < model->num_shared_memory_) {
-      continue;
+    if (memory == NULL) {
+      return T_ERR_INVALID_PARA;
     }
     uint64_t offset = tensor->offset_;
     tensor->dptr_ = memory->dptr_ + offset;
@@ -671,12 +781,13 @@ tStatus tCreateExecutor(const tModelHandle model_hdl, tExecHandle *hdl,
     p_op += op->total_size_;
   }
 
-
-  // // copy scalars of scalar graph to executor
-  inst->shape_scalars_ = (double *) ptr;
-  memcpy(inst->shape_scalars_, model->shape_infer->graph_->scalars_, 
-         sizeof(double) * model->shape_infer->graph_->num_scalars_);
-  ptr += ALIGN16(model->shape_infer->graph_->num_scalars_*sizeof(double));        
+  // copy scalars of scalar graph to executor
+  inst->shape_scalars_ = (double *)ptr;
+  if (num_shape_scalars > 0) {
+    memcpy(inst->shape_scalars_, model->shape_infer->graph_->scalars_,
+           sizeof(double) * num_shape_scalars);
+    ptr += ALIGN16(num_shape_scalars * sizeof(double));
+  }
 
 #if THINKER_USE_VENUS || THINKER_USE_ARCS || THINKER_USE_VENUSA
   inst->dma_list_ = (tDMA_List *)ptr;
@@ -708,11 +819,14 @@ tStatus tCreateExecutor(const tModelHandle model_hdl, tExecHandle *hdl,
  * @return Status code
  */
 tStatus tReleaseExecutor(tExecHandle hdl) {
+  if (hdl == 0) {
+    return T_ERR_INVALID_INST;
+  }
   tExecInst *inst = (tExecInst *)~hdl;
-  tModel *model = inst->model_;
   if (inst == NULL || inst->flag_ != THINKER_INST_FLAG) {
     return T_ERR_INVALID_INST;
   }
+  tModel *model = inst->model_;
   uint8_t *p_op = model->op_buffer_;
   tTensor *local_tensor[512];
   for (int32_t i = 0; i < model->num_operator_; ++i) {
@@ -740,11 +854,14 @@ tStatus tReleaseExecutor(tExecHandle hdl) {
  */
 tStatus tSetInput(const tExecHandle hdl, const int32_t idx,
                   const tData *input) {
+  if (hdl == 0) {
+    return T_ERR_INVALID_INST;
+  }
   tExecInst *inst = (tExecInst *)~hdl;
-  tModel *model = inst->model_;
   if (inst == NULL || inst->flag_ != THINKER_INST_FLAG) {
     return T_ERR_INVALID_INST;
   }
+  tModel *model = inst->model_;
 
   if (idx < 0 || idx >= model->num_input_) {
     return T_ERR_INDEX_OF_BOUND;
@@ -765,9 +882,9 @@ tStatus tSetInput(const tExecHandle hdl, const int32_t idx,
     // TODO: check shape size
     tensor->dtype_ = dtype;
     tShape *max_shape = &model->input_shape_[idx];
-    if (max_shape->ndim_ != tensor->shape_.ndim_) {
-      printf("input dims :%d, model need dims:%d\n", max_shape->ndim_,
-             tensor->shape_.ndim_);
+    if (max_shape->ndim_ != input->shape_.ndim_) {
+      printf("input dims :%d, model need dims:%d\n", input->shape_.ndim_,
+             max_shape->ndim_);
       return T_ERR_INVALID_DATA;
     }
     for (int32_t i = 0; i < input->shape_.ndim_; i++) {
@@ -780,6 +897,9 @@ tStatus tSetInput(const tExecHandle hdl, const int32_t idx,
     tensor->shape_ = input->shape_;
     tensor->scale_ = input->scale_;
     uint64_t bytes = getShapeSize(&tensor->shape_) * (dtype & 0xFF);
+    if (bytes != 0 && input->dptr_ == NULL) {
+      return T_ERR_INVALID_DATA;
+    }
     if ((uint64_t)tensor->dptr_ != (uint64_t)input->dptr_ && bytes != 0)
     {
 		memcpy((void *)tensor->dptr_, input->dptr_, bytes);
@@ -810,13 +930,16 @@ tStatus tSetInput(const tExecHandle hdl, const int32_t idx,
  */
 tStatus tSetInputByName(const tExecHandle hdl, const char *name,
                         const tData *input) {
+  if (hdl == 0) {
+    return T_ERR_INVALID_INST;
+  }
   tExecInst *inst = (tExecInst *)~hdl;
-  tModel *model = inst->model_;
   if (inst == NULL || inst->flag_ != THINKER_INST_FLAG) {
     return T_ERR_INVALID_INST;
   }
+  tModel *model = inst->model_;
 
-  if (input == NULL) {
+  if (name == NULL || input == NULL) {
     return T_ERR_INVALID_PARA;
   }
 
@@ -827,7 +950,7 @@ tStatus tSetInputByName(const tExecHandle hdl, const char *name,
     }
     input_name += model->io_name_len_;
   }
-  return T_SUCCESS;
+  return T_ERR_INVALID_PARA;
 }
 
 /**
@@ -838,11 +961,14 @@ tStatus tSetInputByName(const tExecHandle hdl, const char *name,
  * @return Status code
  */
 tStatus tGetOutput(const tExecHandle hdl, const int32_t idx, tData *output) {
+  if (hdl == 0) {
+    return T_ERR_INVALID_INST;
+  }
   tExecInst *inst = (tExecInst *)~hdl;
-  tModel *model = inst->model_;
   if (inst == NULL || inst->flag_ != THINKER_INST_FLAG) {
     return T_ERR_INVALID_INST;
   }
+  tModel *model = inst->model_;
 
   if (output == NULL) {
     return T_ERR_INVALID_PARA;
@@ -872,12 +998,15 @@ tStatus tGetOutput(const tExecHandle hdl, const int32_t idx, tData *output) {
  */
 tStatus tGetOutputByName(const tExecHandle hdl, const char *name,
                          tData *output) {
+  if (hdl == 0) {
+    return T_ERR_INVALID_INST;
+  }
   tExecInst *inst = (tExecInst *)~hdl;
-  tModel *model = inst->model_;
   if (inst == NULL || inst->flag_ != THINKER_INST_FLAG) {
     return T_ERR_INVALID_INST;
   }
-  if (output == NULL) {
+  tModel *model = inst->model_;
+  if (name == NULL || output == NULL) {
     return T_ERR_INVALID_PARA;
   }
 
@@ -897,14 +1026,17 @@ tStatus tGetOutputByName(const tExecHandle hdl, const char *name,
  * @return Status code
  */
 tStatus tForward(const tExecHandle hdl) {
+  if (hdl == 0) {
+    return T_ERR_INVALID_INST;
+  }
   tExecInst *inst = (tExecInst *)~hdl;
+  if (inst == NULL || inst->flag_ != THINKER_INST_FLAG) {
+    return T_ERR_INVALID_INST;
+  }
   tModel *model = inst->model_;
   tTensor *local_tensor[512];
   uint8_t *p_op = NULL;
   int32_t i;
-  if (inst == NULL || inst->flag_ != THINKER_INST_FLAG) {
-    return T_ERR_INVALID_INST;
-  }
   p_op = model->op_buffer_;
 
 #if THINKER_USE_VENUS || THINKER_USE_ARCS || THINKER_USE_VENUSA
@@ -1018,8 +1150,23 @@ tStatus tForward(const tExecHandle hdl) {
  */
 tStatus tUpdateShape(tExecHandle hdl, const char **axis_names, const uint32_t *axis_sizes, int32_t num)
 {
+    if (hdl == 0) {
+        return T_ERR_INVALID_INST;
+    }
     tExecInst *inst = (tExecInst *)~hdl;
+    if (inst == NULL || inst->flag_ != THINKER_INST_FLAG) {
+        return T_ERR_INVALID_INST;
+    }
+    if (num < 0) {
+        return T_ERR_INVALID_PARA;
+    }
     tModel *model   = inst->model_;
+    if (model->shape_infer == NULL || model->shape_infer->graph_ == NULL) {
+        return T_SUCCESS;
+    }
+    if (num != 0 && (axis_names == NULL || axis_sizes == NULL)) {
+        return T_ERR_INVALID_PARA;
+    }
     if (num != 0)
         THINKER_RET_CHECK(tSetShapeInferInputByNames(model->shape_infer, inst->shape_scalars_, axis_names, axis_sizes, num), "tSetShapeInferInputByNames");
     else
@@ -1036,6 +1183,9 @@ tStatus tUpdateShape(tExecHandle hdl, const char **axis_names, const uint32_t *a
  */
 tStatus tExecutorStart(tExecHandle hdl)
 {
+    if (hdl == 0) {
+        return T_ERR_INVALID_INST;
+    }
     tExecInst *inst = (tExecInst *)~hdl;
     if (inst == NULL || inst->flag_ != THINKER_INST_FLAG)
     {
@@ -1052,6 +1202,9 @@ tStatus tExecutorStart(tExecHandle hdl)
  */
 tStatus tExecutorStop(tExecHandle hdl)
 {
+    if (hdl == 0) {
+        return T_ERR_INVALID_INST;
+    }
     tExecInst *inst = (tExecInst *)~hdl;
     if (inst == NULL || inst->flag_ != THINKER_INST_FLAG)
     {
@@ -1071,16 +1224,22 @@ tStatus tExecutorStop(tExecHandle hdl)
  * @return Status code
  */
 tStatus tGetLunaListSize(const tExecHandle hdl, uint32_t *list_size, uint32_t *list_length, uint32_t *total_param) {
+  if (list_size == NULL || list_length == NULL || total_param == NULL) {
+    return T_ERR_INVALID_PARA;
+  }
+  if (hdl == 0) {
+    return T_ERR_INVALID_INST;
+  }
   tExecInst *inst = (tExecInst *)~hdl;
+  if (inst == NULL || inst->flag_ != THINKER_INST_FLAG) {
+    return T_ERR_INVALID_INST;
+  }
   tModel *model = inst->model_;
   tTensor *local_tensor[512];
   uint8_t *p_op = NULL;
   g_submit_pos = 0;
   g_param_size = 0;
   int32_t i;
-  if (inst == NULL || inst->flag_ != THINKER_INST_FLAG) {
-    return T_ERR_INVALID_INST;
-  }
   p_op = model->op_buffer_;
 
   luna_register_hook(luna_execute_cmd_hook_for_get_list_length, 0);
@@ -1123,7 +1282,7 @@ tStatus tGetLunaListSize(const tExecHandle hdl, uint32_t *list_size, uint32_t *l
       local_tensor[ii] = inst->tensor_ + tensor_ids[ii];
     }
 
-    THINKER_RET_CHECK(op_api->forward(op, local_tensor, num_tensor, inst->dma_list_), f"{op_api->forward}";
+    THINKER_RET_CHECK(op_api->forward(op, local_tensor, num_tensor, inst->dma_list_), "op_api->forward");
   //  printf("[%d]op_name:%s\n", i, op_api->name());
 
     p_op += op->total_size_;
@@ -1147,6 +1306,12 @@ tStatus tGetLunaListSize(const tExecHandle hdl, uint32_t *list_size, uint32_t *l
  * @return Status code
  */
 tStatus tBuildLunaList(const tExecHandle hdl, int8_t *base_addr, uint32_t sq_len) {
+  if (base_addr == NULL) {
+    return T_ERR_INVALID_PARA;
+  }
+  if (hdl == 0) {
+    return T_ERR_INVALID_INST;
+  }
 
 	g_sq_addr_user_ch = (int8_t *)base_addr;
 	g_cq_addr_user_ch = (int8_t *)base_addr + sq_len*sizeof(luna_mtq_sq_elem_t);
@@ -1155,13 +1320,13 @@ tStatus tBuildLunaList(const tExecHandle hdl, int8_t *base_addr, uint32_t sq_len
 	g_param_size = 0;
 
   tExecInst *inst = (tExecInst *)~hdl;
+  if (inst == NULL || inst->flag_ != THINKER_INST_FLAG) {
+    return T_ERR_INVALID_INST;
+  }
   tModel *model = inst->model_;
   tTensor *local_tensor[512];
   uint8_t *p_op = NULL;
   int32_t i;
-  if (inst == NULL || inst->flag_ != THINKER_INST_FLAG) {
-    return T_ERR_INVALID_INST;
-  }
   p_op = model->op_buffer_;
 
   luna_register_hook(luna_execute_cmd_hook_for_build_list, 0);
@@ -1204,7 +1369,7 @@ tStatus tBuildLunaList(const tExecHandle hdl, int8_t *base_addr, uint32_t sq_len
       local_tensor[ii] = inst->tensor_ + tensor_ids[ii];
     }
 
-    THINKER_RET_CHECK(op_api->forward(op, local_tensor, num_tensor, inst->dma_list_), f"{op_api->forward}");
+    THINKER_RET_CHECK(op_api->forward(op, local_tensor, num_tensor, inst->dma_list_), "op_api->forward");
   //  printf("[%d]op_name:%s\n", i, op_api->name());
     tTensorName *name_list =
         (tTensorName *)inst->model_->debug_info->tensor_name_list_;
@@ -1224,6 +1389,9 @@ tStatus tBuildLunaList(const tExecHandle hdl, int8_t *base_addr, uint32_t sq_len
  * @return Status code
  */
 tStatus tSubLunaList(int8_t *sq_addr, uint32_t sq_len, uint32_t total_param_size) {
+	if (sq_addr == NULL || sq_len == 0) {
+		return T_ERR_INVALID_PARA;
+	}
 	luna_mtq_sq_elem_t *last_op = (luna_mtq_sq_elem_t *)sq_addr + (sq_len-1);
 	last_op->op_interrupt_enable = 1;
 	HAL_FlushInvalidateDCache_by_Addr(sq_addr, sq_len*sizeof(luna_mtq_sq_elem_t) + sq_len*sizeof(luna_mtq_cq_elem_t) + total_param_size);
@@ -1286,6 +1454,10 @@ const thinkerApi *thinkerGetApi() {
         g_api.tSubLunaList = tSubLunaList;
         g_api.tGetListResult = tGetListResult;
 #endif
+
+  g_api.reserve[0] = NULL;
+  g_api.reserve[1] = NULL;
+  g_api.reserve[2] = NULL;
 
   return &g_api;
 }

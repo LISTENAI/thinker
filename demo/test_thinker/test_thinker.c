@@ -7,15 +7,6 @@
 #define PSRAM_SIZE  (8*1024*1024)
 #define SHARE_SIZE  (640*1024)
 
-#define THINKER_CHECK(func_call, func_name) \
-    do { \
-        tStatus ret = func_call; \
-        if (ret != T_SUCCESS) { \
-            printf("Failed to %s: ret = %d\n", func_name, ret); \
-            return -1; \
-        } \
-    } while (0)
-
 static int8_t g_psram_buf[PSRAM_SIZE];
 static int8_t g_share_buf[SHARE_SIZE];
 
@@ -76,12 +67,12 @@ int thinker_task_test(int argc, char *argv[])
     }
 
 	// Initialize thinker
-    THINKER_CHECK(tInitialize(), "tInitialize");
+    THINKER_RET_CHECK(tInitialize(), "tInitialize");
 
 	// Get memory plan
 	int num_memory = 0;
 	tMemory memory_list[7];
-	THINKER_CHECK(tGetMemoryPlan((tMemory *)memory_list, &num_memory, (int8_t*)model_data, model_size), "tGetMemoryPlan");
+	THINKER_RET_CHECK(tGetMemoryPlan((tMemory *)memory_list, &num_memory, (int8_t*)model_data, model_size), "tGetMemoryPlan");
 
 
 	// Allocate memory
@@ -115,11 +106,11 @@ int thinker_task_test(int argc, char *argv[])
 
 	// Initialize model
     tModelHandle model_hdl;   //typedef uint64_t
-	THINKER_CHECK(tModelInit(&model_hdl, (int8_t*)model_data, model_size, memory_list, num_memory), "tModelInit");
+	THINKER_RET_CHECK(tModelInit(&model_hdl, (int8_t*)model_data, model_size, memory_list, num_memory), "tModelInit");
 
 	// Create executor
     tExecHandle hdl;
-    THINKER_CHECK(tCreateExecutor(model_hdl, &hdl, memory_list, num_memory), "tCreateExecutor");
+    THINKER_RET_CHECK(tCreateExecutor(model_hdl, &hdl, memory_list, num_memory), "tCreateExecutor");
 
 	// Process inputs
 	uint32_t input_count = tGetInputCount(model_hdl);
@@ -135,12 +126,20 @@ int thinker_task_test(int argc, char *argv[])
 			printf("Failed to load model file\n");
 			return -1;
 		}
-		THINKER_CHECK(tGetInputInfo(hdl, i, &input), "tGetInputInfo"); 
+		THINKER_RET_CHECK(tGetInputInfo(hdl, i, &input), "tGetInputInfo"); 
+
+		uint32_t size = 1;
+		for (uint32_t j = 0; j < input.shape_.ndim_; ++j) {
+			size *= input.shape_.dims_[j];
+		}
+		if(size > input_size)
+			return -1;
+
 		input.dptr_ = (int8_t *)input_data;
-		THINKER_CHECK(tSetInput(hdl, i, &input), "tSetInput");
+		THINKER_RET_CHECK(tSetInput(hdl, i, &input), "tSetInput");
 	}
 
-	THINKER_CHECK(tForward(hdl), "tForward");
+	THINKER_RET_CHECK(tForward(hdl), "tForward");
 
 	tData output;
 	int output_count = tGetOutputCount(model_hdl);
@@ -148,7 +147,7 @@ int thinker_task_test(int argc, char *argv[])
 	{
 		for(i = 0; i < output_count; i++)
 		{
-			THINKER_CHECK(tGetOutput(hdl, i, &output), "tGetOutput");
+			THINKER_RET_CHECK(tGetOutput(hdl, i, &output), "tGetOutput");
 			int shape_size = (output.dtype_ & 0xF);
 			for(j = 0; j < output.shape_.ndim_; j++){
 				shape_size *= output.shape_.dims_[j];

@@ -39,26 +39,6 @@ typedef enum __tDType__ {
 } tDType;
 
 /**
- * Memory types
- */
-typedef enum __MEM_TYPE__ {
-    FLASH = 0,
-    PSRAM = 1,
-    SHARE_MEM = 2,
-    UNCERTAIN = 3,
-} MemType;
-
-/**
- * Device types
- */
-typedef enum __DEV_TYPE__ {
-    VENUS = 0,
-    MARS = 1,
-    ARCS = 2,
-    VENUSA = 3,
-} DevType;
-
-/**
  * Shape structure for tensors
  */
 typedef struct _t_Shape_ {

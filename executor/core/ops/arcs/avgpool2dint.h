@@ -186,17 +186,19 @@ int32_t avgpool2dint_luna(const tTensor *X, tTensor *Y, tTensor *Temp, PoolAttrs
 
         THINKER_RET_CHECK(API_LIB(memset_i8o8)(p0, 1, in_h * in_w), "luna_memset_i8o8");
         THINKER_RET_CHECK(API_LIB(split_mat_mul_i8i8o32)(p_in, p0, p1, channel, in_h * in_w, 1, 0), "luna_split_mat_mul_i8i8o32");
-        shift = Y->scale_ - X->scale_;
         if ((hw_kernel & (hw_kernel - 1)) != 0) {
+            shift = Y->scale_ - X->scale_;
             int32_t *p_tmp = y_in_psram ? (int32_t *)(workspace + channel * 4) : (int32_t *)Y->dptr_;
             THINKER_RET_CHECK(API_LIB(memset_i32o32)(p_tmp, hw_kernel, channel), "luna_memset_i32o32");
             THINKER_RET_CHECK(API_LIB(div_i32i32o32)(p1, p_tmp, p1, channel, shift), "luna_div_i32i32o32");
             shift = 0;
         }
+        else
+            shift += Y->scale_ - X->scale_;
 
         if (Y->dtype_ == Int8) {
             THINKER_RET_CHECK(API_LIB(scale_i32i32o8)((int32_t *)p1, 1, p_out, channel * hw_out, shift), "luna_scale_i32i32o8");
-        }
+        } 
         else if (shift != 0) {
             THINKER_RET_CHECK(API_LIB(scale_i32i32o32)((int32_t *)p1, 1, (int32_t *)p_out, channel * hw_out, shift), "luna_scale_i32i32o32");
         }
@@ -204,7 +206,7 @@ int32_t avgpool2dint_luna(const tTensor *X, tTensor *Y, tTensor *Temp, PoolAttrs
         if (y_in_psram) {
             opi_psram_cpy_out((int8_t *)Y->dptr_, p_out, channel * hw_out * Y->byte_);
         }
-    }
+    } 
     else {
 
         THINKER_RET_CHECK(avgpool2dint_calc_channel_split(channel, in_h, k_h, input_w_align,
@@ -240,7 +242,7 @@ int32_t avgpool2dint_luna(const tTensor *X, tTensor *Y, tTensor *Temp, PoolAttrs
 
             if (Y->dtype_ == Int8) {
                 THINKER_RET_CHECK(API_LIB(scale_i32i32o8)(p1, 1, p_out, cur_in_c * hw_out, shift), "luna_scale_i32i32o8");
-            }
+            } 
             else if (shift != 0) {
                 THINKER_RET_CHECK(API_LIB(scale_i32i32o32)(p1, 1, (int32_t *)p_out, cur_in_c * hw_out, shift), "luna_scale_i32i32o32");
             }

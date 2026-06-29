@@ -16,7 +16,7 @@ class SoftmaxIntAttrs(OperatorAttrs):
         if platform in ["arcs", "venusA"]:
             axis = self.attrs["axis"]
         elif platform == "venus":
-            axis = self.attrs["dim"]
+            axis = self.attrs.get("axis", self.attrs.get("dim"))
         else:
             raise AssertionError(f"Unsupported platform: {platform}")
         attrs.axis = axis
@@ -37,7 +37,7 @@ class SoftmaxInt(iqUnaryOperator):
         if platform in ["arcs", "venusA"]:
             axis = self.attrs["axis"]
         elif platform == "venus":
-            axis = self.attrs["dim"]
+            axis = self.attrs.get("axis", self.attrs.get("dim"))
         else:
             raise AssertionError(f"Unsupported platform: {platform}")
 

@@ -123,145 +123,49 @@ static int32_t shfit_floor_x05_int32(int32_t x, int32_t shift) {
  * @param table_shift Output for table shift value
  * @return int16_t Square root reciprocal value
  */
-static const int16_t calc_sqrt_reciprocal(const int64_t data, int32_t q_x, int32_t *table_shift)
-{
-	const int q_normal = 15;	//normalize(-32, 32)
-	const int q2 = 14;
-	int64_t temp;
-	int q1;
+static const int16_t calc_sqrt_reciprocal(const int64_t data, int32_t q_x, int32_t *table_shift) {
+    const int q_normal = 15;    // Normalization range (-32, 32)
+    const int q2 = 14;
+    int64_t temp;
+    int q1;
 
-	if (data & 0xC00000000000)
-	{
-		temp = data>>38;
-		q1 = 24;
-	}
-	else if (data & 0x300000000000)
-	{
-		temp = data>>36;
-		q1 = 23;
-	}
-	else if (data & 0xC0000000000)
-	{
-		temp = data>>34;
-		q1 = 22;
-	}
-	else if (data & 0x30000000000)
-	{
-		temp = data>>32;
-		q1 = 21;
-	}
-	else if (data & 0xC000000000)
-	{
-		temp = data>>30;
-		q1 = 20;
-	}
-	else if (data & 0x3000000000)
-	{
-		temp = data>>28;
-		q1 = 19;
-	}
-	else if (data & 0xC00000000)
-	{
-		temp = data>>26;
-		q1 = 18;
-	}
-	else if (data & 0x300000000)
-	{
-		temp = data>>24;
-		q1 = 17;
-	}
+    if (data & 0xC00000000000000) { temp = data >> 50; q1 = 30; }
+    else if (data & 0x300000000000000) { temp = data >> 48; q1 = 29; }
+    else if (data & 0xC0000000000000)  { temp = data >> 46; q1 = 28; }
+    else if (data & 0x30000000000000)  { temp = data >> 44; q1 = 27; }
+    else if (data & 0xC000000000000)   { temp = data >> 42; q1 = 26; }
+    else if (data & 0x3000000000000)   { temp = data >> 40; q1 = 25; }
+    else if (data & 0xC00000000000)    { temp = data >> 38; q1 = 24; }
+    else if (data & 0x300000000000)    { temp = data >> 36; q1 = 23; }
+    else if (data & 0xC0000000000)     { temp = data >> 34; q1 = 22; }
+    else if (data & 0x30000000000)     { temp = data >> 32; q1 = 21; }
+    else if (data & 0xC000000000)      { temp = data >> 30; q1 = 20; }
+    else if (data & 0x3000000000)      { temp = data >> 28; q1 = 19; }
+    else if (data & 0xC00000000)       { temp = data >> 26; q1 = 18; }
+    else if (data & 0x300000000)       { temp = data >> 24; q1 = 17; }
+    else if (data & 0xC0000000)        { temp = data >> 22; q1 = 16; }
+    else if (data & 0x30000000)        { temp = data >> 20; q1 = 15; }
+    else if (data & 0xFC000000)        { temp = data >> 18; q1 = 14; }
+    else if (data & 0xF3000000)        { temp = data >> 16; q1 = 13; }
+    else if (data & 0xFFC00000)        { temp = data >> 14; q1 = 12; }
+    else if (data & 0xFF300000)        { temp = data >> 12; q1 = 11; }
+    else if (data & 0xFFFC0000)        { temp = data >> 10; q1 = 10; }
+    else if (data & 0xFFF30000)        { temp = data >> 8;  q1 = 9;  }
+    else if (data & 0xFFFFC000)        { temp = data >> 6;  q1 = 8;  }
+    else if (data & 0xFFFF3000)        { temp = data >> 4;  q1 = 7;  }
+    else if (data & 0xFFFFFC00)        { temp = data >> 2;  q1 = 6;  }
+    else if (data & 0xFFFFFF00)        { temp = data;      q1 = 5;  }
+    else if (data & 0xFFFFFFC0)        { temp = data << 2; q1 = 4;  }
+    else if (data & 0xFFFFFFF0)        { temp = data << 4; q1 = 3;  }
+    else if (data & 0xFFFFFFFC)        { temp = data << 6; q1 = 2;  }
+    else if (data & 0xFFFFFFFF)        { temp = data << 8; q1 = 1;  }
+    else                               { temp = 256;       q1 = 0;  }
 
-	else if (data & 0xC0000000)
-	{
-		temp = data>>22;
-        q1 = 16;
-	}        
-    else if (data & 0x30000000)
-	{
-		temp = data>>20;
-        q1 = 15;
-	}        
-    else if (data & 0xFC000000)
-	{
-		temp = data>>18;
-        q1 = 14;
-	}        
-    else if (data & 0xF3000000)
-	{
-        temp = data>>16;
-        q1 = 13;
-	}
-    else if (data & 0xFFC00000)
-	{
-        temp = data>>14;
-        q1 = 12;
-	}
-    else if (data & 0xFF300000)
-	{
-        temp = data>>12;
-        q1 = 11;
-	}
-    else if (data & 0xFFFC0000)
-	{
-        temp = data>>10;
-        q1 = 10;
-	}
-    else if (data & 0xFFF30000)
-	{
-        temp = data>>8;
-        q1 = 9;
-	}
-    else if (data & 0xFFFFC000)
-	{
-        temp = data>>6;
-        q1 = 8;
-	}
-    else if (data & 0xFFFF3000)
-	{
-        temp = data>>4;
-        q1 = 7;
-	}
-    else if (data & 0xFFFFFC00)
-	{
-        temp = data>>2;
-        q1 = 6;
-	}
-    else if (data & 0xFFFFFF00)
-	{
-        temp = data;
-        q1 = 5;
-	}
-    else if (data & 0xFFFFFFC0)
-	{
-        temp = data<<2;
-        q1 = 4;
-	}
-    else if (data & 0xFFFFFFF0)
-	{
-        temp = data<<4;
-        q1 = 3;
-	}
-    else if (data & 0xFFFFFFFC)
-	{
-        temp = data<<6;
-        q1 = 2;
-	}
-    else if (data & 0xFFFFFFFF)
-	{
-        temp = data<<8;
-        q1 = 1;
-	}
-    else
-	{
-		temp = 256;
-		q1 = 0;
-	}
-
-	int32_t id = temp - 256;
-	int32_t table_out = (int32_t)g_s16Table_sqrt_reciprocal[id];
-	int32_t q = q1 + q2 - q_normal;
-	*table_shift = q;
-	return table_out;
+    int32_t id = temp - 256;
+    int32_t table_out = (int32_t)g_s16Table_sqrt_reciprocal[id];
+    int32_t q = q1 + q2 - q_normal;
+    *table_shift = q;
+    return table_out;
 }
 
 /**

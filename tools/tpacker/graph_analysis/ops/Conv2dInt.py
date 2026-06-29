@@ -62,7 +62,7 @@ class Conv2dIntAttrs(OperatorAttrs):
             assert 1 <= kernels[0] <= 5, "Kernel width exceeds limit"
             assert 1 <= kernels[1] <= 5, "Kernel height exceeds limit"
         else:
-            if dilations != (1, 1):
+            if dilations == (1, 1):
                 assert 1 <= kernels[0] <= 12, "Kernel width exceeds limit"
                 assert 1 <= kernels[1] <= 12, "Kernel height exceeds limit"
             else:

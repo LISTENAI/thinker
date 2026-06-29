@@ -51,9 +51,9 @@ void create_directory_if_not_exists(const char *path) {
  * @param tensor Tensor data to write
  */
 void write_file(char *output_name, tTensor *tensor) {
-    char save_path[256];
-    char temp[256];
-    uint32_t crc32_calc = 0;
+    char save_path[1024];
+    char temp[1024];
+    uint32_t result_crc = 0;
     
     // Replace '/' with '_' in filename
     for (int32_t i = 0; i < strlen(output_name); i++) {
@@ -65,16 +65,26 @@ void write_file(char *output_name, tTensor *tensor) {
     // Build file path with shape information
     uint32_t shape_dim = tensor->shape_.ndim_;
     // snprintf(save_path, "./data/dump_thinker/%s##", output_name);
-    snprintf(save_path, "./workspace/data/%s##", output_name);
+    snprintf(save_path, sizeof(save_path), "./workspace/data/%s##", output_name);
     create_directory_if_not_exists("./workspace/data");
     size_t size = 1;
     for (int32_t j = 0; j < shape_dim; ++j) {
         size *= tensor->shape_.dims_[j];
-        strcpy(temp, save_path);
-        snprintf(save_path, "%s_%d", temp, tensor->shape_.dims_[j]);
+        strncpy(temp, save_path, sizeof(temp) - 1);
+        temp[sizeof(temp) - 1] = '\0';
+        size_t save_path_len = strlen(save_path);
+        size_t remaining = sizeof(save_path) - save_path_len;
+        if (remaining > 1) {
+            snprintf(save_path + save_path_len, remaining, "_%d", tensor->shape_.dims_[j]);
+        }
     }
-    strcpy(temp, save_path);
-    snprintf(save_path, "%s.bin", temp);
+    strncpy(temp, save_path, sizeof(temp) - 1);
+    temp[sizeof(temp) - 1] = '\0';
+    size_t save_path_len = strlen(save_path);
+    size_t remaining = sizeof(save_path) - save_path_len;
+    if (remaining > 1) {
+        snprintf(save_path + save_path_len, remaining, ".bin");
+    }
     
     // Calculate data size and CRC32
     int8_t *data = (int8_t *)tensor->dptr_;
@@ -82,10 +92,10 @@ void write_file(char *output_name, tTensor *tensor) {
                        tensor->shape_.dims_[2] * tensor->shape_.dims_[3] * 
                        (tensor->dtype_ & 0xf);
     
-    crc32_calc = crc32_calc(data, data_size);
+    result_crc = crc32_calc(data, data_size);
     
     // Print CRC32 and sample data
-    printf("crc32_calc = 0x%08x, data = [0x%08x-0x%08x-0x%08x], name = %s\n", crc32_calc,
+    printf("crc32_calc = 0x%08x, data = [0x%08x-0x%08x-0x%08x], name = %s\n", result_crc,
            ((uint32_t *)(data))[0], ((uint32_t *)(data + data_size / 2))[0],
            ((uint32_t *)(data + data_size - 4))[0], save_path);
 }
@@ -98,8 +108,8 @@ void write_file(char *output_name, tTensor *tensor) {
  * @param tensor Tensor data to write
  */
 void write_file(char *output_name, tTensor *tensor) {
-    char save_path[256];
-    char temp[256];
+    char save_path[1024];
+    char temp[1024];
     
     // Replace '/' with '_' in filename
     for (int32_t i = 0; i < strlen(output_name); i++) {
@@ -111,16 +121,26 @@ void write_file(char *output_name, tTensor *tensor) {
     // Build file path with shape information
     uint32_t shape_dim = tensor->shape_.ndim_;
     // snprintf(save_path, "./data/dump_thinker/%s##", output_name);
-    snprintf(save_path, "./workspace/data/%s##", output_name);
+    snprintf(save_path, sizeof(save_path), "./workspace/data/%s##", output_name);
     create_directory_if_not_exists("./workspace/data");
     size_t size = 1;
     for (int32_t j = 0; j < shape_dim; ++j) {
         size *= tensor->shape_.dims_[j];
-        strcpy(temp, save_path);
-        snprintf(save_path, "%s_%d", temp, tensor->shape_.dims_[j]);
+        strncpy(temp, save_path, sizeof(temp) - 1);
+        temp[sizeof(temp) - 1] = '\0';
+        size_t save_path_len = strlen(save_path);
+        size_t remaining = sizeof(save_path) - save_path_len;
+        if (remaining > 1) {
+            snprintf(save_path + save_path_len, remaining, "_%d", tensor->shape_.dims_[j]);
+        }
     }
-    strcpy(temp, save_path);
-    snprintf(save_path, "%s.bin", temp);
+    strncpy(temp, save_path, sizeof(temp) - 1);
+    temp[sizeof(temp) - 1] = '\0';
+    size_t save_path_len = strlen(save_path);
+    size_t remaining = sizeof(save_path) - save_path_len;
+    if (remaining > 1) {
+        snprintf(save_path + save_path_len, remaining, ".bin");
+    }
     
     // Write binary data
     FILE *fp = fopen(save_path, "wb");
@@ -153,8 +173,8 @@ static size_t alignSize(size_t sz, int32_t n) {
  * @param tensor Tensor data to write
  */
 void write_file(char *output_name, tTensor *tensor) {
-    char save_path[256];
-    char temp[256];
+    char save_path[1024];
+    char temp[1024];
     
     // Replace '/' with '_' in filename
     for (int32_t i = 0; i < strlen(output_name); i++) {

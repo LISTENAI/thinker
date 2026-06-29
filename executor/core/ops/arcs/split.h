@@ -75,6 +75,10 @@ int32_t split_venus(tTensor *X, tTensor **tensors, SliceAttrs *attrs) {
                 int8_t *isrc = (int8_t *)(X->dptr_) + i * middle * stride * X->byte_ + offset * stride * X->byte_;
                 opi_psram_cpy_out(idst, isrc, sizeof(int8_t) * attrs->split[n] * stride * out->byte_);
             }
+#if !(defined(WIN32) || defined(linux))
+            if (2 != out->mem_.type_)
+                HAL_FlushInvalidateDCache_by_Addr((uint32_t *)out->dptr_, leading * attrs->split[n] * stride * out->byte_);
+#endif
         }
         
         offset += attrs->split[n];

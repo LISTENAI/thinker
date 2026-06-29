@@ -1,106 +1,156 @@
-![logo](docs/images/Thinker_logo.png)
+![Thinker Logo](docs/images/Thinker_logo.png)
 
 #### English | [简体中文](./README.md)
-[![PyPI - Python Version](https://img.shields.io/pypi/pyversions/thinker.svg)](https://pypi.org/project/thinker)
-[![PyPI](https://badge.fury.io/py/thinker.svg)](https://badge.fury.io/py/thinker)
-[![Downloads](https://pepy.tech/badge/thinker)](https://pepy.tech/project/thinker)
-[![DockerHub](https://img.shields.io/docker/pulls/thinker/thinker-cpu.svg)](https://hub.docker.com/r/thinker/thinker-cpu)
-[![LICENSE](https://img.shields.io/github/license/thinker-ai/thinker.svg?style=flat-square)](https://github.com/LISTENAI/thinker/blob/main/LICENSE)
 
-# Welcome to the Thinker GitHub
-Thinker is a lightweight neural network inference framework developed by LISTENAI Technology, combined with the quantization training tool Linger. It provides a complete deep learning platform solution for the Venus, Arcs, and VenusA series chips from LISTENAI. The platform integrates multiple functional modules including quantization training, graph optimization, device adaptation, performance evaluation, result verification, engine inference, and high-performance device libraries, supporting rapid deployment of deep learning algorithms in fields such as computer vision, voice wake-up, speech recognition, and natural language understanding.
-***
+# Thinker
 
-## Frame Features:
-![thinker/docs/images/struct.png](docs/images/struct.png)
-### 1. Ultra-lightweight Executor
-- The inference part is divided into offline tools and engine executors, stripping non-computation-related operations.
-- The offline tool tpacker simplifies the computation graph, adapts it to the target platform, and analyzes runtime memory.
-- The executor parses the output of tpacker and executes it in the planned order without additional operations.
-- The executor is implemented in pure C language with full static memory management and no third-party dependencies.
+Thinker is a lightweight neural network inference framework developed by LISTENAI Technology. It also serves as the general-purpose inference engine and companion toolset for LNN. Working together with the quantization training tool Linger, Thinker covers the full deployment workflow from model quantization, graph optimization, and device adaptation to performance evaluation, result validation, and on-device inference deployment, helping CV, ASR, NLP, and other models land quickly on LISTENAI chip platforms.
 
-### 2. Generality
-- Supports multiple deep learning model structures: images, speech, MLP, attention, transformers, etc.
-- Supports multi-input and multi-output ONNX quantized computation graphs with dynamic shapes.
-- Supports multiple LISTENAI chip platforms, with platform information included in quantization training and switched via macros in the compilation script.
-- Supports 32 common quantization operators (see the operator support list for details).
+## Project Positioning
 
-### 3. Usability
-- Rich offline toolset:  
-  Use tpacker to set input/output nodes for subgraph splitting.  
-  tpacker automatically adapts to target devices, requiring only the computation graph path in simple cases.
-- Result comparison:  
-  Use the offline tool tvalidator to align training and simulation results without manual comparison.  
-  Simulation results are bit-level aligned with chip results.   
-  CRC32 comparison can be enabled via compilation script (set THINKER_RESULT_CRC_PRINT true).
-- The offline tool tprofile evaluates algorithm performance through software simulation.
+Thinker is designed for resource-constrained edge chips. Its core goal is to deploy models with controllable accuracy while achieving lower memory usage, smaller runtime overhead, and higher hardware utilization.
 
-### 4. High Performance
-- Achieves full model quantization (activation int8, parameters int4/int8/int16) via Linger, reducing parameter size by 12.5%-50% and transmission time.
-- Uses DMA pre-fetching and parallel computation strategies to improve inference efficiency.
-- Integrates high-performance device libraries optimized for chip architectures and memory configurations, with custom instruction codes enhancing computing power.
+- **End-to-end workflow**: connects Linger quantization training, offline graph analysis, resource packing, simulation validation, and chip execution.
+- **Lightweight runtime**: the executor is implemented in pure C, uses static memory management, and has no third-party runtime dependency.
+- **Hardware adaptation**: supports VENUS, ARCS, VENUSA, and other target platforms through `DTHINKER_TARGET_PLATFORM` and related build options; x86/Linux execution is mainly used for target-platform simulation and validation, while Thinker's upper-layer code remains shared with the real chip platform.
+- **Deployment-friendly**: graph optimization, parameter checks, and memory planning are completed offline, so the runtime only needs to load resources and execute according to plan.
+
+## Engine Architecture
+
+Thinker uses a modular architecture that decouples offline processing from online execution, forming a stable, verifiable, and portable inference system.
+
+- **Offline toolchain**: handles graph optimization, weight conversion, parameter validation, memory pre-allocation, performance simulation, and consistency checking, and finally generates standardized intermediate representations and runtime resources.
+- **Lightweight runtime engine**: parses the resources generated by the offline tools and executes high-performance inference on top of a static memory pool and hardware abstraction layer.
+
+Note: the x86 execution samples and test projects in this repository are used for target-platform simulation and validation, so resource checking, operator adaptation, and result comparison can be completed quickly on a PC. When switching to a real chip platform, Thinker's upper-layer interfaces, resource format, and main code path remain the same. In most cases, you only need to replace the target-specific low-level `luna` library and firmware/BSP libraries, then integrate the module into the actual SDK project.
+
+**Functional Block Diagram**
+
+![Thinker Functional Block Diagram](docs/images/thinker3.x.jpg)
+
+## Core Advantages
+
+### Minimal Development Experience
+
+- The offline toolset covers model inspection, packing, simulation, performance evaluation, and result comparison; for common cases, you only need to specify the graph path to complete the workflow.
+- The engine provides a standard C API and typical integration examples; in most cases, integration only requires three steps: model loading -> inference execution -> result output.
+- Professional result comparison tools help align training-side, simulation-side, and chip-side results, reducing debugging cost.
+
+### Extremely Lightweight Deployment
+
+- The graph optimizer produces a compact IR, and the executor keeps only the necessary computation and scheduling logic, significantly reducing runtime overhead.
+- The executor is written in ANSI C and uses compile-time configuration such as `DTHINKER_TARGET_PLATFORM` to select the target platform for binary-level adaptation.
+- Full-graph memory topology analysis is done offline, while the runtime uses a static memory pool to avoid dynamic allocation overhead.
+- The single-file resource delivery format supports fast switching between simulation and real hardware; when moving to the chip side, it is usually enough to replace the low-level `luna` library and firmware/BSP libraries.
+
+### Multi-Modal Compatibility
+
+- Supports common model types such as CV, NLP, and ASR, covering classic network structures like ResNet, Transformer, and LSTM.
+- Supports complex graphs with multiple inputs, multiple outputs, branches, variable-length sequences, and streaming data.
+- Supports standard ONNX operators and common quantized operators, and provides an extension entry for custom operators.
+- Uses a platform-agnostic source design so that different platform versions can be generated from the same codebase with `DTHINKER_TARGET_PLATFORM`.
+
+### Performance and Verifiability
+
+- Works with Linger to support quantization formats such as int8 activations and int4/int8/int16 parameters, reducing model size and data movement cost.
+- Improves edge inference efficiency through DMA prefetch, operator reordering, and hardware-specific libraries.
+- Supports tvalidator result checking, CRC32 intermediate-result comparison, and tprofile performance evaluation to build a reproducible deployment loop.
+
+## Version
+
+- Documentation in this repository is aligned with: `v3.0.12`
+- Latest release date: `2026-06-29`
+- Highlights of this release: unified target-platform configuration, new multi-resource / streaming simulation samples, and a systematic documentation refresh
+- Full change history: see [Release Notes](./docs/release_note.md)
 
 ## Quick Start
-Thinker and Linger are interconnected and must be used together. The toolchain covers the entire model deployment lifecycle and is divided into the following stages:
-### 1.  Development Environment Setup
-- [Virtual Environment Setup](./thinker/docs/thinker_environment.md)
-- [Source Code Compilation & Installation](./thinker/docs/thinker_build.md)
-- [Docker Image (includes Linger and Thinker)](./thinker/docs/thinker_docker.md)
 
-### 2. Model Design
-After finishing the model structure design, algorithm researchers use random initialization parameters to go through the linger+thinker tool chain, which evaluates the model's parameter adaptability, memory consumption and running efficiency to avoid design rework later on when the application needs are not met.
+Thinker and Linger are designed to be used together. The recommended workflow below covers the full loop from model design to chip execution.
 
-* [Example Tutorial 2](./thinker/docs/thinker_docker.md)
+### 1. Development Environment Setup
 
-### 3. Model Quantization Training & Export
-Linger is a plug-in for pytorch and can be imported with one click. Linger uses QAT quantization, which is completely or basically lossless for CV models. After the quantization training is completed, the model can be exported with a single click using its own tools.
-* [Example Tutorial 3](./docs/thinker_docker.md)
+- [Development Environment Setup (Local and Docker)](./docs/thinker_environment.md)
+- [Source Installation and Python Toolchain](./docs/thinker_build.md)
 
-### 4. Model Analysis & Packing
-Parameter checking of the computational graph, computational graph optimization and memory analysis checking using Thinker's offline tool tpacker. Finally, the computational graph is serialized into the format required by the engine executor and the runtime memory is pre-allocated.
-* [Example Tutorial 4](./docs/thinker_packer.md)
+### 2. Model Design Stage
 
-### 5. Simulation Platform Compilation
-Directly load resources serialized by offline tools. Implement computational graphs on VENUS chips with few or even zero modifications.
-* [Example Tutorial 5](./docs/thinker_run.md)
+After the model structure is finalized, algorithm engineers can use randomly initialized parameters to run through the Linger + Thinker toolchain first, so they can evaluate operator compatibility, memory usage, and runtime efficiency early and avoid later redesign during deployment.
 
-### 6. Simulation Platform Execution & Result Comparison
-View operator performance statistics and intermediate result data
-* [Example Tutorial 6](./docs/thinker_performance.md)
+### 3. Model Quantization Training and Export
 
-### 7. Chip Platform Compilation
-Add the Thinker module to the base project (copy the executor directory and rename it to thinker).
+Linger is a PyTorch plug-in that can be imported with one line. It uses QAT quantization and is suitable for lossless or near-lossless quantization of CV and similar models. After quantization training is complete, the graph can be exported for Thinker's offline toolchain.
+For details, please refer to [Linger Model Quantization Training](https://github.com/listenai/Linger).
 
-### 8. Chip Platform Execution & Result Comparison
-After compilation, burn and run. Use CRC32 comparison for intermediate results via compilation macros.
+### 4. Model Analysis and Packing
 
-### 9. Performance Evaluation Tools
-tprofile evaluates chip performance offline.
-[Usage & Examples](./docs/thinker_profile.md)
+Use Thinker's offline tool `tpacker` to perform parameter checking, graph optimization, memory analysis, and resource serialization, and to pre-allocate runtime memory.
 
-### 10. Auxiliary Functions
-View operator performance statistics and intermediate data.
-Auxiliary Tools
+- [Packing Parameters and Examples](./docs/thinker_packer.md)
 
-***
-## Ability Demonstration
-  * [Thinker API](./docs/thinker_api.md)
-  * [Supported Quantization Operators & Limitations](./docs/support_quant_ops.md)
-***  
+### 5. Simulation Platform Build
+
+Run the build script in the repository root to build the x86/Linux simulation platform. This build is mainly used for target-platform behavior simulation, resource validation, and result comparison, rather than directly producing a chip firmware image. The default test case uses `demo/test_thinker`, and you can also modify it in the root `CMakeLists.txt` if needed. To switch the simulated target platform, modify `DTHINKER_TARGET_PLATFORM` in the script.
+
+- [Build Parameters and Examples](./docs/thinker_compile.md)
+
+### 6. Simulation Platform Execution and Result Comparison
+
+Load the resource files serialized by the offline tools, complete simulation inference with little or even no code change, and use the validation tools to align training-side and simulation-side results. The execution here is essentially a simulation of target-platform behavior rather than direct execution of a chip firmware image, but the Thinker interfaces and main flow in the examples can be reused directly in the chip project.
+
+- [Simulation Execution Examples](./docs/thinker_run.md)
+- [Result Validation Tool](./docs/thinker_validator.md)
+
+### 7. Chip Platform Build
+
+Add Thinker as a module in the base firmware SDK project: copy the `executor` directory into the target project and rename or mount it as the `thinker` module according to the project conventions. Thinker's upper-layer code is shared with the simulation platform, so when moving to the real chip platform, you usually only need to replace the target-specific low-level `luna` library and firmware/BSP libraries.
+Note: the base firmware SDK project needs to be obtained from our FAE team.
+
+### 8. Chip Platform Execution and Result Comparison
+
+After the chip project is built successfully, flash and run it. It is recommended to use the same input files on both the simulation platform and the chip platform, and enable `DTHINKER_RESULT_CRC_PRINT` in the build script to verify intermediate-result consistency.
+
+### 9. Performance Evaluation Tool
+
+`tprofile` is used for offline chip performance evaluation.
+
+- [Usage and Examples](./docs/thinker_profile.md)
+
+### 10. Other Auxiliary Features
+
+Thinker also provides auxiliary capabilities such as operator performance statistics and intermediate-result inspection to help locate performance bottlenecks and numerical differences.
+
+- [Auxiliary Tools](./docs/thinker_performance.md)
+
+## Documentation Map
+
+| Document | Description |
+| --- | --- |
+| [Development Environment Setup (Local and Docker)](./docs/thinker_environment.md) | Local and Docker development environment setup |
+| [Source Installation and Python Toolchain](./docs/thinker_build.md) | Thinker Python toolchain installation and upgrade |
+| [Simulation Platform Build](./docs/thinker_compile.md) | x86/Linux simulation build options and examples |
+| [Offline Packing Tool](./docs/thinker_packer.md) | Parameters, workflow, and examples for tpacker |
+| [Simulation Execution](./docs/thinker_run.md) | How to run on the simulation platform |
+| [Result Validation](./docs/thinker_validator.md) | Comparison between training-side, simulation-side, and chip-side results |
+| [Offline Performance Evaluation](./docs/thinker_profile.md) | tprofile usage guide |
+| [Performance Statistics and Auxiliary Tools](./docs/thinker_performance.md) | Operator statistics and intermediate data inspection |
+| [Supported Quantized Operators and Limitations](./docs/support_quant_ops.md) | Quantized operators, precision, and parameter limits |
+| [Thinker API](./docs/thinker_api.md) | Engine APIs and typical invocation patterns |
+| [Technical Highlights](./docs/thinker_technical_highlights.md) | Framework design and key technical details |
+| [Release Notes](./docs/release_note.md) | Version update history |
 
 ## Communication and Feedback
-* Submit bugs and suggestions via GitHub Issues
-* Join the technical discussion WeChat group  
-***  
 
-## Citation
+- You are welcome to submit bugs, feature requests, and suggestions through GitHub Issues.
+- The project is under continuous iteration. See [Release Notes](./docs/release_note.md) for version changes.
+- For technical discussion, you may join the project WeChat discussion group.
+
+## References
+
 - [ONNX](https://github.com/onnx/onnx)
 - [MNN](https://github.com/alibaba/MNN)
 - [NCNN](https://github.com/Tencent/ncnn)
 - [TNN](https://github.com/Tencent/TNN)
-***
 
 ## Copyright and License
-[Apache-2.0 license](LICENSE)
-***
 
+This project is released under the [Apache-2.0 license](LICENSE).

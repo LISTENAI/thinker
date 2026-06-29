@@ -1,190 +1,258 @@
+# Thinker `tpacker` 使用指南
 
----
+`tpacker` 是 Thinker 的核心离线工具，用于加载 ONNX 计算图、执行图优化与硬件适配、分析内存需求，并最终序列化生成可供 Thinker 运行时加载的资源文件。
 
-# Thinker Packer 工具文档
+> 说明
+>
+> - `tpacker` 生成的资源既可用于 x86/Linux 仿真验证，也可用于真实目标平台集成。
+> - x86/Linux 侧的推理执行本质上是目标平台行为仿真，但资源格式、上层接口和主体流程可直接复用于芯片工程。
+> - 迁移到真实目标平台时，通常只需要替换底层 `luna` 库和固件/BSP 库，并按实际 SDK 工程接入资源加载与内存管理逻辑。
 
-## 1. 概述
+## 1. 使用前准备
 
-`tpacker` 是 Thinker 框架中的一个关键离线工具，主要用于对 ONNX 计算图进行加载、解析、优化和内存分析。它能够将优化后的计算图序列化为资源文件（默认存放在根目录下，文件名为 `model.pkg`），以便在目标芯片上进行高效推理。
+建议先完成以下准备工作：
 
----
+- 已完成开发环境搭建：参考 `./thinker_environment.md`
+- 已安装 Thinker Python 工具链：参考 `./thinker_build.md`
+- 输入模型为 ONNX 格式
 
-## 2. 命令格式
+## 2. 快速开始
 
-```Shell
-tpacker [选项]
+最常见的打包方式如下：
+
+```bash
+tpacker -g model.onnx -o model.pkg
 ```
 
-**注意**：至少需要提供以下其中一个参数：
-- `-g/--graph_path`：输入 ONNX 模型的路径
+该命令会完成：
+
+- ONNX 模型加载与解析
+- 计算图优化
+- 目标平台适配与内存规划
+- 资源文件序列化输出
+
+如果希望同时导出中间图和内存分析结果，可开启 `dump`：
+
+```bash
+tpacker -g model.onnx -d True -o model.pkg
+```
+
+## 3. 命令格式
+
+```bash
+tpacker [options]
+```
+
+至少需要提供以下参数之一：
+
+- `-g, --graph_path`：输入 ONNX 模型路径
 - `--config_file`：配置文件路径（JSON 格式）
 
----
+## 4. 常用参数说明
 
-## 3. 参数配置说明
+### 4.1 基本参数
 
-### 3.1 基本配置
+| 选项 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `-g, --graph_path` | 字符串 | 无 | 输入 ONNX 模型路径 |
+| `-o, --output_path` | 字符串 | `model.pkg` | 输出资源文件路径 |
+| `-d, --dump` | 布尔值 | `False` | 是否导出中间图和分析信息 |
+| `--config_file` | 字符串 | 无 | 从 JSON 配置文件读取参数 |
+| `--export_config` | 字符串 | 无 | 将当前参数导出为 JSON 配置文件 |
 
-| 选项               | 类型   | 默认值       | 描述                                   | 示例                                   |
-|--------------------|--------|--------------|----------------------------------------|----------------------------------------|
-| `-g, --graph_path` | 字符串 | 必须配置     | 输入 ONNX 模型的路径                   | `tpacker -g xx.onnx`                   |
-| `-o, --output_path`| 字符串 | `model.pkg`  | 输出的源的路径                         | `tpacker -g xx.onnx -o output/model.pkg`|
-| `-d, --dump`       | 布尔值 | `True`       | 中间计算图导出开关                     | `tpacker -g xx.onnx -d False`          |
-| `--config_file`    | 字符串 | 无           | 配置文件路径（JSON 格式）             | `tpacker --config_file xx.json`        |
-| `--export_config`  | 字符串 | 无           | 将当前配置导出到 JSON 文件             | `tpacker -g xx.onnx --export_config xx.json` |
+说明：
 
----
+- `graph_path` 与 `config_file` 二选一至少提供一个。
+- `dump=False` 时，工具仍会正常输出打包阶段日志和最终资源文件，只是不额外导出中间图与分析报告。
 
-### 3.2 计算图相关配置
+### 4.2 计算图相关参数
 
-| 选项               | 类型   | 默认值 | 描述                                   | 示例                                   |
-|--------------------|--------|--------|----------------------------------------|----------------------------------------|
-| `--inputs`         | 字符串 | 空字符串 | 如需切分子图时，逗号分隔的输入节点名称列表 | `tpacker -g xx.onnx --inputs input1,input2` |
-| `--outputs`        | 字符串 | 空字符串 | 如需切分子图时，逗号分隔的输出节点名称列表 | `tpacker -g xx.onnx --outputs output1,output2` |
-| `--dynamic_shape`  | 字符串 | 空字符串 | 如输入中有维度可变，动态形状配置（例如：`name1=min:max:factor`） | `tpacker -g xx.onnx --dynamic_shape name1=1:10:2` |
-| `--isstream`       | 字符串 | `None`  | 是否启用流处理功能（可选值：`None`, `"split_h"`, `"split_w"`） | `tpacker -g xx.onnx --isstream split_h` |
+| 选项 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `--inputs` | 字符串 | 空 | 切分子图时指定输入节点，多个节点以逗号分隔 |
+| `--outputs` | 字符串 | 空 | 切分子图时指定输出节点，多个节点以逗号分隔 |
+| `-c, --dynamic_shape` | 字符串 | 空 | 动态 shape 配置，格式如 `name=min:max:factor` |
+| `-s, --strategy` | 字符串 | 无 | 图优化策略，目前支持 `Remove_QuantDequant` |
+| `--isstream` | 字符串 | 无 | 流式切图配置，可选 `split_h` 或 `split_w` |
 
----
+说明：
 
-### 3.3 目标平台配置
+- `--inputs` / `--outputs` 常用于将大图拆分为多个资源，或仅导出其中一段子图。
+- `--dynamic_shape` 支持一个或多个动态轴配置，例如 `seq_len=32:384:32`。
+- `--isstream` 常用于流式模型或超大图拆分场景。
 
-| 选项               | 类型   | 默认值       | 描述                                   | 示例                                   |
-|--------------------|--------|--------------|----------------------------------------|----------------------------------------|
-| `-p, --platform`   | 字符串 | `venus`      | 目标平台（可选值：`venus`, `mars`, `arcs`, `venusa`） | `tpacker -g xx.onnx -p venus`         |
-| `-r, --ramsize`    | 整数   | `640KB`      | 最大有效共享内存大小                   | `tpacker -g xx.onnx --ramsize 1048576` |
-| `--psramsize`      | 整数   | `8MB`        | 最大有效 PSRAM 大小                   | `tpacker -g xx.onnx --psramsize 16777216` |
+### 4.3 目标平台与设备参数
 
----
+| 选项 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `-p, --platform` | 字符串 | 无 | 目标平台，可选 `venus`、`mars`、`arcs`、`venusa` |
+| `-r, --ramsize` | 整数 | `655360` | 最大可用共享内存大小，单位为字节 |
+| `--psramsize` | 整数 | `8388608` | 最大可用 PSRAM 大小，单位为字节 |
 
-### 3.4 内存分配相关配置
+说明：
 
-| 选项               | 类型   | 默认值       | 描述                                   | 示例                                   |
-|--------------------|--------|--------------|----------------------------------------|----------------------------------------|
-| `--dma_prefetch`   | 布尔值 | `True`       | DMA 预取功能开关                       | `tpacker -g xx.onnx --dma_prefetch False` |
-| `-m, --memory`     | 字符串 | 空字符串     | 指定节点数据的存储位置（PSRAM 或共享内存） | `tpacker -g xx.onnx --memory inputs[0]:share-memory` |
-| `--threshold1`     | 整数   | `640KB`      | 单个卷积运算符的最大权重大小           | `tpacker -g xx.onnx --threshold1 1048576` |
-| `--threshold2`     | 整数   | `640KB`      | 单个卷积运算符的最大输出大小           | `tpacker -g xx.onnx --threshold2 1048576` |
-| `--threshold3`     | 整数   | `640KB`      | 单个线性运算符的最大输出大小           | `tpacker -g xx.onnx --threshold3 1048576` |
-| `--threshold4`     | 整数   | `640KB`      | 共享内存中节点的最大大小               | `tpacker -g xx.onnx --threshold4 1048576` |
+- 如果显式指定 `--platform`，其取值必须与图中目标平台信息一致，否则会报错。
+- `655360` 字节约等于 `640 KB`，`8388608` 字节约等于 `8 MB`。
 
----
+### 4.4 内存预分配参数
 
-## 4. 打包指令示例
+| 选项 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `--dma_prefetch` | 布尔值 | `True` | 是否启用 DMA 预取 |
+| `-m, --memory` | 字符串 | 空 | 手动指定节点存储位置，格式为 `node:psram`、`node:share-mem` 或 `node:flash` |
+| `--threshold1` | 整数 | `655360` | 卷积类算子的最大权重块阈值 |
+| `--threshold2` | 整数 | `655360` | 卷积类算子的最大输出块阈值 |
+| `--threshold3` | 整数 | `655360` | `LinearInt` 类算子的最大输出块阈值 |
+| `--threshold4` | 整数 | `655360` | 共享内存节点的最大尺寸阈值 |
 
-### 示例 1：基本使用
+说明：
 
-```Shell
-tpacker -g xx.onnx
+- `-m, --memory` 中的共享内存关键字必须写为 `share-mem`，不是 `share-memory`。
+- 这些阈值均以字节为单位。
+- 大多数情况下，内存调优需要结合 `dma_prefetch`、`threshold1~4` 与 `memory` 一起综合调整。
+
+## 5. 常见使用示例
+
+### 5.1 最简单的资源打包
+
+```bash
+tpacker -g model.onnx -o model.pkg
 ```
 
-### 示例 2：导出配置文件
+### 5.2 导出配置文件
 
-```Shell
-tpacker -g xx.onnx --export_config config.json
+```bash
+tpacker -g model.onnx --export_config config.json
 ```
 
-### 示例 3：配置文件使用
+该方式适合先跑通默认配置，再导出成配置文件做后续复用。
 
-```Shell
+### 5.3 基于配置文件执行打包
+
+```bash
 tpacker --config_file config.json
 ```
 
-### 示例 4：动态形状配置（输入中变量 `name1` 和 `name2`）
+### 5.4 动态 shape 模型打包
 
-```Shell
-tpacker -g xx.onnx --dynamic_shape name1=1:10:2,name2=3:20:3
+```bash
+tpacker -g model.onnx -c seq_len=32:384:32,yinsu_len=1:80:1 -o model.pkg
 ```
 
-或者
+### 5.5 切分子图
 
-```Shell
-tpacker --config_file config.json --dynamic_shape name1=1:10:2,name2=3:20:3
+```bash
+tpacker -g model.onnx --inputs=input1,input2 --outputs=output1 -o subgraph.pkg
 ```
 
-### 示例 5：内存配置（指定某个节点的存储位置 `psram/share-memory` 及限制可用的 `ram` 大小）
+### 5.6 流式切图
 
-```Shell
-tpacker -g xx.onnx --memory inputs[0]:share-memory --threshold1 1048576 --ramsize 393216
+```bash
+tpacker -g model.onnx --isstream split_h -o stream_model.pkg
 ```
 
-### 示例 6：内存配置设置并保持配置参数
+### 5.7 手动指定部分节点存储位置
 
-```Shell
-tpacker --config_file config.json --memory inputs[0]:share-memory --threshold1 1048576 --export_config config.json
+```bash
+tpacker -g model.onnx -m encoder_out:psram,cache:share-mem -o model.pkg
 ```
 
----
+### 5.8 使用量化去除策略
 
-## 5. 工具输出
-
-### 5.1 终端显示
-
-![Alt text](images/tpacker.png)
-
-每个阶段的处理步骤，用不同颜色标识不同状态：
-- 绿色：正常完成
-- 黄色：跳过
-- 红色：参数设置不合理
-
----
-
-### 5.2 内存分析报告
-
-- 模型参数内存分配示意图  
-  ![Alt text](images/memory_plan1.png)  
-
-- 运行内存分析规划示意图  
-  ![Alt text](images/memory_plan2.png)  
-
-内存按块进行复用，每个块有独立的编号，每个节点有数据大小和生命周期。
-
----
-
-### 5.3 中间计算图
-
-![Alt text](images/middle_onnx.png)  
-
-默认导出计算图优化每一步骤的中间计算图，默认路径为 `./workspace/xx/model.ignore/*.onnx`，其中 `xx` 表示输入计算图的名称（名称中如果有 `.` 则取第一个字段）。
-
----
-
-### 5.4 计算量统计
-
-- 终端打包过程中会打印统计的计算量。
-
----
-
-### 5.5 序列化资源
-
-- 默认输出为当前目录下的 `model.pkg`，可通过 `-o` 指定输出路径和文件名称。
-
----
-
-## 6. 调试进阶说明
-
-### 6.1 首先使用默认参数跑一遍
-
-```Shell
-tpacker -g model/xxx.onnx -d t
+```bash
+tpacker -g model.onnx -s Remove_QuantDequant -o model.pkg
 ```
 
-如果没有报错，打包完成直接进行下一步。如果报内存超出错误，则在 `/workspace/xxx/` 目录下找到内存分析报告。
+## 6. 工具输出说明
 
-主要分三个部分 `dma_buffer`、`worksapce` 和其它中间节点输出缓存，看哪一部分的内存占比较大：
+### 6.1 终端阶段日志
 
-- `dma_buffer` 用于模型参数预取，采用乒乓操作，因此有两块 `dma_buffer`。
-- `workspace` 是所有算子公用的临时空间（取所有算子中最大的 `workspace`），根据生命周期，参与内存复用。
-- 所有中间节点缓存用于存放所有节点的输出，参与内存复用。
+`tpacker` 会按阶段输出处理进度，例如：
 
----
+1. 解析输入参数
+2. 加载 ONNX 并转换为内部 IR
+3. 图优化
+4. 读取目标平台信息
+5. 图与硬件联合适配
+6. 生成内存分析报告（仅在 `dump=True` 时）
+7. 计算量统计
+8. 序列化资源
+9. 保存资源文件
+10. 导出配置文件（可选）
 
-### 6.2 调整内存配置
+示例界面：
 
-- 如果 `dma_buffer` 占比较大，可调整 `threshold1` 和 `threshold3` 的阈值（参数含义参考前面的参数说明），建议设置为 `32KB` 的整数倍。甚至在模型参数较小，激活数据较大时，关闭 `dma_prefetch` 功能。
-- 如果 `workspace` 较大，可调整 `threshold2`，减少卷积类算子单次输出的最大值。建议设置为 `64KB` 的整数倍。非卷积类或矩阵乘法类算子默认最大的临时空间为 `64KB`（超过会进行自动拆分计算或者报错退出）。
-- 如果中间节点的输出数据较大，可调整 `threshold3`，超过该阈值即会自动将数据临时存放到 `psram` 上。谨慎使用该阈值，一旦该节点输出存放到 `psram` 意味着该节点内部有从 `share-mem` 拷贝到 `psram` 的操作（底层 `luna_api` 的输出必须在 `share-memory` 上），同时下一个使用到该数据的节点需从 `psram` 上读取，增加数据来回倒腾的开销。结合指令中`-m`选项，手动指定某个节点输出的存储位置。
-- 大多数情况下都是综合考虑，同时调整这几个参数，总的目标是减少数据在psram和share-memory上来回倒腾的时间，提示计算效率；
+![tpacker output](images/tpacker.png)
 
+### 6.2 资源文件
 
+- 默认输出为当前目录下的 `model.pkg`
+- 可通过 `-o` 指定输出路径和文件名
 
----
+### 6.3 中间计算图
+
+当 `-d True` 时，会导出每个关键阶段的中间 ONNX：
+
+```text
+./workspace/<model_name>/model.ignore/*.onnx
+```
+
+例如：
+
+- `1_graph_constant_fold.onnx`
+- `4_graph_op_fusion.onnx`
+- `6_graph_layout_convert.onnx`
+- `7_graph_op_split.onnx`
+
+这类文件适合用于定位图优化、切图和布局转换问题。
+
+### 6.4 内存分析报告
+
+当 `-d True` 时，会生成内存分析报告：
+
+```text
+./workspace/<model_name>/<model_name>_memory_report.txt
+```
+
+报告中会列出：
+
+- 参数区内存占用
+- 运行时内存块分配
+- 每个张量的生命周期与所属内存块
+
+相关示意图：
+
+- 参数内存分配示意图  
+  ![memory plan 1](images/memory_plan1.png)
+
+- 运行内存规划示意图  
+  ![memory plan 2](images/memory_plan2.png)
+
+### 6.5 计算量统计
+
+打包过程中会在终端输出模型总计算量，便于做粗粒度性能评估。
+
+## 7. 调试与内存调优建议
+
+### 7.1 建议先用默认参数跑通
+
+```bash
+tpacker -g model.onnx -d True -o model.pkg
+```
+
+如果打包成功，再根据报告决定是否需要继续优化；如果出现内存超限，再重点查看 `workspace` 和内存报告。
+
+### 7.2 常见调优思路
+
+- **`dma_buffer` 占用较大**  
+  优先尝试调整 `threshold1`、`threshold3`，必要时关闭 `dma_prefetch`。
+
+- **`workspace` 占用较大**  
+  优先尝试调整 `threshold2`，限制卷积类算子的单次输出块规模。
+
+- **中间节点输出占用较大**  
+  可结合 `threshold3` 与 `-m, --memory` 将部分中间结果放入 `psram`，但需要权衡访存开销。
+
+### 7.3 调优原则
+
+调优的总体目标不是单纯降低某一项峰值，而是尽量减少数据在 `share-mem` 和 `psram` 之间的来回搬运，从而在满足内存约束的前提下获得更好的整体执行效率。

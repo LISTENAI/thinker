@@ -195,7 +195,7 @@ def pack_param(memory_planer: Dict[int, List[int]]) -> Tuple[List[tParameter], L
                 #     offset = ALIGN16(len(t_weight.tobytes())+len(t_bias.tobytes()))
                 #     params_buff += t_weight.tobytes() + t_bias.tobytes() + b"\0" * (offset - len(t_weight.tobytes()) - len(t_bias.tobytes()))
                 #     if tensor.nbytes != offset:
-                #         print(ctx.entry.name, "the size of tensor({}) do not match offset({})!".format(tensor.nbytes, offset))    
+                #         print(ctx.entry.name, "the size of tensor({}) do not match offset({})!".format(tensor.nbytes, offset))
                 #     continue
                 offset = ALIGN16(len(t.tobytes()))
                 params_buff += t.tobytes() + b"\0" * (offset - len(t.tobytes()))
@@ -209,7 +209,8 @@ def pack_param(memory_planer: Dict[int, List[int]]) -> Tuple[List[tParameter], L
 
         param_list.append(tParameter(memory_list[d].value, 0, params_buff))
         shared_memory_list.append(tMemory(memory_list[d].value, len(params_buff)))
-        return param_list, shared_memory_list
+
+    return param_list, shared_memory_list
 
 def pack_shape(graph:Graph)->Tuple[List[tDyAxisInfo],List[tTenDimPair], ScalarGraph]:
     shape_exprs     = list()

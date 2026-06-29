@@ -25,7 +25,7 @@ def _move_dump_dir(src: Path, dst: Path):
     if not src.exists():
         raise FileNotFoundError(f"Expected dump directory does not exist: {src}")
 
-    _remove_if_exists(dst)
+    # _remove_if_exists(dst)
 
     dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(src), str(dst))
@@ -264,6 +264,7 @@ class ThinkerValidator:
         self.onnx_name = Path(onnx_path).stem
 
         self.workspace_dir = Path.cwd() / "workspace" / self.onnx_name
+        _remove_if_exists(self.workspace_dir)
         self.workspace_dir.mkdir(parents=True, exist_ok=True)
 
         self.model_resource_path = model_resource_path
@@ -295,21 +296,19 @@ class ThinkerValidator:
 
             safe_name = _safe_filename(input.name)
 
-            linger_input_int_path = save_dir / f"{safe_name}_linger_int.npy"
-            linger_input_float_path = save_dir / f"{safe_name}_linger_float.npy"
+            linger_input_int_path = save_dir / f"{safe_name}_linger.npy"
             thinker_input_path = save_dir / f"{safe_name}_thinker.bin"
 
-            if isinstance(li, torch.Tensor):
-                li_np = li.detach().cpu().numpy()
-            else:
-                li_np = np.asarray(li)
+            # if isinstance(li, torch.Tensor):
+            #     li_np = li.detach().cpu().numpy()
+            # else:
+            #     li_np = np.asarray(li)
                 
             if isinstance(ti, torch.Tensor):
                 ti_np = ti.detach().cpu().numpy()
             else:
                 ti_np = np.asarray(ti)
 
-            np.save(linger_input_float_path, li_np)
             np.save(linger_input_int_path, ti_np)
             ti_np.tofile(thinker_input_path)
 
@@ -328,30 +327,25 @@ class ThinkerValidator:
             cmake_cmd = [
                 "cmake",
                 "-DCMAKE_BUILD_TYPE=Release",
-                "-DARCH=x86_64",
                 "-DTHINKER_SHARED_LIB=ON",
                 "-DTHINKER_PROFILE=OFF",
                 "-DTHINKER_RESULT_DUMP=ON",
-                "-DTHINKER_RESULT_CRC_PRINT=OFF",
-                "-DTHINKER_RESOURC_CRC_CHECK=OFF",
-                "-DTHINKER_USE_MOSS=OFF",
-                "-DTHINKER_CHECK_PLATFORM=OFF"
+                "-DDTHINKER_RESULT_CRC_PRINT=OFF",
+                "-DDTHINKER_RESOUCR_CRC_CHECK=OFF",
+                "-DTHINKER_USE_MTQ=OFF",
+                "-DTHINKER_USE_NNBLAS=OFF",
+                "-DDTHINKER_TARGET_CHECK=OFF"
             ]
 
-            if self.platform == "arcs":
-                cmake_cmd.append("-DTHINKER_USE_VENUS=OFF")
-                cmake_cmd.append("-DTHINKER_USE_VENUSA=OFF")
-                cmake_cmd.append("-DTHINKER_USE_ARCS=ON")
-            elif self.platform == "venusA":
-                cmake_cmd.append("-DTHINKER_USE_VENUS=OFF")
-                cmake_cmd.append("-DTHINKER_USE_ARCS=OFF")
-                cmake_cmd.append("-DTHINKER_USE_VENUSA=ON")
-            elif self.platform == "venus":
-                cmake_cmd.append("-DTHINKER_USE_VENUS=ON")
-                cmake_cmd.append("-DTHINKER_USE_ARCS=OFF")
-                cmake_cmd.append("-DTHINKER_USE_VENUSA=OFF")
-            else:
+            platform_map = {
+                "arcs": "ARCS",
+                "venus": "VENUS",
+                "venusa": "VENUSA",
+            }
+            target_platform = platform_map.get(self.platform.lower())
+            if target_platform is None:
                 raise RuntimeError(f"Unsupported platform: <{self.platform}>")
+            cmake_cmd.append(f"-DDTHINKER_TARGET_PLATFORM={target_platform}")
             
             cmake_cmd.append("..")
             subprocess.run(cmake_cmd, check=True)
@@ -404,6 +398,9 @@ class ThinkerValidator:
 
         _move_dump_dir(fixed_linger_dump_dir, target_linger_dump_dir)
         _move_dump_dir(fixed_thinker_dump_dir, target_thinker_dump_dir)
+
+        _remove_if_exists(fixed_linger_dump_dir.parent)
+        _remove_if_exists(fixed_thinker_dump_dir)
 
         print(f"4️⃣ {Colors.BLUE} Consistency verification start.{Colors.RESET}")
 

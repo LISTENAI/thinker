@@ -126,144 +126,49 @@ static int32_t shfit_floor_x05_int32(int32_t x, int32_t shift) {
  * @return int16_t Square root reciprocal value
  */
 static const int16_t calc_sqrt_reciprocal(const int64_t data, int32_t q_x, int32_t *table_shift)
-{
-	const int q_normal = 10;	//normalize(-32, 32)
-	const int q2 = 14;
-	int64_t temp;
-	int q1;
+ {
 
-	if (data & 0xC00000000000)
-	{
-		temp = data>>38;
-		q1 = 24;
-	}
-	else if (data & 0x300000000000)
-	{
-		temp = data>>36;
-		q1 = 23;
-	}
-	else if (data & 0xC0000000000)
-	{
-		temp = data>>34;
-		q1 = 22;
-	}
-	else if (data & 0x30000000000)
-	{
-		temp = data>>32;
-		q1 = 21;
-	}
-	else if (data & 0xC000000000)
-	{
-		temp = data>>30;
-		q1 = 20;
-	}
-	else if (data & 0x3000000000)
-	{
-		temp = data>>28;
-		q1 = 19;
-	}
-	else if (data & 0xC00000000)
-	{
-		temp = data>>26;
-		q1 = 18;
-	}
-	else if (data & 0x300000000)
-	{
-		temp = data>>24;
-		q1 = 17;
-	}
+    const int q_normal = 15;    // Normalization range (-32, 32)
+    const int q2 = 14;
+    int64_t temp;
+    int q1;
 
-	else if (data & 0xC0000000)
-	{
-		temp = data>>22;
-        q1 = 16;
-	}        
-    else if (data & 0x30000000)
-	{
-		temp = data>>20;
-        q1 = 15;
-	}        
-    else if (data & 0xFC000000)
-	{
-		temp = data>>18;
-        q1 = 14;
-	}        
-    else if (data & 0xF3000000)
-	{
-        temp = data>>16;
-        q1 = 13;
-	}
-    else if (data & 0xFFC00000)
-	{
-        temp = data>>14;
-        q1 = 12;
-	}
-    else if (data & 0xFF300000)
-	{
-        temp = data>>12;
-        q1 = 11;
-	}
-    else if (data & 0xFFFC0000)
-	{
-        temp = data>>10;
-        q1 = 10;
-	}
-    else if (data & 0xFFF30000)
-	{
-        temp = data>>8;
-        q1 = 9;
-	}
-    else if (data & 0xFFFFC000)
-	{
-        temp = data>>6;
-        q1 = 8;
-	}
-    else if (data & 0xFFFF3000)
-	{
-        temp = data>>4;
-        q1 = 7;
-	}
-    else if (data & 0xFFFFFC00)
-	{
-        temp = data>>2;
-        q1 = 6;
-	}
-    else if (data & 0xFFFFFF00)
-	{
-        temp = data;
-        q1 = 5;
-	}
-    else if (data & 0xFFFFFFC0)
-	{
-        temp = data<<2;
-        q1 = 4;
-	}
-    else if (data & 0xFFFFFFF0)
-	{
-        temp = data<<4;
-        q1 = 3;
-	}
-    else if (data & 0xFFFFFFFC)
-	{
-        temp = data<<6;
-        q1 = 2;
-	}
-    else if (data & 0xFFFFFFFF)
-	{
-        temp = data<<8;
-        q1 = 1;
-	}
-    else
-	{
-		temp = 256;
-		q1 = 0;
-	}
-
-	int32_t id = temp - 256;
-	int32_t table_out = (int32_t)g_s16Table_sqrt_reciprocal[id];
-	int32_t q = q1 + q2 - q_normal;
-	*table_shift = q;//(int32_t)powf(2, q);
-	return table_out;
+         if (data & 0xC00000000000000) { temp = data >> 50; q1 = 30; }
+    else if (data & 0x300000000000000) { temp = data >> 48; q1 = 29; }
+    else if (data & 0xC0000000000000)  { temp = data >> 46; q1 = 28; }
+    else if (data & 0x30000000000000)  { temp = data >> 44; q1 = 27; }
+    else if (data & 0xC000000000000)   { temp = data >> 42; q1 = 26; }
+    else if (data & 0x3000000000000)   { temp = data >> 40; q1 = 25; }
+    else if (data & 0xC00000000000)    { temp = data >> 38; q1 = 24; }
+    else if (data & 0x300000000000)    { temp = data >> 36; q1 = 23; }
+    else if (data & 0xC0000000000)     { temp = data >> 34; q1 = 22; }
+    else if (data & 0x30000000000)     { temp = data >> 32; q1 = 21; }
+    else if (data & 0xC000000000)      { temp = data >> 30; q1 = 20; }
+    else if (data & 0x3000000000)      { temp = data >> 28; q1 = 19; }
+    else if (data & 0xC00000000)       { temp = data >> 26; q1 = 18; }
+    else if (data & 0x300000000)       { temp = data >> 24; q1 = 17; }
+    else if (data & 0xC0000000)        { temp = data >> 22; q1 = 16; }
+    else if (data & 0x30000000)        { temp = data >> 20; q1 = 15; }
+    else if (data & 0xFC000000)        { temp = data >> 18; q1 = 14; }
+    else if (data & 0xF3000000)        { temp = data >> 16; q1 = 13; }
+    else if (data & 0xFFC00000)        { temp = data >> 14; q1 = 12; }
+    else if (data & 0xFF300000)        { temp = data >> 12; q1 = 11; }
+    else if (data & 0xFFFC0000)        { temp = data >> 10; q1 = 10; }
+    else if (data & 0xFFF30000)        { temp = data >> 8;  q1 = 9;  }
+    else if (data & 0xFFFFC000)        { temp = data >> 6;  q1 = 8;  }
+    else if (data & 0xFFFF3000)        { temp = data >> 4;  q1 = 7;  }
+    else if (data & 0xFFFFFC00)        { temp = data >> 2;  q1 = 6;  }
+    else if (data & 0xFFFFFF00)        { temp = data;      q1 = 5;  }
+    else if (data & 0xFFFFFFC0)        { temp = data << 2; q1 = 4;  }
+    else if (data & 0xFFFFFFF0)        { temp = data << 4; q1 = 3;  }
+    else if (data & 0xFFFFFFFC)        { temp = data << 6; q1 = 2;  }
+    else if (data & 0xFFFFFFFF)        { temp = data << 8; q1 = 1;  }
+    else                               { temp = 256;       q1 = 0;  }
+    int32_t id = temp - 256;
+    int32_t table_out = (int32_t)g_s16Table_sqrt_reciprocal[id];
+    int32_t q = q1 + q2 - q_normal;
+    *table_shift = q;
+    return table_out;
 }
 
 /**
@@ -291,18 +196,18 @@ int32_t layernormalint_venus(const tTensor *X, const tTensor *W, const tTensor *
     leading = X->shape_.dims_[n_dims - 3];
   }
 
-    int32_t input_size = leading * T;
+  int32_t input_size = leading * T;
 
     // float eps = attrs->eps;
 	const float eps = 0.00001;
-	int16_t *p_gamma = (int16_t *)W->dptr_;
-	int32_t *p_beta = (int32_t *)Bias->dptr_;
-    int8_t *p_src = (int8_t *)X->dptr_;
-    int8_t *p_dst = (int8_t *)Y->dptr_;
-    int8_t *p_tmp = (int8_t *)workspace->dptr_;
 
+	int32_t *p_beta = (int32_t *)Bias->dptr_;
+  int8_t *p_src = (int8_t *)X->dptr_;
+  int8_t *p_dst = (int8_t *)Y->dptr_;
+  int8_t *p_tmp = (int8_t *)workspace->dptr_;
+
+  int32_t q_normal = 15;
 	int32_t q_x = (int32_t)X->scale_;
-	const int32_t q_normal = 10;
 	int32_t q_gamma = (int32_t)W->scale_;
 	int32_t q_beta = (int32_t)Bias->scale_;
 	int32_t q_y = (int32_t)Y->scale_;
@@ -310,16 +215,15 @@ int32_t layernormalint_venus(const tTensor *X, const tTensor *W, const tTensor *
 
 	int32_t *sum_x = (int32_t *)p_tmp;
 	int32_t *sum_x2 = (int32_t *)(p_tmp + sizeof(int32_t));
-	int16_t *p_y1 = (int16_t *)(p_tmp + 2 * sizeof(int32_t));
-	int32_t *p_src2 = (int32_t *)(p_tmp + T * sizeof(int32_t));
+	int32_t *p_y1 = (int32_t *)(p_tmp + 2 * sizeof(int32_t));
+	int32_t *p_src2 = (int32_t *)(p_tmp + (T + 2) * sizeof(int32_t));
 	int32_t *p_numerator = p_src2;
 	int32_t *p_y2 = p_src2;
 
 	int64_t q_eps = floor(eps * (1 << (q_x * 2)) * T * T + 0.5f);
 
 	//step1: sum(xi) and sum(xi^2)
-	for (int i = 0; i < leading; i++)
-	{
+	for (int i = 0; i < leading; i++) {
 		int8_t *p_src_once = p_src + i * T;
 		int8_t *p_dst_once = p_dst + i * T;
 		THINKER_RET_CHECK(API_LIB(vector_sum_q7_int32)(p_src_once, sum_x, T, 0), "luna_vector_sum_q7_int32");
@@ -331,12 +235,18 @@ int32_t layernormalint_venus(const tTensor *X, const tTensor *W, const tTensor *
 		int64_t denominator = (int64_t)(T * sum_x2_val) - (int64_t)(sum_x_val * sum_x_val);
 		denominator = denominator + q_eps;
 		int32_t label_shift = 0;
+    int32_t *p_weight = p_src2;
 		denominator = calc_sqrt_reciprocal((const int64_t)denominator, q_x, &label_shift);
 		THINKER_RET_CHECK(API_LIB(scale_q7_int32)(p_src_once, 1, p_numerator, T, 0), "luna_scale_q7_int32");
 		THINKER_RET_CHECK(API_LIB(scale_q31_int32)(p_numerator, T, p_numerator, T, 0), "luna_scale_q31_int32");
 		THINKER_RET_CHECK(API_LIB(offset_q31_int32)(p_numerator, (0 - sum_x_val), p_numerator, T, 0), "luna_offset_q31_int32");
-		THINKER_RET_CHECK(API_LIB(scale_q31_int16)(p_numerator, denominator, (int16_t *)p_y1, T, label_shift), "luna_scale_q31_int16");
-		THINKER_RET_CHECK(API_LIB(mul_q15_int32)(p_y1, (int16_t *)p_gamma, p_y2, T, 0), "luna_mul_q15_int32");
+		THINKER_RET_CHECK(API_LIB(scale_q31_int32)(p_numerator, denominator, (int32_t *)p_y1, T, label_shift), "luna_scale_q31_int32");
+		if (W->dtype_ == Int8){
+      THINKER_RET_CHECK(API_LIB(scale_q7_int32)((int8_t *)W->dptr_, 1, p_weight, T, 0), "luna_scale_q7_int32");
+    }else if (W->dtype_ == Int16){
+      THINKER_RET_CHECK(API_LIB(scale_q15_int32)((int16_t *)W->dptr_, 1, p_weight, T, 0), "luna_scale_q15_int32");
+    }
+    THINKER_RET_CHECK(API_LIB(mul_q31_int32)(p_y1, p_weight, p_y2, T, 0), "luna_mul_q15_int32");
 		THINKER_RET_CHECK(API_LIB(add_q31_int8)(p_y2, p_beta, p_dst_once, T, shift), "luna_add_q31_int8");
 	}
 

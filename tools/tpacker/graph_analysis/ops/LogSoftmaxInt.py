@@ -26,11 +26,12 @@ class LogSoftmaxIntAttrs(iqUnaryOperatorAttrs):
         attrs = tffi.new("LogSoftmaxIntAttrs *")
         platform = self.attrs.get("platform", "venus")
         if platform in {"arcs", "venusA"}:
-            attrs.axis = self.attrs["axis"]
+            axis = self.attrs["axis"]
         elif platform == "venus":
-            attrs.axis = self.attrs["dim"]
+            axis = self.attrs.get("axis", self.attrs.get("dim"))
         else:
             raise AssertionError("Unsupported platform: {}".format(platform))
+        attrs.axis = axis
         return bytes(tffi.buffer(attrs))
 
 @register_op
@@ -82,7 +83,7 @@ class LogSoftmaxInt(iqUnaryOperator):
                 workspace_size += input_size * 4
             workspace_size += stride * 4
         elif platform == "venus":
-            axis = self.attrs["dim"]
+            axis = self.attrs.get("axis", self.attrs.get("dim"))
             workspace_size = self.inputs[0].shape[axis] * 2
 
         workspace_size = min(workspace_size, 65536)

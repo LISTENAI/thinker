@@ -403,7 +403,7 @@ def op_split(ori_graph: Graph, set_out_dev: bool = False, is_dump: bool = False,
 
                     conv_split_out = node.outputs[0].clone()
                     conv_split_out.name += "{}_{}".format(node.outputs[0].name, g)
-
+            
                     conv_split_node.outputs[0] = conv_split_out
                     graph.add_entry(conv_split_out)
                     add_node_list.append(conv_split_node)
@@ -556,7 +556,7 @@ def op_split(ori_graph: Graph, set_out_dev: bool = False, is_dump: bool = False,
 
                     conv_split_out = node.outputs[0].clone()
                     conv_split_out.name = "{}_{}".format(node.outputs[0].name, g)
-
+              
                     conv_split_node.outputs[0] = conv_split_out
                     graph.add_entry(conv_split_out)
                     add_node_list.append(conv_split_node)

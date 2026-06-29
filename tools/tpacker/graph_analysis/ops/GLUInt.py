@@ -11,7 +11,8 @@ class GluIntAttrs(OperatorAttrs):
     def serialize(self) -> bytes:
         """Serialize the attributes into bytes for the GluInt operation."""
         attrs = tffi.new("GluIntAttrs *")
-        attrs.axis = self.attrs["dim"]
+        axis = self.attrs.get("axis", self.attrs.get("dim"))
+        attrs.axis = axis
         return bytes(tffi.buffer(attrs))
 
 @register_op

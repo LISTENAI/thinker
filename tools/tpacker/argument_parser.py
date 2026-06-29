@@ -51,9 +51,8 @@ def _parse_memory(s:str) -> Dict[str, Tuple[int]]:
     s1 = s.split(",")
     for i in range(len(s1)):
       s2 = s1[i].split(":")
-      if len(s2)==1:
-        assert s1[0].lower() in {'psram', 'share-mem', 'flash'}, f"{s1[i]}"
-      assert s2[1].lower() in {'psram', 'share-mem', 'flash'}
+      assert len(s2) == 2, f"{s1[i]}"
+      assert s2[1].lower() in {'psram', 'share-mem', 'flash'}, f"{s1[i]}"
       dynamic_memory[s2[0]] = s2[1]
     return dynamic_memory
     

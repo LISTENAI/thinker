@@ -5,6 +5,7 @@
 #define __OP__ QSwish
 #include "core/operator_register.h"
 #include "thinker_status.h"
+#include "core/comm/utils.h"
 
 #ifdef THINKER_USE_VENUSA
 #include "./venusA/swish.h"  // VenusA backend implementation

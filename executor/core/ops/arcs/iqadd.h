@@ -230,7 +230,10 @@ int32_t iqadd_luna(tTensor *X1, tTensor *X2, tTensor *Temp, tTensor *Y) {
             }
         }
     }
-
+#if !(defined(WIN32) || defined(linux))
+    if (y_in_psram)
+        HAL_FlushInvalidateDCache_by_Addr((uint32_t *)dst, total_size);
+#endif
     return T_SUCCESS;
 }
 

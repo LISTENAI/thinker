@@ -1,122 +1,166 @@
-# ThinkerValidator 命令行使用文档
+# Thinker 一致性验证工具指南
 
-## 📌 简介
+本文档介绍如何使用 `tvalidator` 对比 Linger 训练侧与 Thinker 仿真侧的中间结果，快速定位第一处数值不一致的张量。
 
-**ThinkerValidator** 是一个用于验证训练框架与推理框架输出一致性的工具模块。  
-该工具基于训练端的 **Linger** 工具链与推理端的 **Thinker** 推理引擎，在两侧分别执行推理任务并导出中间张量（Tensor）的 **dump 文件**。
+> 说明
+>
+> - `tvalidator` 在 x86/Linux 上执行的是目标平台推理流程仿真与结果验证，不是芯片固件镜像直接运行。
+> - Thinker 的上层执行流程、资源格式和主体代码在仿真平台与真实目标平台之间保持通用；迁移到芯片工程时，通常只需要替换底层 `luna` 库和固件/BSP 库。
+> - 工具会自动创建 `workspace/<model_name>/` 目录，并将输入文件、Linger dump 与 Thinker dump 集中保存到该目录下。
 
-通过对比两侧生成的 dump 数据，**ThinkerValidator** 能够自动检测并报告计算结果上的差异，从而帮助用户快速定位模型在推理阶段可能存在的不一致算子或节点。
+## 1. 工具作用
 
-本章节介绍 **ThinkerValidator 的命令行（CLI）使用方式**。
+`tvalidator` 的核心目标是验证训练端和推理端的一致性。它会自动完成以下流程：
 
----
+1. 根据 ONNX 图生成输入数据，或加载用户提供的 `.npy` 输入。
+2. 调用 Linger 的 `OnnxRunner` 执行参考推理，并导出中间张量 dump。
+3. 调用 Thinker 加载资源并执行仿真推理，导出中间张量 dump。
+4. 按张量名前缀对两侧 dump 逐个比对，输出第一处不一致的位置。
 
-## ⚙️ 安装与依赖
+当定位到不一致张量后，工具会打印张量名称、shape 以及前 16 个差异元素；如果本机安装了 VS Code 命令行工具 `code`，还会尝试自动拉起文件差异对比界面。
 
-在使用 **ThinkerValidator CLI** 之前，请确保系统中已正确安装以下组件：
+## 2. 使用前准备
 
-- **Linger**：量化训练工具  
-- **Thinker**：推理引擎及其运行时动态库（`libthinker.so`）
+建议先完成以下准备工作：
 
-### ⚠️ 注意
+- 已按 `./thinker_build.md` 安装 `tvalidator` 命令行工具。
+- Python 环境中已安装 Linger，并能够正常导入 `linger.checker.OnnxRunner`。
+- 如需复用已有仿真动态库，请先完成 `./thinker_compile.md` 中的编译流程，得到 `bin/libthinker.so`。
+- 如需手动指定输入，请提前准备 `.npy` 文件，且顺序与 ONNX 模型输入顺序一致。
 
-由于 **Linger** 与 **Thinker** 在部分依赖包（尤其是 ONNX 相关依赖）上可能存在版本冲突，  
-在将 **Linger** 与 **Thinker** 分别安装完成后，建议执行以下命令更新 ONNX 以避免环境冲突：
+如果不传 `-l/--lib_path`，工具会在当前工作目录下删除并重建 `build` 目录，然后自动编译 `bin/libthinker.so`。因此推荐在 Thinker 仓库根目录执行该命令。
 
-```bash
-pip install --upgrade onnx
-```
-## 🧩 参数说明
-### 基本命令行格式
+## 3. 命令格式
+
 ```bash
 tvalidator [options]
 ```
-### 参数列表
-| 参数                   | 类型          | 是否必需 | 说明                                                   |
-| -------------------- | ----------- | ---- | ---------------------------------------------------- |
-| `-g`, `--onnx_path`  | `str`       | 是    | ONNX 模型文件路径，必须提供                                     |
-| `-r`, `--res_path`   | `str`       | 否    | 模型资源文件路径（`.bin`）。当需要手动打包模型时必须提供                      |
-| `-l`, `--lib_path`   | `str`       | 否    | Thinker 推理引擎动态库路径（如 `libthinker.so`）。当不在项目根目录执行时必须提供 |
-| `-i`, `--input_path` | `str ...`   | 否    | 一个或多个输入文件路径。当需要手动指定输入时必须提供                           |
-| `--cfg`              | `key=value` | 否    | 动态 shape 配置参数                                 |
-## 🧩 动态 Shape 参数说明（--cfg）
-value：以逗号分隔的整数列表，通常表示 (min:max:step)
-- **key**：动态 shape 名称。  
-- **value**：以逗号分隔的整数列表，通常表示 (min:max:step)。 
-### 示例
-```bash
---cfg seq_len=32:384:32
-```
-## 🚀 使用示例
-### 1️⃣ 模型不需要手动打包，仅提供ONNX
+
+### 3.1 参数说明
+
+| 参数 | 是否必选 | 说明 |
+| --- | --- | --- |
+| `-g`, `--onnx_path` | 是 | ONNX 模型路径 |
+| `-r`, `--res_path` | 否 | 已打包好的 Thinker 资源文件路径，通常为 `.bin` |
+| `-l`, `--lib_path` | 否 | `libthinker.so` 路径；如果省略，工具会尝试在当前目录自动编译 |
+| `-i`, `--input_path` | 否 | 一个或多个 `.npy` 输入文件路径，顺序需与模型输入一致 |
+| `--cfg` | 否 | 动态 shape 配置，格式为 `symbol=min:max:step[,symbol2=min:max:step]` |
+
+### 3.2 参数行为说明
+
+- `--res_path` 省略时，`tvalidator` 会自动调用 `tpacker`，在当前目录生成临时资源 `data.ignore/test.bin`。
+- `--lib_path` 省略时，`tvalidator` 会根据 ONNX 图中的 `platform` 属性自动选择 `ARCS`、`VENUS` 或 `VENUSA` 重新编译仿真动态库。
+- `--input_path` 省略时，工具会按照模型输入信息自动生成随机输入，同时保存一份 Linger 侧 `.npy` 输入和一份 Thinker 侧原始二进制输入。
+- `--cfg` 仅用于动态 shape 图，配置名必须与 ONNX 中的动态维度符号一致，例如 `seq_len`、`yinsu_len`。
+
+## 4. 典型用法
+
+### 4.1 使用 ONNX 和现有动态库进行验证
+
+适用于资源文件由工具自动打包、动态库已提前编译好的场景：
+
 ```bash
 tvalidator \
-  -g model/track_id/arcs_trackid20250919.onnx \
+  -g model/track_id/model.onnx \
   -l bin/libthinker.so
 ```
-### 2️⃣ 模型需要手动打包，同时提供ONNX和打包后的资源
+
+### 4.2 使用手动打包的资源文件进行验证
+
+适用于你已经通过 `tpacker` 生成了固定资源文件的场景：
+
 ```bash
 tvalidator \
-  -g model/track_id/arcs_trackid20250919.onnx \
-  -r model/track_id/arcs_trackid20250919.bin \
+  -g model/track_id/model.onnx \
+  -r model/track_id/model.bin \
   -l bin/libthinker.so
 ```
-### 3️⃣ 使用自定义的输入验证一致性
+
+### 4.3 使用固定输入进行可复现对比
+
+当你希望复现实验结果，或需要与板端输入完全一致时，建议明确传入输入文件：
+
 ```bash
 tvalidator \
-  -g model/track_id/arcs_trackid20250919.onnx \
-  -r model/track_id/arcs_trackid20250919.bin \
+  -g model/track_id/model.onnx \
+  -r model/track_id/model.bin \
   -l bin/libthinker.so \
-  -i input_0.npy input_1.npy
+  -i data/input_0.npy data/input_1.npy
 ```
-### 4️⃣ 验证动态shape图
+
+### 4.4 验证动态 shape 图
+
+动态 shape 配置使用 `min:max:step` 形式：
+
 ```bash
 tvalidator \
-  -g model/track_id/arcs_trackid20250919.onnx \
-  -r model/track_id/arcs_trackid20250919.bin \
+  -g model/track_id/model.onnx \
+  -r model/track_id/model.bin \
   -l bin/libthinker.so \
   --cfg seq_len=32:384:32,yinsu_len=1:80:1
 ```
-## 🧪 输出结果说明
-在执行一致性验证后，**ThinkerValidator** 会根据比对结果输出两种状态信息：
 
----
+### 4.5 在仓库根目录自动编译动态库
 
-### ✅ 一致性验证通过
-当所有中间 Tensor 的内容完全一致时，系统将输出如下提示信息：
+如果当前目录就是 Thinker 仓库根目录，也可以省略 `-l`：
+
 ```bash
-✔ Consistency verification passed!
+tvalidator -g model/track_id/model.onnx
 ```
-表示训练框架与推理框架的计算结果完全对齐，无需进一步排查。
-### ❌ 一致性验证未通过
 
-若检测到任意 Tensor 文件存在差异，系统将输出如下错误信息，并自动打开vscode的compare功能（如果在vscode环境下），协助定位第一个出错的位置：
-```
--> [!] First mismatch tensor: 142
-  -> Shape: (1, 8, 64, 64)
+此模式会重建 `./build` 并编译 `bin/libthinker.so`，首次运行耗时通常会更长。
 
-    -> Showing first 16 mismatched entries:
-    -----------------------------------------------------------------
-    |     Index      |   Linger (training)   |  Thinker (inference) |
-    -----------------------------------------------------------------
-    | (0, 0, 0, 0)   |         16            |          0           |
-    | (0, 0, 0, 1)   |          2            |         26           |
-    | (0, 0, 0, 2)   |          0            |         12           |
-    | (0, 0, 0, 3)   |         12            |          0           |
-    | (0, 0, 0, 4)   |         34            |          0           |
-    | (0, 0, 0, 5)   |         21            |         17           |
-    | (0, 0, 0, 6)   |         11            |          8           |
-    | (0, 0, 0, 7)   |          0            |         40           |
-    | (0, 0, 0, 8)   |         13            |          7           |
-    | (0, 0, 0, 11)  |         12            |         24           |
-    | (0, 0, 0, 12)  |         17            |          7           |
-    | (0, 0, 0, 13)  |         17            |          0           |
-    | (0, 0, 0, 14)  |          0            |         12           |
-    | (0, 0, 0, 15)  |          3            |          0           |
-    | (0, 0, 0, 16)  |          0            |         38           |
-    | (0, 0, 0, 17)  |         24            |          0           |
-    -----------------------------------------------------------------
-  -> Launching VSCode compare for the following files: 
-      -> Linger : data/onnxrunner_int/142##_int_dump.txt
-      -> Thinker: data/142##_1_8_64_64.txt
+## 5. 输出目录和中间文件
+
+`tvalidator` 每次运行都会以 ONNX 文件名为单位创建工作区，例如：
+
+```text
+workspace/model/
+├── dump_linger/
+├── dump_thinker/
+├── input_0_linger.npy
+└── input_0_thinker.bin
 ```
+
+其中：
+
+- `dump_linger/` 保存 Linger 侧中间结果。
+- `dump_thinker/` 保存 Thinker 侧中间结果。
+- `*_linger.npy` 是传给 Linger 的输入副本。
+- `*_thinker.bin` 是传给 Thinker 的原始输入副本。
+
+如果 ONNX 输入名中包含 `/`、空格等字符，工具会自动转换为适合文件名的格式。
+
+## 6. 结果说明
+
+### 6.1 验证通过
+
+当所有可匹配张量都一致时，命令行会输出验证通过提示，说明训练侧参考结果与 Thinker 仿真结果对齐。
+
+### 6.2 验证失败
+
+当出现不一致时，工具会输出：
+
+- 第一处不一致张量名称
+- 张量 shape
+- 前 16 个不一致元素的位置和值
+- 对应的 Linger dump 文件和 Thinker dump 文件路径
+
+如果本机可用 `code --diff`，工具还会尝试直接打开这两个文件进行差异对比。
+
+### 6.3 没有可比较的文件
+
+如果提示没有找到可对比的对应文件，通常说明：
+
+- Thinker 未成功生成 dump 文件；
+- Linger 与 Thinker 使用的图或资源不一致；
+- 资源文件与当前 ONNX 图不匹配。
+
+这类问题建议优先检查 `--res_path` 是否来自当前 ONNX 图，以及构建选项是否与目标平台一致。
+
+## 7. 调试建议
+
+- 建议优先固定输入文件，避免随机输入造成问题难以复现。
+- 如果想进一步与真实芯片平台对齐，可在板端使用相同输入并开启 `DTHINKER_RESULT_CRC_PRINT=ON`，通过 CRC 快速定位差异层。
+- 若模型包含动态 shape，建议先用一组较小但稳定的 shape 组合完成首轮验证，再逐步扩大验证范围。
+- 当你只是想做自动化一致性检查时，优先使用 `tvalidator`；当你需要对比板端与仿真端时，再结合 `./thinker_performance.md` 中的 CRC 调试开关使用。

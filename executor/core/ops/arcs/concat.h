@@ -300,6 +300,12 @@ int32_t concat_luna(tTensor **tensors, int32_t axis, int32_t input_num, tTensor 
   else {
     return T_ERR_INVALID_DATATYPE;
   }
+
+#if !(defined(WIN32) || defined(linux))
+  if (2 != output->mem_.type_)
+      HAL_FlushInvalidateDCache_by_Addr((uint32_t *)dst, leading*middle*trailing);
+#endif
+
   return T_SUCCESS;
 }
 #endif

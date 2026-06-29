@@ -29,6 +29,7 @@ typedef struct _luna_lstm_param {
   int32_t q_i;
   int32_t q_iw;
   int32_t q_h;
+  int32_t q_c;
   int32_t q_hw;
   int32_t q_ib;
   int32_t q_hb;
@@ -119,7 +120,7 @@ static int32_t luna_lstm_q7_int8_inner(luna_lstm_param_t *params, int32_t t, int
     int32_t hw_q = p_lstm_param->q_hw;
     int32_t ib_q = p_lstm_param->q_ib;
     int32_t hb_q = p_lstm_param->q_hb;
-    
+    int32_t c_q  = p_lstm_param->q_c;
     // Main computation steps
     int32_t *gates_input = (int32_t *)p_tmp;
     THINKER_RET_CHECK(API_LIB(split_mat_mul_bias_i8i8i32o32)(p_iw_weight, p_in, p_ib_bias, gates_input, hidden_size * 4, input_size, 1, 0), "luna_split_mat_mul_bias_i8i8i32o32");
@@ -165,6 +166,8 @@ static int32_t luna_lstm_q7_int8_inner(luna_lstm_param_t *params, int32_t t, int
     int32_t *cell_new = (int32_t *)p_cell_in;
     int32_t *hidden_new = (int32_t *)gates_input + hidden_size * 4;
     
+    THINKER_RET_CHECK(API_LIB(scale_i32i32o32)(p_cell_in, 1, p_cell_in, params->hidden_size, c_q - 15), "luna_scale_i32i32o32");
+
     THINKER_RET_CHECK(API_LIB(mul_i32i32o32)(p_cell_in, G_f, cell_new, hidden_size, 0), "luna_mul_i32i32o32");
     THINKER_RET_CHECK(API_LIB(mul_i32i32o32)(G_i, G_c, hidden_new, hidden_size, 0), "luna_mul_i32i32o32");
     THINKER_RET_CHECK(API_LIB(add_i32i32o32)(cell_new, hidden_new, p_cell_in, hidden_size, 30 - active_q_in), "luna_add_i32i32o32");
@@ -207,7 +210,7 @@ static int32_t luna_lstm_q7_int8_inner2(luna_lstm_param_t *params, int32_t t, in
   int32_t hw_q            = p_lstm_param->q_hw;
   int32_t ib_q            = p_lstm_param->q_ib;
   int32_t hb_q            = p_lstm_param->q_hb;
-
+  int32_t c_q             = p_lstm_param->q_c;
   // step1: [Gi_i, Gf_i, Gc_i, Go_i] =  [Wi_i, Wf_i, Wc_i, Wo_i] * i + Bias_i
   int32_t *p_out1 = (int32_t *)p_tmp;
   int8_t *weight_temp	= (int8_t *)p_iw_weight;
@@ -272,6 +275,7 @@ static int32_t luna_lstm_q7_int8_inner2(luna_lstm_param_t *params, int32_t t, in
   int32_t *p_out3 = (int32_t *)p_out1 + hidden_size;    // g_f .* C_t_1
   int32_t *p_out4 = (int32_t *)p_out1;                  // g_i * g_c
 
+  THINKER_RET_CHECK(API_LIB(scale_i32i32o32)(p_cell_in, 1, p_cell_in, params->hidden_size, c_q - 15), "luna_scale_i32i32o32");
   THINKER_RET_CHECK(API_LIB(mul_i32i32o32)(p_cell_in, G_f, p_out3, hidden_size, 0), "luna_mul_i32i32o32"); // Q15 + Q15 => Q30
   THINKER_RET_CHECK(API_LIB(mul_i32i32o32)(G_i, G_c, p_out4, hidden_size, 0), "luna_mul_i32i32o32");       // Q15 + Q15 => Q30
   THINKER_RET_CHECK(API_LIB(add_i32i32o32)(p_out3, p_out4, p_cell_in, hidden_size, 30 - active_q_in), "luna_add_i32i32o32");
@@ -322,6 +326,7 @@ int32_t lstmint_luna2(const tTensor *data, const tTensor *history_h, const tTens
   p_lstm_param.hb_size = getTensorSize(h2h_bias);
   p_lstm_param.q_i = (int32_t)data->scale_;
   p_lstm_param.q_h = (int32_t)hidden_o->scale_;
+  p_lstm_param.q_c = (int32_t)cell_o->scale_;
   p_lstm_param.q_iw = (int32_t)i2h_weight->scale_;
   p_lstm_param.q_hw = (int32_t)h2h_weight->scale_;
   p_lstm_param.q_ib = p_lstm_param.q_i + p_lstm_param.q_iw;
@@ -408,6 +413,7 @@ int32_t lstmint_luna(const tTensor *data, const tTensor *history_h, const tTenso
   p_lstm_param.hb_size      = getTensorSize(h2h_bias);
   p_lstm_param.q_i          = (int32_t)data->scale_;
   p_lstm_param.q_h          = (int32_t)hidden_o->scale_;
+  p_lstm_param.q_c          = (int32_t)cell_o->scale_;
   p_lstm_param.q_iw         = (int32_t)i2h_weight->scale_;
   p_lstm_param.q_hw         = (int32_t)h2h_weight->scale_;
   p_lstm_param.q_ib         = p_lstm_param.q_i + p_lstm_param.q_iw;

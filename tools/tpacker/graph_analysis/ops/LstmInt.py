@@ -113,6 +113,11 @@ class LSTMInt(Operator):
         temp1 = math.log(scale_h, 2)
         assert temp1 == int(temp1), "Hidden state scale must be a power of 2"
 
+        scale_c = self.attrs.get("scale_c", 32768.0)
+        temp2 = math.log(scale_c, 2)
+        
+        assert temp2 == int(temp2), "cell state scale must be a power of 2"
+
         assert X.dtype == i2h_w.dtype == h2h_w.dtype, "Input, i2h_w, and h2h_w must have the same dtype"
         assert len(X.shape) == 3, "Input must be a 3D tensor"
 
@@ -136,7 +141,7 @@ class LSTMInt(Operator):
         self.outputs.append(hidden_o)
 
         cshape = [1, 1, hidden_size]
-        hidden_c = X.clone(shape=cshape, dtype=np.int32, bits=4, scale=int(temp1))
+        hidden_c = X.clone(shape=cshape, dtype=np.int32, bits=4, scale=int(temp2))
         self.outputs.append(hidden_c)
 
     def get_workspace(self) -> List[Tensor]:

@@ -1,0 +1,21 @@
+# Example:
+#   test_multi_resource multi_resource.yaml
+#
+# Paths are relative to this yaml file. The resources are executed in the
+# configured order, so a linked producer should be listed before its consumer.
+resources:
+  - name: encoder
+    model: encoder.bin
+    inputs:
+      - file: encoder_input.bin
+    outputs:
+      - file: encoder_output.bin
+
+  - name: decoder
+    model: decoder.bin
+    outputs:
+      - file: decoder_output.bin
+
+links:
+  - from: encoder:0
+    to: decoder:0

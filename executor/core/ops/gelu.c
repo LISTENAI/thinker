@@ -4,6 +4,7 @@
 #define __OP__ QGelu
 #include "core/operator_register.h"
 #include "thinker_status.h"
+#include "core/comm/utils.h"
 
 #ifdef THINKER_USE_VENUSA
 #include "./venusA/gelu.h"  // VenusA backend implementation
