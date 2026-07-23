@@ -142,6 +142,11 @@ class ONNXModel:
 
         consumer_map: Dict[str, List[Tuple[onnx.NodeProto, int]]] = {i.name: [] for i in self.graph_input}
         inits_map = {i.name: numpy_helper.to_array(i) for i in graph.initializer}
+        value_shapes = {}
+        for value in list(graph.input) + list(graph.value_info) + list(graph.output):
+            dims = value.type.tensor_type.shape.dim
+            if dims and all(dim.dim_value > 0 for dim in dims):
+                value_shapes[value.name] = [dim.dim_value for dim in dims]
         for initializer in graph.initializer: consumer_map[initializer.name] = []
         for node in graph.node:
             for i, inp in enumerate(node.input):
@@ -205,6 +210,8 @@ class ONNXModel:
                                 bound_val = math.pow(2, data_bits-1)
                                 thinker_input = np.random.randint(-bound_val, bound_val, size = self.input_info[original_source].shape, dtype=data_dtype)
                             onnxrunner_input = torch.from_numpy((thinker_input - zp_val).astype(np.float32) / scale_val).cpu()
+                            if consumer_node.op_type == "Quant":
+                                thinker_input = onnxrunner_input.numpy()
                             inputs_dict[original_source] = (onnxrunner_input, thinker_input)
                             print(f"    -> SUCCESS: quantizable input {original_source} is generated.")
 
@@ -218,7 +225,23 @@ class ONNXModel:
                                 thinker_input = self.inputs[i]
                             else:
                                 print(f"    -> ACTION: generate normal input <{original_source}>, shape is {self.input_info[original_source].shape}.")
-                                thinker_input = np.random.randint(-128, 128, size=self.input_info[original_source].shape, dtype=self.input_info[original_source].dtype)
+                                if consumer_node.op_type == "LSTMInt" and consumer_index == 1:
+                                    _, attrs = parse_attribute_and_name(consumer_node)
+                                    data_shape = value_shapes.get(consumer_node.input[0])
+                                    layout = attrs.get("layout", 0)
+                                    if data_shape is not None:
+                                        thinker_input = np.full(
+                                            self.input_info[original_source].shape,
+                                            data_shape[0 if layout == 0 else 1],
+                                            dtype=self.input_info[original_source].dtype,
+                                        )
+                                    else:
+                                        thinker_input = np.ones(
+                                            self.input_info[original_source].shape,
+                                            dtype=self.input_info[original_source].dtype,
+                                        )
+                                else:
+                                    thinker_input = np.random.randint(-128, 128, size=self.input_info[original_source].shape, dtype=self.input_info[original_source].dtype)
                             onnxrunner_input = torch.from_numpy(thinker_input).cpu()
                             inputs_dict[original_source] = (onnxrunner_input, thinker_input)
                             print(f"    -> SUCCESS: normal input <{original_source}> generated.")
@@ -250,7 +273,21 @@ class ONNXModel:
                                 visited_tensors.add(output_tensor)
                                 queue.append((output_tensor, original_source))
                     else:
-                        raise ValueError(f"  Generate input <{graph_input.name}> failed.")
+                        if self.inputs is not None:
+                            thinker_input = self.inputs[i]
+                        else:
+                            thinker_input = np.random.randint(
+                                -128,
+                                128,
+                                size=self.input_info[original_source].shape,
+                                dtype=self.input_info[original_source].dtype,
+                            )
+                        onnxrunner_input = torch.from_numpy(thinker_input).cpu()
+                        inputs_dict[original_source] = (onnxrunner_input, thinker_input)
+                        print(f"    -> SUCCESS: normal input <{original_source}> generated.")
+                        processed_graph_inputs.add(original_source)
+                        input_ready = True
+                        break
                 if input_ready:
                     break
         return inputs_dict

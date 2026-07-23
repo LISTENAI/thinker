@@ -234,6 +234,7 @@ class ThinkerRunner:
         f"Input mismatch: Model needs {input_count} inputs, but {len(input_list)} were provided."
 
         self._input_info_list = []
+        self._input_array_list = []
         for i in range(input_count):
             input_array = np.ascontiguousarray(input_list[i])
             
@@ -253,6 +254,7 @@ class ThinkerRunner:
                 raise RuntimeError(f"tSetInput failed for input {i}: {ret}")
                 
             self._input_info_list.append(input_info) # keep lifetime of input_info
+            self._input_array_list.append(input_array)
         print("    ->-> All inputs set successfully.")
 
         if self.dynamic_shape:

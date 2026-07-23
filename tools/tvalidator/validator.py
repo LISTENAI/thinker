@@ -89,14 +89,47 @@ class Validator:
             pass
     
     @staticmethod
-    def compare_file_contents(file1: Path, file2: Path) -> bool:
+    def load_values(file_path: Path) -> np.ndarray:
+        with open(file_path, 'r', encoding='utf-8') as file:
+            return np.asarray([float(line.strip()) for line in file if line.strip()], dtype=np.float64)
+
+    @staticmethod
+    def trim_dynamic_padding(values: np.ndarray, file_path: Path, true_shape,
+                             channel_blocks=None) -> np.ndarray:
+        if true_shape is None or len(true_shape) != 3:
+            return values
+
+        shape_text = file_path.stem.split('##', 1)[-1]
+        dump_shape = tuple(int(dim) for dim in re.findall(r'\d+', shape_text))
+        if len(dump_shape) != 3 or dump_shape == tuple(true_shape):
+            return values
+
+        batch, max_time, channels = dump_shape
+        _, valid_time, true_channels = true_shape
+        if channels != true_channels or values.size != batch * max_time * channels:
+            return values
+        if channel_blocks:
+            blocks = []
+            offset = 0
+            for block_channels in channel_blocks:
+                block_size = batch * max_time * block_channels
+                block = values[offset:offset + block_size].reshape(batch, max_time, block_channels)
+                blocks.append(block[:, :valid_time, :])
+                offset += block_size
+            return np.concatenate(blocks, axis=2).reshape(-1)
+        return values.reshape(batch, max_time, channels)[:, :valid_time, :].reshape(-1)
+
+    @classmethod
+    def compare_file_contents(cls, file1: Path, file2: Path, linger_scale: float = 1.0,
+                              true_shape=None, channel_blocks=None) -> bool:
         try:
-            with open(file1, 'r', encoding='utf-8') as f1, open(file2, 'r', encoding='utf-8') as f2:
-                # Read all lines, strip whitespace, and filter out empty lines.
-                # Convert to a set to make the comparison order-agnostic.
-                content1 = [line.strip() for line in f1 if line.strip()]
-                content2 = [line.strip() for line in f2 if line.strip()]
-                return content1 == content2
+            values1 = cls.load_values(file1) / linger_scale
+            values2 = cls.trim_dynamic_padding(
+                cls.load_values(file2), file2, true_shape, channel_blocks
+            )
+            if values1.size != values2.size:
+                return False
+            return np.allclose(values1, values2, rtol=0, atol=1e-6)
         except IOError as e:
             print(f"Error reading file: {e}", file=sys.stderr)
             return False
@@ -116,6 +149,27 @@ class Validator:
         identical_files: List[tuple] = []
         different_files: List[tuple] = []
 
+        dequant_scales = {}
+        dynamic_concat_blocks = {}
+        for node in self.model.graph.node:
+            if node.op_type == "Dequant":
+                scale = next((attr.f for attr in node.attribute if attr.name == "scale_o"), 1.0)
+                for output in node.output:
+                    dequant_scales[output.replace("/", "_")] = scale
+            elif node.op_type == "iqCat":
+                input_shapes = [self.tensor_shapes.get(name.replace("/", "_")) for name in node.input]
+                if all(shape is not None and len(shape) == 3 for shape in input_shapes):
+                    for output in node.output:
+                        dynamic_concat_blocks[output.replace("/", "_")] = [shape[-1] for shape in input_shapes]
+                else:
+                    for output in node.output:
+                        output_name = output.replace("/", "_")
+                        output_shape = self.tensor_shapes.get(output_name)
+                        if output_shape is not None and len(output_shape) == 3 and len(node.input) > 1:
+                            channels = output_shape[-1]
+                            if channels % len(node.input) == 0:
+                                dynamic_concat_blocks[output_name] = [channels // len(node.input)] * len(node.input)
+
         if not common_prefixes:
             print("\n ❗ No corresponding files found to compare.")
             return
@@ -125,7 +179,13 @@ class Validator:
             file1 = dir1_map[prefix]
             file2 = dir2_map[prefix]
 
-            if self.compare_file_contents(file1, file2):
+            if self.compare_file_contents(
+                file1,
+                file2,
+                dequant_scales.get(prefix, 1.0),
+                self.tensor_shapes.get(prefix),
+                dynamic_concat_blocks.get(prefix),
+            ):
                 identical_files.append((file1.name, file2.name))
             else:
                 different_files.append((file1.name, file2.name))
@@ -167,13 +227,11 @@ class Validator:
             else:
                 print(f"  -> Shape: {true_shape}")
 
-            def load_tensor_txt(fp: Path):
-                with open(fp, "r", encoding="utf-8") as f:
-                    data = [int(x.strip()) for x in f if x.strip() != ""]
-                return data
-
-            data1 = load_tensor_txt(first_f1)
-            data2 = load_tensor_txt(first_f2)
+            data1 = self.load_values(first_f1) / dequant_scales.get(prefix, 1.0)
+            data2 = self.trim_dynamic_padding(
+                self.load_values(first_f2), first_f2, true_shape,
+                dynamic_concat_blocks.get(prefix),
+            )
 
             total_elems = len(data1)
 
@@ -330,11 +388,11 @@ class ThinkerValidator:
                 "-DTHINKER_SHARED_LIB=ON",
                 "-DTHINKER_PROFILE=OFF",
                 "-DTHINKER_RESULT_DUMP=ON",
-                "-DDTHINKER_RESULT_CRC_PRINT=OFF",
-                "-DDTHINKER_RESOUCR_CRC_CHECK=OFF",
+                "-DTHINKER_RESULT_CRC_PRINT=OFF",
+                "-DTHINKER_RESOUCR_CRC_CHECK=OFF",
                 "-DTHINKER_USE_MTQ=OFF",
                 "-DTHINKER_USE_NNBLAS=OFF",
-                "-DDTHINKER_TARGET_CHECK=OFF"
+                "-DTHINKER_TARGET_CHECK=OFF"
             ]
 
             platform_map = {
@@ -345,7 +403,7 @@ class ThinkerValidator:
             target_platform = platform_map.get(self.platform.lower())
             if target_platform is None:
                 raise RuntimeError(f"Unsupported platform: <{self.platform}>")
-            cmake_cmd.append(f"-DDTHINKER_TARGET_PLATFORM={target_platform}")
+            cmake_cmd.append(f"-DTHINKER_TARGET_PLATFORM={target_platform}")
             
             cmake_cmd.append("..")
             subprocess.run(cmake_cmd, check=True)

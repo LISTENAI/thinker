@@ -136,7 +136,7 @@ tStatus tGetMemoryPlan(tMemory* memory_list, int32_t* num_memory,
  }
 #endif
 
-#if DTHINKER_TARGET_CHECK
+#if THINKER_TARGET_CHECK
   if (THINKER_TARGET_PLATFORM_RESOURCE_TAG >= 0 &&
       res_hdr->reserved != THINKER_TARGET_PLATFORM_RESOURCE_TAG) {
     printf("Incompatible resource for %s platform!\n", THINKER_TARGET_PLATFORM_NAME);
