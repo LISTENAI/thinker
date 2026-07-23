@@ -2,6 +2,15 @@
 
 本文档按版本倒序记录 Thinker 的主要功能更新、工具链变化与文档调整。
 
+## v3.0.13 · 2026-07-23
+
+- 版本升级至 `3.0.13`，同步 C API 与 Python 包版本。
+- 统一 CMake 构建参数命名，修正 `THINKER_TARGET_PLATFORM`、`THINKER_TARGET_CHECK`、`THINKER_RESULT_CRC_PRINT` 和 `THINKER_RESOUCR_CRC_CHECK` 中多余的 `D` 前缀，并同步 Linux / Windows 构建脚本及编译、性能文档。
+- 调整目标平台资源校验宏及平台版本选择逻辑，继续支持 Venus、Arcs、VenusA 资源兼容性检查。
+- 修复 Venus `LstmInt` cell state 的定点缩放顺序和 `q_c` 量化处理，并更新 Venus、Arcs、VenusA 芯片侧 release / log 静态库。
+- 增强 `tvalidator` 输入生成：正确传递 Quant 前浮点输入，为 LSTM 生成合法序列长度，为普通动态输入提供回退路径，并保持 ctypes 输入数组生命周期。
+- 增强 `tvalidator` dump 对比：支持浮点结果、Dequant 缩放、动态张量 padding 裁剪及动态 `iqCat` 分块布局比较，提高动态模型一致性验证的准确性。
+
 ## v3.0.12 · 2026-06-29
 
 - 版本升级至 `3.0.12`，同步 C API 与 Python 包版本；统一目标平台配置入口，补充 `DTHINKER_TARGET_PLATFORM` / `DTHINKER_TARGET_CHECK` 相关构建脚本、头文件定义和验证工具适配。
