@@ -13,6 +13,10 @@
 #define API_LIB(api) luna_##api
 #endif
 
+int32_t transpose_axis_luna(int16_t dtype, void *src, void *dst,
+                            int32_t *in_shape, int32_t *axis,
+                            uint32_t n_dims);
+
 /**
  * @brief Transpose a matrix of specified data type
  * @param dtype Data type of the matrix (Int8, Int16, Int32)
@@ -43,7 +47,8 @@ int32_t transpose_luna(tTensor *X, tTensor *Y, tTensor * workspace, uint32_t dim
                 break;
             }
             case 3: {
-                THINKER_RET_CHECK(luna_trans_axis_i8o8((int8_t *)src, (int8_t *)dst, shape, axes, dims), "luna_trans_axis_i8o8");
+                THINKER_RET_CHECK(transpose_axis_luna(X->dtype_, src, dst,
+                    (int32_t *)shape, (int32_t *)axes, dims), "transpose_axis_luna");
                 break;
             }
             case 4:  // only support (0 == new_perm[0]), convert to 3D transpose
@@ -95,7 +100,8 @@ int32_t transpose_luna(tTensor *X, tTensor *Y, tTensor * workspace, uint32_t dim
                 if (total_size <= workspace_size) {
                     int8_t *src_temp = (int8_t *)workspace->dptr_;
                     THINKER_RET_CHECK(luna_memcpy_i8o8(src_temp, (int8_t *)src, total_size), "luna_memcpy_i8o8");
-                    THINKER_RET_CHECK(luna_trans_axis_i8o8((int8_t *)src, (int8_t *)dst, shape, axes, dims), "luna_trans_axis_i8o8");
+                    THINKER_RET_CHECK(transpose_axis_luna(X->dtype_, src_temp, dst,
+                        (int32_t *)shape, (int32_t *)axes, dims), "transpose_axis_luna");
                 }
                 else
                     return T_ERR_NO_WORKSPACE;

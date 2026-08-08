@@ -273,6 +273,7 @@ int32_t concat_luna(tTensor **tensors, int32_t axis, int32_t input_num, tTensor 
 
         if (leading == 1) {
             if (output->mem_.type_ == 2) {
+                int32_t past_size = 0;
                 for (int32_t i = 0; i < input_num; ++i) {
                     if (tensors[i]->dtype_ != Int32) {
                         return T_ERR_INVALID_DATATYPE;
@@ -318,6 +319,7 @@ int32_t concat_luna(tTensor **tensors, int32_t axis, int32_t input_num, tTensor 
             }
         } else {
             if (output->mem_.type_ == 2) {
+                int32_t past_size = 0;
                 for (int32_t i = 0; i < input_num; ++i) {
                     if (tensors[i]->dtype_ != Int32) {
                         return T_ERR_INVALID_DATATYPE;
@@ -334,9 +336,10 @@ int32_t concat_luna(tTensor **tensors, int32_t axis, int32_t input_num, tTensor 
                     if (input_scale == output_scale) {
                         for (int32_t l = 0; l < leading; ++l) {
                             int32_t *indptr_curr = (int32_t *)src + l * hw_curr;
-                            int32_t *output_ptr = (int32_t *)dst + l * hw + i * hw_curr;
+                            int32_t *output_ptr = (int32_t *)dst + l * hw + past_size;
                             THINKER_RET_CHECK(API_LIB(memcpy_i8o8)((int8_t *)output_ptr, (int8_t *)indptr_curr, hw_curr * 4), "luna_memcpy_i8o8");
                         }
+                        past_size += hw_curr;
                     } 
                     else {
                         return T_ERR_INVALID_DATATYPE;
@@ -344,6 +347,7 @@ int32_t concat_luna(tTensor **tensors, int32_t axis, int32_t input_num, tTensor 
                 }
             } 
             else {
+                int32_t past_size = 0;
                 for (int32_t i = 0; i < input_num; ++i) {
                     if (tensors[i]->dtype_ != Int32) {
                         return T_ERR_INVALID_DATATYPE;
@@ -360,9 +364,10 @@ int32_t concat_luna(tTensor **tensors, int32_t axis, int32_t input_num, tTensor 
                     if (input_scale == output_scale) {
                         for (int32_t l = 0; l < leading; ++l) {
                             int32_t *indptr_curr = (int32_t *)src + l * hw_curr;
-                            int32_t *output_ptr = (int32_t *)dst + l * hw + i * hw_curr;
+                            int32_t *output_ptr = (int32_t *)dst + l * hw + past_size;
                             opi_psram_cpy_out((void *)output_ptr, (void *)indptr_curr, hw_curr * 4);
                         }
+                        past_size += hw_curr;
                     } 
                     else {
                         return T_ERR_INVALID_DATATYPE;

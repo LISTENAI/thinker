@@ -13,6 +13,7 @@ import shutil
 import argparse
 import re
 import torch
+from onnx import numpy_helper
 
 def _remove_if_exists(path: Path):
         if path.exists():
@@ -53,6 +54,26 @@ class Validator:
         self.linger_dir = Path(linger_dir)
         self.thinker_dir = Path(thinker_dir)
         self.tensor_shapes = tensor_shapes
+        self.tensor_dtypes = {
+            value.name.replace("/", "_"): value.type.tensor_type.elem_type
+            for value in list(self.model.graph.value_info) + list(self.model.graph.output)
+        }
+        bits_to_dtype = {
+            8: onnx.TensorProto.INT8,
+            16: onnx.TensorProto.INT16,
+            32: onnx.TensorProto.INT32,
+        }
+        for node in self.model.graph.node:
+            output_bits = next(
+                (onnx.helper.get_attribute_value(attr)
+                 for attr in node.attribute if attr.name == "o_bits"),
+                None,
+            )
+            if output_bits in bits_to_dtype:
+                for output in node.output:
+                    name = output.replace("/", "_")
+                    if self.tensor_dtypes.get(name, onnx.TensorProto.UNDEFINED) == onnx.TensorProto.UNDEFINED:
+                        self.tensor_dtypes[name] = bits_to_dtype[output_bits]
 
     @staticmethod
     def create_prefix_map(directory: Path) -> Dict[str, Path]:
@@ -121,7 +142,7 @@ class Validator:
 
     @classmethod
     def compare_file_contents(cls, file1: Path, file2: Path, linger_scale: float = 1.0,
-                              true_shape=None, channel_blocks=None) -> bool:
+                              true_shape=None, channel_blocks=None, atol: float = 1e-6) -> bool:
         try:
             values1 = cls.load_values(file1) / linger_scale
             values2 = cls.trim_dynamic_padding(
@@ -129,7 +150,7 @@ class Validator:
             )
             if values1.size != values2.size:
                 return False
-            return np.allclose(values1, values2, rtol=0, atol=1e-6)
+            return np.allclose(values1, values2, rtol=0, atol=atol)
         except IOError as e:
             print(f"Error reading file: {e}", file=sys.stderr)
             return False
@@ -170,6 +191,43 @@ class Validator:
                             if channels % len(node.input) == 0:
                                 dynamic_concat_blocks[output_name] = [channels // len(node.input)] * len(node.input)
 
+        integer_atol = {name: 1.0 for name, dtype in self.tensor_dtypes.items()
+                        if dtype in {
+                            onnx.TensorProto.INT8, onnx.TensorProto.INT16,
+                            onnx.TensorProto.INT32, onnx.TensorProto.INT64,
+                            onnx.TensorProto.UINT8, onnx.TensorProto.UINT16,
+                            onnx.TensorProto.UINT32, onnx.TensorProto.UINT64,
+                        }}
+        initializers = {item.name: numpy_helper.to_array(item) for item in self.model.graph.initializer}
+        for node in self.model.graph.node:
+            input_names = [name.replace("/", "_") for name in node.input]
+            output_names = [name.replace("/", "_") for name in node.output]
+            propagated_atol = max((integer_atol.get(name, 0.0) for name in input_names), default=0.0)
+
+            if node.op_type == "LinearInt" and input_names[0] in dir1_map and input_names[0] in dir2_map:
+                weight = initializers.get(node.input[1])
+                if weight is not None:
+                    linger_input = self.load_values(dir1_map[input_names[0]])
+                    thinker_input = self.load_values(dir2_map[input_names[0]])
+                    input_width = weight.shape[-1]
+                    if linger_input.size == thinker_input.size and linger_input.size % input_width == 0:
+                        delta = (linger_input - thinker_input).reshape(-1, input_width).astype(np.int64)
+                        attrs = {attr.name: onnx.helper.get_attribute_value(attr) for attr in node.attribute}
+                        shift = int(round(
+                            np.log2(attrs["scale_x"])
+                            + np.log2(attrs["scale_w"])
+                            - np.log2(attrs["scale_o"])
+                        ))
+                        if shift >= 0:
+                            propagated_atol = max(
+                                propagated_atol,
+                                float(np.ceil(np.max(np.abs(delta @ weight.astype(np.int64).T)) / (2 ** shift)) + 1),
+                            )
+
+            for output_name in output_names:
+                if output_name in integer_atol:
+                    integer_atol[output_name] = max(integer_atol[output_name], propagated_atol)
+
         if not common_prefixes:
             print("\n ❗ No corresponding files found to compare.")
             return
@@ -178,6 +236,13 @@ class Validator:
         for prefix in sorted(list(common_prefixes)):
             file1 = dir1_map[prefix]
             file2 = dir2_map[prefix]
+            elem_type = self.tensor_dtypes.get(prefix)
+            atol = integer_atol.get(prefix, 1.0) if elem_type in {
+                onnx.TensorProto.INT8, onnx.TensorProto.INT16,
+                onnx.TensorProto.INT32, onnx.TensorProto.INT64,
+                onnx.TensorProto.UINT8, onnx.TensorProto.UINT16,
+                onnx.TensorProto.UINT32, onnx.TensorProto.UINT64,
+            } else 1e-6
 
             if self.compare_file_contents(
                 file1,
@@ -185,6 +250,7 @@ class Validator:
                 dequant_scales.get(prefix, 1.0),
                 self.tensor_shapes.get(prefix),
                 dynamic_concat_blocks.get(prefix),
+                atol,
             ):
                 identical_files.append((file1.name, file2.name))
             else:

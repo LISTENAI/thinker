@@ -58,6 +58,8 @@ class LinearInt(Operator):
         if platform == "venusA":
             if X.dtype == np.int8:
                 assert W.dtype in (np.int8, np.int32), "Weight must be of type int8 or int32"
+            elif X.dtype == np.int16:
+                assert W.dtype == np.int16, "Int16 input requires int16 weight"
             elif X.dtype == np.int32:
                 assert W.dtype in (np.int8, np.int32) , "Weight must be of type int8 or int32"
             else:
@@ -151,7 +153,18 @@ class LinearInt(Operator):
             output_size = M * L
             weight_size = L * N
             if data.dtype == np.int8:
-                if out.dtype == np.int8:
+                if weight.dtype == np.int16:
+                    assert out.dtype in (np.int8, np.int16, np.int32)
+                    input16_size = input_size * 2
+                    output_bytes = output_size * out.dtype.itemsize
+                    transpose_size = (ALIGN2(L) * ALIGN4(M)
+                                      if out.dtype == np.int32
+                                      else ALIGN4(L) * (ALIGN8(M) if out.dtype == np.int8 else ALIGN4(M)))
+                    transpose_limit = 32768 if out.dtype == np.int32 else 65536
+                    workspace_size = input16_size * 2
+                    if out.mem_type != MemType.SHARE_MEM or transpose_size > transpose_limit:
+                        workspace_size += output_bytes
+                elif out.dtype == np.int8:
                     if out.mem_type != MemType.SHARE_MEM and ALIGN4(L) * ALIGN8(M) > 65536:
                         workspace_size = max(input_size, output_size)
                     else:
@@ -193,6 +206,28 @@ class LinearInt(Operator):
                             workspace_size = input_32_size
                         else:
                             workspace_size = input_32_size +  max(output_size * 4, input_16_size)
+            elif data.dtype == np.int16:
+                assert weight.dtype == np.int16 and out.dtype in (np.int8, np.int16, np.int32), \
+                    "VenusA LinearInt requires int16 weight for int16 input"
+                input_bytes = input_size * 2
+                output_bytes = output_size * out.dtype.itemsize
+                scratch_bytes = input_bytes
+                if data.mem_type != MemType.SHARE_MEM:
+                    scratch_bytes += input_bytes
+                transpose_size = (ALIGN2(L) * ALIGN4(M)
+                                  if out.dtype == np.int32
+                                  else ALIGN4(L) * (ALIGN8(M) if out.dtype == np.int8 else ALIGN4(M)))
+                transpose_limit = 32768 if out.dtype == np.int32 else 65536
+                if out.mem_type != MemType.SHARE_MEM:
+                    if transpose_size <= transpose_limit:
+                        workspace_size = scratch_bytes + output_bytes
+                    else:
+                        workspace_size = max(scratch_bytes, output_bytes) + output_bytes
+                else:
+                    if transpose_size <= transpose_limit:
+                        workspace_size = scratch_bytes
+                    else:
+                        workspace_size = scratch_bytes + output_bytes
             elif data.dtype == np.int32:
                 if out.dtype == np.int8:  # int32 output
                     #计算weight从int8到int32的workspace

@@ -179,6 +179,13 @@ static const int16_t calc_sqrt_reciprocal(const int64_t data, int32_t q_x, int32
  * @return int32_t Operation status
  */
 int32_t layernormalint_venus(const tTensor *X, const tTensor *W, const tTensor *Bias, tTensor *Y, tTensor *workspace, LayerNormIntAttrs *attrs) {
+  if (X == NULL || W == NULL || Bias == NULL || Y == NULL || workspace == NULL) {
+    return T_ERR_INVALID_PARA;
+  }
+  if (X->dtype_ != Int8 || W->dtype_ != Int8 || Bias->dtype_ != Int32 ||
+      (Y->dtype_ != Int8 && Y->dtype_ != Int16)) {
+    return T_ERR_INVALID_DATATYPE;
+  }
   int32_t n_dims = X->shape_.ndim_;
   int32_t size = getTensorSize(W);
   int32_t leading = 1;
@@ -221,15 +228,18 @@ int32_t layernormalint_venus(const tTensor *X, const tTensor *W, const tTensor *
 	int32_t *p_y1       = (int32_t *)(p_tmp  + T * sizeof(int32_t) + ALIGN2(T) * sizeof(int16_t) + 4);
 
 	int32_t *p_y2       = p_y1;
+    int32_t compute_workspace_size = ALIGN2(T) * sizeof(int16_t) + 4 +
+                                     T * sizeof(int32_t) * 2;
+    int8_t *p_output_tmp = p_tmp + compute_workspace_size;
 
 	int64_t q_eps = floor(eps * (1 << (q_x * 2)) * T * T + 0.5f);
 
     for (int i = 0; i < leading; i++) {
         int8_t *p_src_once = p_src + i * T;
-        int8_t *p_dst_once = p_dst + i * T;
+        int8_t *p_dst_once = p_dst + i * T * Y->byte_;
 
         if (Y->mem_.mem_type_ != 2) {
-            p_dst_once = (int8_t *)p_tmp;
+            p_dst_once = p_output_tmp;
         }
         int32_t *sum_x = (int32_t *)p_tmp;
         int32_t *sum_x2 = (int32_t *)p_tmp + 1;
@@ -263,10 +273,14 @@ int32_t layernormalint_venus(const tTensor *X, const tTensor *W, const tTensor *
             THINKER_RET_CHECK(API_LIB(memcpy_i8o8)((int8_t *)p_bias, (int8_t *)p_beta, T * sizeof(int32_t)), "luna_memcpy_i8o8");
         }
 
-        THINKER_RET_CHECK(API_LIB(add_i32i32o8)(p_y2, p_bias, p_dst_once, T, shift), "luna_add_i32i32o32");
+        if (Y->dtype_ == Int8) {
+            THINKER_RET_CHECK(API_LIB(add_i32i32o8)(p_y2, p_bias, p_dst_once, T, shift), "luna_add_i32i32o8");
+        } else {
+            THINKER_RET_CHECK(API_LIB(add_i32i32o16)(p_y2, p_bias, (int16_t *)p_dst_once, T, shift), "luna_add_i32i32o16");
+        }
 
         if (Y->mem_.mem_type_ != 2) {
-            opi_psram_cpy_out(p_dst + i * T, p_dst_once, T * sizeof(int8_t));
+            opi_psram_cpy_out(p_dst + i * T * Y->byte_, p_dst_once, T * Y->byte_);
         }
     }
 

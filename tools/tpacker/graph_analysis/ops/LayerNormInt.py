@@ -28,6 +28,7 @@ class LayerNormInt(Operator):
         """Infer the output tensor shape and properties based on inputs."""
         X = self.inputs[0]
         W = self.inputs[1]
+        platform = self.attrs.get("platform", "venus")
 
         # Check weight compatibility
         assert W.shape[0] in (X.shape[-1] * X.shape[-2], X.shape[-1]), "Layer norm not supported for this weight shape"
@@ -53,7 +54,18 @@ class LayerNormInt(Operator):
         assert abs(temp - int(temp)) < 0.000001, "Output scale must be a power of 2"
 
         # Create output tensor
-        Y = X.clone(scale=int(temp))
+        output_dtype = X.dtype
+        if platform == "venusA":
+            assert len(self.inputs) == 3, "LayerNormInt on venusA requires bias"
+            assert X.dtype == np.int8, "LayerNormInt on venusA requires int8 input"
+            assert W.dtype == np.int8, "LayerNormInt on venusA requires int8 weight"
+            assert self.attrs.get("parameter_bits", 8) == 8, "LayerNormInt on venusA requires 8-bit weight"
+            assert self.inputs[2].dtype == np.int32, "LayerNormInt on venusA requires int32 bias"
+            output_bits = self.attrs.get("o_bits", 8)
+            assert output_bits in (8, 16), "LayerNormInt on venusA supports int8 or int16 output"
+            output_dtype = np.int8 if output_bits == 8 else np.int16
+        Y = X.clone(scale=int(temp), dtype=output_dtype,
+                    bits=output_bits / 8 if platform == "venusA" else output_dtype.itemsize)
         self.outputs = [Y]
 
     def get_workspace(self) -> List[Tensor]:
@@ -61,7 +73,14 @@ class LayerNormInt(Operator):
         x = self.inputs[0]
         w = self.inputs[1]
         w_size = np.prod(w.shape)
-        workspace_size = max((w_size * 2 + 8), w_size * 4)
+        if self.attrs.get("platform", "venus") == "venusA":
+            compute_workspace_size = ((w_size + 1) & ~1) * 2 + 4 + w_size * 4 * 2
+            output_workspace_size = 0
+            if self.outputs[0].mem_type != MemType.SHARE_MEM:
+                output_workspace_size = w_size * self.outputs[0].dtype.itemsize
+            workspace_size = compute_workspace_size + output_workspace_size
+        else:
+            workspace_size = max((w_size * 2 + 8), w_size * 4)
         if workspace_size != 0:
             return [Tensor.from_shape([workspace_size], np.int8, MemType.SHARE_MEM)]
         return []

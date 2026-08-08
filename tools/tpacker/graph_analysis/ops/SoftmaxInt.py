@@ -62,10 +62,23 @@ class SoftmaxInt(iqUnaryOperator):
         temp = math.log(scale_o, 2)
         assert abs(temp - int(temp)) < 0.000001, "scale_o must be a power of 2"
 
-        # Create output tensor
-        Y = X.clone(scale=int(temp))
-        self.outputs = [Y]
+        o_bits = self.attrs.get("o_bits", 8)
+        if o_bits == 32:
+            data_type = np.dtype("i4")
+            bits = 4
+        elif o_bits == 16:
+            data_type = np.dtype("i2")
+            bits = 2
+        elif o_bits == 8:
+            data_type = np.dtype("i1")
+            bits = 1
+        else:
+            raise ValueError(f"Unsupported o_bits value: {o_bits}")
 
+        # Create output tensor
+        Y = X.clone(dtype=data_type, bits=bits, scale=int(temp))
+        Y.zero = 0
+        self.outputs = [Y]
     def get_workspace(self):
         """Calculate the required workspace size for the operation."""
         axis = self.attrs.get("axis", -1)

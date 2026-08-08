@@ -55,12 +55,9 @@ def get_Conv2dInt_workspace(
         output_size = ou_c * split_ou_h * ou_w * out_bytes
         return input_size + output_size
 
-    if group != 1:
-        if group == ou_c and out.mem_type != MemType.SHARE_MEM:  # Depthwise convolution
-            return min(out.nbytes, split_workspace_size())
-    else:
-        if weight.dtype == np.int8 and out.mem_type != MemType.SHARE_MEM:
-            return min(out.nbytes, split_workspace_size())
+    is_depthwise = group == c_in and group == ou_c
+    if (group == 1 or is_depthwise) and out.mem_type != MemType.SHARE_MEM:
+        return min(out.nbytes, split_workspace_size())
 
     return 0
 

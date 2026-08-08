@@ -239,9 +239,11 @@ def op_split(ori_graph: Graph, set_out_dev: bool = False, is_dump: bool = False,
                     add_node_list.append(conv_split_node)
                     new_node.inputs.append(conv_split_out)
                     new_node.attrs["scale_x_{}".format(g)] = node.attrs["scale_o"]
+                    new_node.attrs["x_{}_bits".format(g)] = node.attrs["o_bits"]
 
                 # remove old nodes and entries from graph
                 new_node.attrs["scale_o"] = node.attrs["scale_o"]
+                new_node.attrs["o_bits"] = node.attrs["o_bits"]
                 for i in range(1, len(node.inputs)):
                     del graph.entries[node.inputs[i].name]
                 for i in range(1, len(node.outputs)):
@@ -410,8 +412,10 @@ def op_split(ori_graph: Graph, set_out_dev: bool = False, is_dump: bool = False,
 
                     new_node.inputs.append(conv_split_out)
                     new_node.attrs["scale_x_{}".format(g)] = node.attrs["scale_o"]
+                    new_node.attrs["x_{}_bits".format(g)] = node.attrs["o_bits"]
 
                 new_node.attrs["scale_o"] = node.attrs["scale_o"]
+                new_node.attrs["o_bits"] = node.attrs["o_bits"]
                 # remove old nodes and entries from graph
                 for i in range(1, len(node.inputs)):
                     del graph.entries[node.inputs[i].name]
@@ -1045,7 +1049,9 @@ def op_split(ori_graph: Graph, set_out_dev: bool = False, is_dump: bool = False,
                         right_concat_node.attrs["platform"] = node.attrs["platform"]
                         for r in range(len(partial_outputs)):
                             right_concat_node.attrs["scale_x_{}".format(r)] = node.attrs["scale_o"]
+                            right_concat_node.attrs["x_{}_bits".format(r)] = node.attrs["o_bits"]
                         right_concat_node.attrs["scale_o"] = node.attrs["scale_o"]
+                        right_concat_node.attrs["o_bits"] = node.attrs["o_bits"]
                         if split_num == 1:
                             right_concat_node.outputs = node.outputs
                         else:
@@ -1091,9 +1097,11 @@ def op_split(ori_graph: Graph, set_out_dev: bool = False, is_dump: bool = False,
                     if concat_node is not None:
                         concat_node.inputs.append(channel_output)
                         concat_node.attrs["scale_x_{}".format(g)] = node.attrs["scale_o"]
+                        concat_node.attrs["x_{}_bits".format(g)] = node.attrs["o_bits"]
 
                 if concat_node is not None:
                     concat_node.attrs["scale_o"] = node.attrs["scale_o"]
+                    concat_node.attrs["o_bits"] = node.attrs["o_bits"]
                     add_node_list.append(concat_node)
 
                 del_node_list.append(node)

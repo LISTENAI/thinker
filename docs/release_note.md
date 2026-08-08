@@ -2,6 +2,18 @@
 
 本文档按版本倒序记录 Thinker 的主要功能更新、工具链变化与文档调整。
 
+## v3.0.14 · 2026-08-08
+
+- 版本升级至 `3.0.14`，同步 C API、Python 包和多平台 Thinker 静态库版本。
+- 扩展 VenusA `LinearInt` 类型支持：支持 INT8 输入与 INT16 权重的计算路径，并补充 INT16 输入、INT16 权重到 INT8 / INT16 / INT32 输出的执行器实现和 workspace 估算。
+- 修复 VenusA `LayerNormInt` 的 INT16 输出处理，补充输入、权重、偏置、输出和 workspace 参数校验，完善 INT8 / INT16 输出的临时缓冲区及写回逻辑。
+- 扩展 VenusA `Transpose` 的数据类型分发，支持 INT8、INT16 和 INT32 张量的轴变换。
+- 修复 VenusA INT32 `Concat` 在不同分块尺寸下的输出偏移计算，改用累计分块大小避免拼接数据错位。
+- 修复 Arcs `Conv2dInt` 在输出切分后继续执行完整卷积并覆盖切分结果的问题，调整普通卷积和深度可分离卷积的 workspace 及输出处理逻辑。
+- 完善 `tpacker` 量化图分析：更新 VenusA `LinearInt`、`LayerNormInt`、`SoftmaxInt` 的输出 dtype / bits 和 workspace 推导，扩展 Arcs `Conv2dInt` 的 INT4 workspace 规划，并在 `op_split` 生成的分支和 `iqCat` 节点中传递 `o_bits` 与输入 bits 属性。
+- 修正 `tpacker` 导出 ONNX graph output 时缺失 dtype 和 shape 的问题，输出元数据改为完整的 `ValueInfo` 定义。
+- 增强 `tvalidator` 的 dtype 推导和整数量化误差容差传播，支持从 `o_bits` 推导未定义输出类型，并根据整数输入误差传播计算一致性比较容差。
+
 ## v3.0.13 · 2026-07-23
 
 - 版本升级至 `3.0.13`，同步 C API 与 Python 包版本。

@@ -120,7 +120,10 @@ def _convert_to_onnx_model(
 
     # 处理输出
     for out in thinkerGraph.outputs:
-        onnx_outputs.append(onnx.ValueInfoProto(name=out.name))
+        entry = out.tensor
+        dtype = _convert_dtype(entry.dtype)
+        shape = _convert_shape(entry.shape)
+        onnx_outputs.append(make_tensor_value_info(out.name, dtype, shape))
 
     # 处理节点
     for node in thinkerGraph.nodes.values():

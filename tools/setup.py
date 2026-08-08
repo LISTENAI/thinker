@@ -5,7 +5,7 @@ this_package_name="pythinker"
     
 setup(
 	name=this_package_name,
-	version="3.0.13",
+	version="3.0.14",
 	description="A DeepLearning inference framework for venus",
 	author="listenai",
 	author_email="lingerthinker@listenai.com",

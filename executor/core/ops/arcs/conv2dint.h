@@ -327,10 +327,6 @@ int32_t conv2dint_luna(tTensor *X, tTensor *W, tTensor *Bias, tTensor *Y, tTenso
     int32_t ou_w = conv_attrs.output_w;
     int32_t ou_is_psram = (Y->mem_.type_ != 2) ? 1 : 0;
     int32_t output_size = output_c * ou_h * ou_w * Y->byte_;
-    int32_t log2n_stride_w = (conv_attrs.stride_w >> 1);
-    int32_t input_size_align_withouth = (luna_quant_ceil(input_c, 3) << 3) *
-        (luna_quant_ceil(conv_attrs.input_w, (2 + log2n_stride_w)) << (2 + log2n_stride_w));
-    int32_t input_condition = (input_size_align_withouth * conv_attrs.input_h <= CONV_IN_CONDITION) ? 1 : 0;
 
     if (X->dtype_ != Int8 || (W->dtype_ != Int4 && W->dtype_ != Int8)) {
         return T_ERR_INVALID_DATATYPE;
@@ -351,30 +347,34 @@ int32_t conv2dint_luna(tTensor *X, tTensor *W, tTensor *Bias, tTensor *Y, tTenso
                 THINKER_RET_CHECK(conv2dint_luna_split_output_h(X, W, Bias, Y, temp,
                                                      workspace_size, &conv_attrs, 0), "conv2dint_luna_split_output_h");
             }
-            conv_attrs.reserved = 0;
-            THINKER_RET_CHECK(luna_split_conv_para_pack(&conv_attrs, &conv_static_para, LUNA_CONV), "luna_split_conv_para_pack");
-            if (ou_is_psram) {
-                dst = temp;
-            }
-            THINKER_RET_CHECK(conv2dint_luna_calc_conv(W, Y, src, weight, bias, dst,
-                                                       &conv_static_para), "conv2dint_luna_calc_conv");
-            if (ou_is_psram) {
-                opi_psram_cpy_out((int8_t *)Y->dptr_, dst, output_size);
+            else {
+                conv_attrs.reserved = 0;
+                THINKER_RET_CHECK(luna_split_conv_para_pack(&conv_attrs, &conv_static_para, LUNA_CONV), "luna_split_conv_para_pack");
+                if (ou_is_psram) {
+                    dst = temp;
+                }
+                THINKER_RET_CHECK(conv2dint_luna_calc_conv(W, Y, src, weight, bias, dst,
+                                                        &conv_static_para), "conv2dint_luna_calc_conv");
+                if (ou_is_psram) {
+                    opi_psram_cpy_out((int8_t *)Y->dptr_, dst, output_size);
+                }
             }
         } else if (attrs->group == input_c && attrs->group == output_c) { // Depthwise convolution
             if (ou_is_psram && output_size > workspace_size) {
                 THINKER_RET_CHECK(conv2dint_luna_split_output_h(X, W, Bias, Y, temp,
                                                      workspace_size, &conv_attrs, 1), "conv2dint_luna_split_output_h");
             }
-            conv_attrs.reserved = 0;
-            THINKER_RET_CHECK(luna_split_conv_para_pack(&conv_attrs, &conv_static_para, LUNA_DEPTHWISE), "luna_split_conv_para_pack");
-            if (ou_is_psram) {
-                dst = temp;
-            }
-            THINKER_RET_CHECK(conv2dint_luna_calc_depthwise(W, Y, src, weight, bias, dst,
-                                                            &conv_static_para), "conv2dint_luna_calc_depthwise");
-            if (ou_is_psram) {
-                opi_psram_cpy_out((int8_t *)Y->dptr_, dst, output_size);
+            else {
+                conv_attrs.reserved = 0;
+                THINKER_RET_CHECK(luna_split_conv_para_pack(&conv_attrs, &conv_static_para, LUNA_DEPTHWISE), "luna_split_conv_para_pack");
+                if (ou_is_psram) {
+                    dst = temp;
+                }
+                THINKER_RET_CHECK(conv2dint_luna_calc_depthwise(W, Y, src, weight, bias, dst,
+                                                                &conv_static_para), "conv2dint_luna_calc_depthwise");
+                if (ou_is_psram) {
+                    opi_psram_cpy_out((int8_t *)Y->dptr_, dst, output_size);
+                }
             }
         } else { // Group convolution, should be split in tpacker
             return T_ERR_INVALID_PARA;
