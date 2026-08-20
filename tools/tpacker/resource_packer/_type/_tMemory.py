@@ -20,7 +20,7 @@ class tMemory(object):  # little endian
 
 class tMemoryList(object):
     def __init__(
-        self, shared_memory_list: List[tMemory], runtime_memory_list: List[tMemory], ramsize: int
+        self, shared_memory_list: List[tMemory], runtime_memory_list: List[tMemory], ramsize: int, psram_size: int
     ):
         memory_list = []
         for i in range(len(runtime_memory_list)):
@@ -44,7 +44,7 @@ class tMemoryList(object):
             if i == 2:
                 assert _total_size <= ramsize, f"{Colors.RED}  SHARE-MEM to be allocated was {_total_size}, exceed {ramsize} Byte{Colors.RESET}"
             elif i == 1:
-                assert _total_size <= 8 * 1024 * 1024, f"{Colors.RED}  PSRAM to be allocated was {_total_size}, exceed 8MB{Colors.RESET}"
+                assert _total_size <= psram_size, f"{Colors.RED}  PSRAM to be allocated was {_total_size}, exceed {psram_size} Byte{Colors.RESET}"
 
         self.obj = tffi.new("tMemoryList *")
 

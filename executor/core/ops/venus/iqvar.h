@@ -24,6 +24,17 @@
  * @return int32_t Operation status
  */
 int32_t iqvar_luna(tTensor *X, tTensor *Y, tTensor *temp, iqvarAttrs *attrs) {
+    #if THINKER_PARAM_CHECK
+    if (X->dtype_ != Int8 || Y->dtype_ != Int8 ||
+                        X->mem_.type_ != 2 || Y->mem_.type_ != 2) {
+        return (T_ERR_INVALID_DATATYPE);
+    }
+    #endif
+    #if THINKER_RUNTIME_CHECK
+    if (temp == NULL || temp->dptr_ == 0 || temp->mem_.type_ != 2) {
+        return (T_ERR_NO_WORKSPACE);
+    }
+    #endif
     int32_t x_q = (int32_t)X->scale_;
     int32_t y_q = (int32_t)Y->scale_;
     int8_t *src = (int8_t *)X->dptr_;
@@ -32,16 +43,20 @@ int32_t iqvar_luna(tTensor *X, tTensor *Y, tTensor *temp, iqvarAttrs *attrs) {
     int32_t dims = attrs->dims;
     int32_t leading = X->shape_.dims_[n_dim - 3] * X->shape_.dims_[n_dim - 2];
     int32_t F = X->shape_.dims_[n_dim - 1];
-    size_t input_size = getTensorSize(X);
+    size_t workspace_size = getTensorDataSize(temp);
+    for (int32_t i = 0; i < n_dim - 3; ++i) {
+        #if THINKER_PARAM_CHECK
+        if (X->shape_.dims_[i] != 1) {
+            return (T_ERR_INVALID_PARA);
+        }
+        #endif
+    }
 
     if (X->dtype_ == Int8) {
         int32_t shift = x_q * 2 - y_q;
         int8_t *p_tmp = (int8_t *)temp->dptr_;
-        int32_t *p_tmp2 = (int32_t *)((int8_t *)temp->dptr_ + input_size);
 
-        if (dims == -1 || dims == (n_dim - 1)) {
-            p_tmp2 = (int32_t *)temp->dptr_;
-        } else {
+        if (dims != -1 && dims != (n_dim - 1)) {
             leading = X->shape_.dims_[n_dim - 3] * X->shape_.dims_[n_dim - 1];
             F = X->shape_.dims_[n_dim - 2];
             uint32_t axis[3] = {0, 2, 1};
@@ -50,34 +65,35 @@ int32_t iqvar_luna(tTensor *X, tTensor *Y, tTensor *temp, iqvarAttrs *attrs) {
                 X->shape_.dims_[n_dim - 2],
                 X->shape_.dims_[n_dim - 1]
             };
+            #if THINKER_RUNTIME_CHECK
+            if (workspace_size < ALIGN4(getTensorSize(X))) {
+                return (T_ERR_NO_WORKSPACE);
+            }
+            #endif
             THINKER_RET_CHECK(API_LIB(trans_axis_q7)(src, p_tmp, in_shape, axis, 3), "luna_trans_axis_q7");
             src = p_tmp;
         }
-
-        int32_t *sum_x = p_tmp2 + F;
-        int32_t *sum_x2 = p_tmp2 + F + 1;
+        #if THINKER_PARAM_CHECK
+        if (shift < 0 || shift > 30 || F <= 0 || F > 23726566) {
+            return (T_ERR_INVALID_PARA);
+        }
+        #endif
 
         for (int32_t i = 0; i < leading; ++i) {
             int8_t *p_src_once = src + i * F;
             int8_t *p_dst_once = dst + i;
+            int64_t sum_x = 0;
+            int64_t sum_x2 = 0;
 
-            // Calculate sum of squares
-            THINKER_RET_CHECK(API_LIB(mul_q7_int32)(p_src_once, p_src_once, p_tmp2, F, 0), "luna_mul_q7_int32");
-            THINKER_RET_CHECK(API_LIB(vector_sum_q31_int32)((const int32_t *)p_tmp2, sum_x2, F, 0), "luna_vector_sum_q31_int32");
-
-            // Calculate sum of elements
-            THINKER_RET_CHECK(API_LIB(vector_sum_q7_int32)(p_src_once, sum_x, F, 0), "luna_vector_sum_q7_int32");
-
-            int32_t sum_x_val = *sum_x;
-            int32_t sum_x2_val = *sum_x2;
-            int32_t numerator = F * sum_x2_val - sum_x_val * sum_x_val;
-            float tmp_out;
-
-            if (F > 1) {
-                tmp_out = numerator * 1.0f / (F * (F - 1) * (1 << shift));
-            } else {
-                tmp_out = numerator * 1.0f / (1 << shift);
+            for (int32_t j = 0; j < F; ++j) {
+                int64_t value = p_src_once[j];
+                sum_x += value;
+                sum_x2 += value * value;
             }
+
+            int64_t numerator = (int64_t)F * sum_x2 - sum_x * sum_x;
+            double divisor = F > 1 ? (double)F * (F - 1) : 1.0;
+            float tmp_out = (float)((double)numerator / ldexp(divisor, shift));
 
             quant(&tmp_out, p_dst_once, 1, 0);
         }

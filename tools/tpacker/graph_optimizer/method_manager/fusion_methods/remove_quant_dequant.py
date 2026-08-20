@@ -12,6 +12,8 @@ def _sort_nodes(graph: Graph, name_list: List[GraphEntry], quant_list: List[Grap
     for x in name_list:
         if x in graph.outputs:
             return False
+        if not x.dst_nodes:
+            return False
         for i in range(len(x.dst_nodes)):
             next_node = x.dst_nodes[i]
             if next_node.op_type in _op_list:

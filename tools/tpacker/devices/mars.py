@@ -7,7 +7,7 @@ MARS_CONFIGS = {
     "dma_support": True,
     "supported_operators": [
         "ArgMax", "Conv1dInt", "Conv2dInt", "ConvTranspose2dInt",
-        "Relu", "Prelu", "Clip", "MaxPool", "AvgPool2dInt",
+        "Relu", "PRelu", "Clip", "MaxPool", "AvgPool2dInt",
         "LinearInt", "GRUInt", "LSTMInt", "BmmInt",
         "iqSigmoid", "iqTanh",
         "iqCat", "iqPad", "Transpose", "Reshape",

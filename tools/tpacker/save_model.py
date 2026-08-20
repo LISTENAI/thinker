@@ -1,4 +1,5 @@
 import os
+import json
 import sympy
 import onnx
 import numpy as np
@@ -106,6 +107,7 @@ def _convert_to_onnx_model(
     onnx_outputs = []
     onnx_initializer = []
     onnx_nodes = []
+    dynamic_initializers = {}
 
     # 更新图
     thinkerGraph.update()
@@ -156,8 +158,14 @@ def _convert_to_onnx_model(
                 new_data = np.zeros(tensor.shape, dtype=np.int64)
                 for i in range(len(tensor.data)):
                     new_data[i] = calc_expr(str(tensor.data[i]), dynamic_args_max)
-                tensor.data = new_data
-            onnx_constant = from_array(tensor.data, name=entry.name)
+                dynamic_initializers[entry.name] = {
+                    "shape": list(tensor.data.shape),
+                    "expressions": [str(value) for value in tensor.data.reshape(-1)],
+                }
+                initializer_data = new_data
+            else:
+                initializer_data = tensor.data
+            onnx_constant = from_array(initializer_data, name=entry.name)
             onnx_initializer.append(onnx_constant)
 
     # 创建ONNX图和模型
@@ -171,6 +179,11 @@ def _convert_to_onnx_model(
     save_model_attrs = {"producer_name": "thinker", "producer_version": "v1"}
     save_model_attrs.update(model_attrs)
     onnx_model = make_model(onnx_graph, **save_model_attrs)
+    if dynamic_initializers:
+        onnx.helper.set_model_props(
+            onnx_model,
+            {"thinker_dynamic_initializers": json.dumps(dynamic_initializers)},
+        )
     return onnx_model
 
 def save_to_onnx_model(

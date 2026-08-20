@@ -18,6 +18,13 @@
 #endif
 #include "thinker_status.h"
 
+static int32_t luna_quant_ceil(int32_t x, int32_t shift) {
+    if (x & ~(0xFFFFFFFF << shift)) {
+        return (x >> shift) + 1;
+    }
+    return x >> shift;
+}
+
 /**
  * @brief Initialize parameters for 2D transposed convolution (deconvolution)
  * @param attrs Transposed convolution attributes
@@ -44,7 +51,7 @@ static void deconv2dint_luna_para_init(ConvTranspose2dIntAttrs *attrs, conv_stru
     conv_attrs->padding_h_up = attrs->kernel[0] - attrs->pad[0] - 1;
     conv_attrs->padding_h_down = attrs->kernel[0] - attrs->pad[2] - 1 + attrs->output_padding[0];
     conv_attrs->padding_w_left = attrs->kernel[1] - attrs->pad[1] - 1;
-    conv_attrs->padding_w_right = attrs->kernel[1] - attrs->pad[3] - attrs->stride[1] + attrs->output_padding[1];
+    conv_attrs->padding_w_right = attrs->kernel[1] - attrs->pad[3] - 1 + attrs->output_padding[1];
     conv_attrs->dilation_h = attrs->dilation[0];
     conv_attrs->dilation_w = attrs->dilation[1];
 
@@ -63,9 +70,9 @@ static void deconv2dint_luna_para_init(ConvTranspose2dIntAttrs *attrs, conv_stru
     int32_t q_x = (int32_t)X->scale_;
     int32_t q_w = (int32_t)W->scale_;
     int32_t q_y = (int32_t)Y->scale_;
-    conv_attrs->positive_shift_type = ShiftType_FloorX05;
+    conv_attrs->positive_shift_type = attrs->quant_type == 0 ? ShiftType_Floor : ShiftType_FloorX05;
     conv_attrs->positive_shift_value = q_x + q_w - q_y;
-    conv_attrs->negative_shift_type = ShiftType_FloorX05;
+    conv_attrs->negative_shift_type = attrs->quant_type == 0 ? ShiftType_Floor : ShiftType_FloorX05;
     conv_attrs->negative_shift_value = conv_attrs->positive_shift_value;
 
     uint8_t data_mem_type = (X->mem_.type_ & 0x0F) << 4;
@@ -92,6 +99,15 @@ static void deconv2dint_luna_para_init(ConvTranspose2dIntAttrs *attrs, conv_stru
  * @return int32_t Execution status
  */
 int32_t deconv2dint_luna(tTensor *X, tTensor *W, tTensor *Bias, tTensor *Y, tTensor *Temp, ConvTranspose2dIntAttrs *attrs) {
+    int32_t quant_shift = (int32_t)X->scale_ + (int32_t)W->scale_ - (int32_t)Y->scale_;
+    if (quant_shift < 0 || quant_shift > 63 || attrs->pad[0] >= attrs->kernel[0] ||
+        attrs->pad[2] >= attrs->kernel[0] || attrs->pad[1] >= attrs->kernel[1] ||
+        attrs->pad[3] >= attrs->kernel[1]) return T_ERR_INVALID_PARA;
+    #if THINKER_PARAM_CHECK
+    if (X->shape_.dims_[0] != 1 || Y->shape_.dims_[0] != 1) {
+        return (T_ERR_INVALID_PARA);
+    }
+#endif
     int8_t *src = (int8_t *)(X->dptr_);
     int8_t *weight = (int8_t *)(W->dptr_);
     int32_t *bias = (Bias != NULL) ? (int32_t *)(Bias->dptr_) : NULL;
@@ -106,23 +122,76 @@ int32_t deconv2dint_luna(tTensor *X, tTensor *W, tTensor *Bias, tTensor *Y, tTen
     int32_t group = conv_attrs.group;
     int32_t k_h = conv_attrs.weight_h;
     int32_t k_w = conv_attrs.weight_w;
+    int32_t log2n_stride_w = (conv_attrs.stride_w >> 1);
+    int32_t align_w =  luna_quant_ceil(conv_attrs.input_w, (2 + log2n_stride_w)) << (2 + log2n_stride_w);
+    int32_t data_size = ALIGN8(conv_attrs.input_c) * align_w * conv_attrs.input_h;
+    int32_t weight_size = ALIGN2(conv_attrs.output_c) * ALIGN8(conv_attrs.input_c) * k_h * k_w;
 
+    #if THINKER_PARAM_CHECK
     if (X->dtype_ != Int8) {
-        return T_ERR_INVALID_DATATYPE;
+        return (T_ERR_INVALID_DATATYPE);
     }
 
-    if ((k_h <= 12) && (k_w <= 12)) { // Kernel size in [1, 12]
-        if (attrs->group == 1) { // Common transposed convolution
-            THINKER_RET_CHECK(luna_split_conv_para_pack(&conv_attrs, &conv_static_para, LUNA_DECONV), "luna_split_conv_para_pack");
+    if (Y->dtype_ != Int8) {
+        return (T_ERR_INVALID_DATATYPE);
+    }
 
-            if (W->dtype_ == Int4) {
-                THINKER_RET_CHECK(API_LIB(deconv2d_i8i4o8)(src, weight, bias, dst, &conv_static_para), "luna_deconv2d_i8i4o8");
-            } else if (W->dtype_ == Int8) {
-                THINKER_RET_CHECK(API_LIB(deconv2d_i8i8o8)(src, weight, bias, dst, &conv_static_para), "luna_deconv2d_i8i8o8");
-            }
-        } else {
-            return T_ERR_INVALID_PARA;
-        }
+    if (X->shape_.dims_[0] != 1 || Y->shape_.dims_[0] != 1) {
+        return (T_ERR_INVALID_PARA);
+    }
+
+    if ((W->dtype_ != Int4) && (W->dtype_ != Int8)) {
+        return (T_ERR_INVALID_DATATYPE);
+    }
+
+    if (Bias != NULL && Bias->dtype_ != Int32) {
+        return (T_ERR_INVALID_DATATYPE);
+    }
+
+    if (group != 1) {
+        return (T_ERR_INVALID_PARA);
+    }
+
+    if (k_h < 1 || k_h > 12 || k_w < 1 || k_w > 12) {
+        return (T_ERR_INVALID_PARA);
+    }
+
+    if (conv_attrs.stride_h != 1 && conv_attrs.stride_h != 2 && conv_attrs.stride_h != 4) {
+        return (T_ERR_INVALID_PARA);
+    }
+
+    if (conv_attrs.stride_w != 1 && conv_attrs.stride_w != 2 && conv_attrs.stride_w != 4) {
+        return (T_ERR_INVALID_PARA);
+    }
+
+    if (conv_attrs.dilation_h != 1 || conv_attrs.dilation_w != 1) {
+        return (T_ERR_INVALID_PARA);
+    }
+
+    if (data_size > 16384 || weight_size > 8192) {
+        return (T_ERR_INVALID_PARA);
+    }
+
+    if (attrs->pad[0] < 0 || attrs->pad[1] < 0 || attrs->pad[2] < 0 || attrs->pad[3] < 0 ||
+                        attrs->pad[0] > 11 || attrs->pad[1] > 11 || attrs->pad[2] > 11 || attrs->pad[3] > 11 ||
+                        k_h < conv_attrs.stride_h || k_w < conv_attrs.stride_w || X->dptr_ == Y->dptr_) {
+        return (T_ERR_INVALID_PARA);
+    }
+#endif
+    #if THINKER_RUNTIME_CHECK
+    if (Y->mem_.type_ != 2) {
+        return (T_ERR_INVALID_PLATFROM);
+    }
+#endif
+
+    THINKER_RET_CHECK(luna_split_conv_para_pack(&conv_attrs, &conv_static_para, LUNA_DECONV),
+                      "luna_split_conv_para_pack");
+    if (W->dtype_ == Int4) {
+        THINKER_RET_CHECK(API_LIB(deconv2d_i8i4o8)(src, weight, bias, dst, &conv_static_para),
+                          "luna_deconv2d_i8i4o8");
+    } else {
+        THINKER_RET_CHECK(API_LIB(deconv2d_i8i8o8)(src, weight, bias, dst, &conv_static_para),
+                          "luna_deconv2d_i8i8o8");
     }
 
     return T_SUCCESS;

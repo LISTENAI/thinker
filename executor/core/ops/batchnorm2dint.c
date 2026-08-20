@@ -20,8 +20,16 @@
 
 // Forward pass implementation for Batch Normalization Integer operator
 int32_t X(Forward)(tOperator* op, tTensor** tensors, int32_t num_tensor, tDMA_List* list) {
-    // Validate input tensor count
-    CHECK_GE(num_tensor, (op->num_input_ + op->num_output_));
+#if THINKER_PARAM_CHECK
+    if (op == NULL || tensors == NULL) {
+        return (T_ERR_INVALID_PARA);
+    }
+
+    if (op->num_input_ < 3 || op->num_output_ != 1 ||
+                        num_tensor < op->num_input_ + op->num_output_) {
+        return (T_ERR_INVALID_PARA);
+    }
+#endif
    
     // Extract input tensors
     tTensor* X = ((tTensor**)tensors)[0];     // Input tensor
@@ -36,9 +44,12 @@ int32_t X(Forward)(tOperator* op, tTensor** tensors, int32_t num_tensor, tDMA_Li
     #endif
     
     // Get workspace tensor and call platform-specific implementation
-    tTensor *Workspace = NULL;
-    if (num_tensor > op->num_input_ + op->num_output_)
-        Workspace = tensors[op->num_input_ + op->num_output_];
+#if THINKER_RUNTIME_CHECK
+    if (num_tensor <= op->num_input_ + op->num_output_) {
+        return (T_ERR_NO_WORKSPACE);
+    }
+#endif
+    tTensor *Workspace = tensors[op->num_input_ + op->num_output_];
     THINKER_RET_CHECK(batchnormint_luna(X, W, Bias, Y, Workspace), "batchnormint_luna");
 
     #if THINKER_PROFILE
@@ -46,6 +57,8 @@ int32_t X(Forward)(tOperator* op, tTensor** tensors, int32_t num_tensor, tDMA_Li
     uint32_t total_t = (uint32_t)(finish_t - start_t);
     printf("%8s | %u | (","BatchNorm2dInt", total_t);  
     #endif
+#else
+    return T_ERR_NO_SUPPORT_OP;
 #endif
 
     return T_SUCCESS;  // Return result code

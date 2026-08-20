@@ -33,7 +33,6 @@ from .Quant import *
 from .Requant import *
 from .Reshape import *
 from .Resize import *
-from .ShuffleChannel import *
 from .Slice import *
 from .SoftmaxInt import *
 from .Split import *

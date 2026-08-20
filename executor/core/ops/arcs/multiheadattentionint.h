@@ -30,7 +30,7 @@
  * @return Operation status
  */
 static int32_t luna_add_int8(int8_t* p_input1, int8_t* p_input2, int8_t* p_output, int8_t* p_temp,
-    int32_t size, int32_t scale_x, int32_t scale_y, int32_t scale_o) { 
+    int32_t size, int32_t scale_x, int32_t scale_y, int32_t scale_o) {
     // Scale inputs to common format
     if (scale_x > scale_o) {
         THINKER_RET_CHECK(luna_scale_i8i8o8(p_input1, 1, p_input1, size, scale_x - scale_o), "luna_scale_i8i8o8");
@@ -42,7 +42,7 @@ static int32_t luna_add_int8(int8_t* p_input1, int8_t* p_input2, int8_t* p_outpu
     } else if (scale_y < scale_o) {
         THINKER_RET_CHECK(luna_scale_i8i8o8(p_input2, 1<<(scale_o - scale_y), p_input2, size, 0), "luna_scale_i8i8o8");
     }
-    
+
     // Perform addition
     THINKER_RET_CHECK(luna_add_i8i8o8(p_input1, p_input2, p_output, size, 0), "luna_add_i8i8o8");
     return T_SUCCESS;
@@ -62,8 +62,8 @@ static int32_t luna_add_int8(int8_t* p_input1, int8_t* p_input2, int8_t* p_outpu
 static int32_t luna_softmax_int8(int8_t* p_input, int8_t* p_output, int8_t* p_temp, int32_t batch, int32_t size, int32_t q_x, int32_t q_o)
 {
     int32_t *p_softmax = (int32_t *)p_temp; p_temp += 2*size*sizeof(int32_t);
-    int32_t *p_softmax2 = (int32_t *)p_temp; p_temp += 2*size*sizeof(int32_t); 
-    
+    int32_t *p_softmax2 = (int32_t *)p_temp; p_temp += 2*size*sizeof(int32_t);
+
     for (int32_t j = 0; j < batch; j++) {
         THINKER_RET_CHECK(luna_scale_i8i8o32(p_input + j*size, 1, p_softmax, size, 0), "luna_scale_i8i8o32");
         THINKER_RET_CHECK(luna_scale_i32i32o32(p_softmax, 1<<(25-q_x), p_softmax, size, 0), "luna_scale_i32i32o32");
@@ -87,8 +87,8 @@ static int32_t luna_softmax_int8(int8_t* p_input, int8_t* p_output, int8_t* p_te
  * @param q_o Output scale
  * @return Operation status
  */
-static int32_t luna_bmm_int8(int8_t* p_mat1, int8_t* p_mat2, int8_t* p_out, 
-    int32_t B, int32_t M, int32_t K, int32_t N, 
+static int32_t luna_bmm_int8(int8_t* p_mat1, int8_t* p_mat2, int8_t* p_out,
+    int32_t B, int32_t M, int32_t K, int32_t N,
     int32_t q_x, int32_t q_y, int32_t q_o) {
     for (int32_t i = 0; i < B; i++) {
         THINKER_RET_CHECK(luna_mat_mul_i8i8o8(p_mat1 + i*M*K, p_mat2 + i*K*N, p_out + i*M*N, M, K, N, q_x+q_y-q_o), "luna_mat_mul_i8i8o8");
@@ -112,12 +112,12 @@ static int32_t luna_bmm_int8(int8_t* p_mat1, int8_t* p_mat2, int8_t* p_out,
  * @param max_rel Maximum relative position
  * @return Operation status
  */
-static int32_t luna_bmm_rel_key_int8(int8_t* p_weight_emb_k, int8_t* p_emb_k, int8_t* p_mat2, int8_t* p_out, 
-    int32_t n_q, int32_t n_k, int32_t dim_head, int32_t headers, 
+static int32_t luna_bmm_rel_key_int8(int8_t* p_weight_emb_k, int8_t* p_emb_k, int8_t* p_mat2, int8_t* p_out,
+    int32_t n_q, int32_t n_k, int32_t dim_head, int32_t headers,
     int32_t q_x, int32_t q_y, int32_t q_o,
     int32_t max_rel) {
     int8_t *p_emb_k_new;
-    
+
     for (int i = 0; i < n_q; i++) {
         if (0 - i >= -max_rel && n_k - i <= max_rel) {  //not overflow
             p_emb_k_new = p_weight_emb_k + ((0 - i) + max_rel)*dim_head;
@@ -133,7 +133,7 @@ static int32_t luna_bmm_rel_key_int8(int8_t* p_weight_emb_k, int8_t* p_emb_k, in
         }
         THINKER_RET_CHECK(luna_split_mat_mul_bias_i8i8i32o8(p_emb_k_new, p_mat2 + i*dim_head*headers, 0, p_out + i*n_k*headers, n_k, dim_head, headers, q_x+q_y-q_o), "luna_split_mat_mul_bias_i8i8i32o8");
     }
-    return T_SUCCESS; 
+    return T_SUCCESS;
 }
 
 /**
@@ -152,12 +152,12 @@ static int32_t luna_bmm_rel_key_int8(int8_t* p_weight_emb_k, int8_t* p_emb_k, in
  * @param max_rel Maximum relative position
  * @return Operation status
  */
-static int32_t luna_bmm_rel_value_int8(int8_t* p_mat1, int8_t* p_weight_emb_v, int8_t* p_emb_v, int8_t* p_out, 
-    int32_t n_q, int32_t headers, int32_t n_k, int32_t dim_head, 
+static int32_t luna_bmm_rel_value_int8(int8_t* p_mat1, int8_t* p_weight_emb_v, int8_t* p_emb_v, int8_t* p_out,
+    int32_t n_q, int32_t headers, int32_t n_k, int32_t dim_head,
     int32_t q_x, int32_t q_y, int32_t q_o,
     int32_t max_rel) {
     int8_t *p_emb_v_new;
-    
+
     for (int i = 0; i < n_q; i++) {
         if (0 - i >= -max_rel && n_k - i <= max_rel) {  //not overflow
             p_emb_v_new = p_weight_emb_v + ((0 - i) + max_rel)*dim_head;
@@ -233,12 +233,12 @@ static int32_t luna_self_attention_int_trans(int8_t *p_input, //(n,c)
     int8_t *p_weight_out, int32_t *p_bias_out,//(dim_out,dim_head) @psram
     int8_t *p_output, int8_t *p_temp,
     uint32_t dim_in, uint32_t dim_out, uint32_t headers, uint32_t dim_head, uint32_t n,
-    int32_t scale /* Q15 */, 
+    int32_t scale /* Q15 */,
     int32_t q_input, int32_t q_weight_q, int32_t q_weight_k, int32_t q_weight_v,
     int32_t q_output_q, int32_t q_output_k, int32_t q_output_v,
     int32_t q_output_bmm0,
     int32_t q_weight_scale, int32_t q_output_scale,
-    int32_t q_output_softmax, 
+    int32_t q_output_softmax,
     int32_t q_output_bmm1,
     int32_t q_weight_o, int32_t q_output,
     int8_t *p_weight_emb_k, int8_t *p_weight_emb_v,  // (2*max_rel+1,dim_head), (2*max_rel+1,dim_head) @share
@@ -248,23 +248,23 @@ static int32_t luna_self_attention_int_trans(int8_t *p_input, //(n,c)
     int32_t q_x_add2, int32_t q_y_add2, int32_t q_o_add2,
     const int32_t max_rel) // rel_val_add
 {
-    uint32_t n_q = n; 
+    uint32_t n_q = n;
     uint32_t n_k = n;
 
     // Allocate temporary buffers
     int8_t *p_input_T = (int8_t *)(p_temp); p_temp += n_q*dim_in*sizeof(int8_t);
     int8_t *p_q = (int8_t *)(p_temp); p_temp += headers*dim_head*n_q*sizeof(int8_t);
-    int8_t *p_k = (int8_t *)(p_temp); p_temp += headers*dim_head*n_k*sizeof(int8_t); 
-    int8_t *p_dots = (int8_t *)(p_temp); p_temp += headers*n_q*n_k*sizeof(int8_t);  
-    
+    int8_t *p_k = (int8_t *)(p_temp); p_temp += headers*dim_head*n_k*sizeof(int8_t);
+    int8_t *p_dots = (int8_t *)(p_temp); p_temp += headers*n_q*n_k*sizeof(int8_t);
+
     // Reuse buffers for efficiency
     int8_t *p_q_emb = p_k;
-    int8_t *p_emb_k = (int8_t *)(p_temp); p_temp += n_k*dim_head*sizeof(int8_t); 
+    int8_t *p_emb_k = (int8_t *)(p_temp); p_temp += n_k*dim_head*sizeof(int8_t);
     int8_t *p_v = p_k;
-    int8_t *p_out = p_q;  
+    int8_t *p_out = p_q;
     int8_t *p_emb_v = p_emb_k;
     int8_t *p_out_emb = p_k;
-    int8_t *p_out2 = p_input_T; 
+    int8_t *p_out2 = p_input_T;
 
     // Allocate softmax buffer
     int32_t *p_softmax = (int32_t *)p_temp;
@@ -280,7 +280,7 @@ static int32_t luna_self_attention_int_trans(int8_t *p_input, //(n,c)
     THINKER_RET_CHECK(luna_split_mat_trans_i8o8(p_input, p_input_T, n_q, dim_in), "luna_split_mat_trans_i8o8"); // Transpose input
     THINKER_RET_CHECK(luna_split_mat_mul_bias_i8i8i32o8(p_weight_q, p_input_T, p_bias_q, p_q, headers*dim_head, dim_in, n_q, q_input + q_weight_q - q_output_q), "luna_split_mat_mul_bias_i8i8i32o8");
     THINKER_RET_CHECK(luna_split_mat_mul_bias_i8i8i32o8(p_weight_k, p_input_T, p_bias_k, p_k, headers*dim_head, dim_in, n_k, q_input + q_weight_k - q_output_k), "luna_split_mat_mul_bias_i8i8i32o8");
-    
+
     // Step 2: Scale queries
     THINKER_RET_CHECK(luna_scale_i8i8o8(p_q, (int8_t)scale, p_q, headers*dim_head * n_q, q_output_q+q_weight_scale-q_output_scale), "luna_scale_i8i8o8");
 
@@ -296,10 +296,10 @@ static int32_t luna_self_attention_int_trans(int8_t *p_input, //(n,c)
     shape[0] = headers, shape[1] = n_q, shape[2] = dim_head;
     axis[0] = 1, axis[1] = 2, axis[2] = 0;
     THINKER_RET_CHECK(luna_trans_axis_i8o8(p_q, p_q_emb, shape, axis, 3), "luna_trans_axis_i8o8");
-    
+
     THINKER_RET_CHECK(luna_bmm_rel_key_int8(p_weight_emb_k, p_emb_k, p_q_emb, p_dots_emb, n_q, n_k, dim_head, headers, q_x_bmm2, q_y_bmm2, q_o_bmm2, max_rel), "luna_bmm_rel_key_int8");
     THINKER_RET_CHECK(luna_split_mat_trans_i8o8(p_dots_emb, p_dots_emb_T, n_q*n_k, headers), "luna_split_mat_trans_i8o8");
-    
+
     THINKER_RET_CHECK(luna_add_int8(p_dots, p_dots_emb_T, p_dots, 0, headers*n_q*n_k, q_x_add1, q_y_add1, q_o_add1), "luna_add_int8");
 
     // Step 6: Apply softmax
@@ -309,7 +309,7 @@ static int32_t luna_self_attention_int_trans(int8_t *p_input, //(n,c)
 
     // Step 7: Compute values using attention weights
     THINKER_RET_CHECK(luna_split_mat_mul_bias_i8i8i32o8(p_weight_v, p_input_T, p_bias_v, p_v, headers*dim_head, dim_in, n_k, q_input + q_weight_v - q_output_v), "luna_split_mat_mul_bias_i8i8i32o8");
-    
+
     for (uint32_t i = 0; i < headers; i++){
         int8_t *p_v_h = p_v + i*dim_head*n_k;
         int8_t *p_dots_h = p_dots + i*n_k*n_q;
@@ -323,10 +323,10 @@ static int32_t luna_self_attention_int_trans(int8_t *p_input, //(n,c)
     shape[0] = headers, shape[1] = n_q, shape[2] = n_k;
     axis[0] = 1, axis[1] = 0, axis[2] = 2;
     THINKER_RET_CHECK(luna_trans_axis_i8o8(p_dots, p_dots_emb_T, shape, axis, 3), "luna_trans_axis_i8o8");
-    
+
     THINKER_RET_CHECK(luna_bmm_rel_value_int8(p_dots_emb_T, p_weight_emb_v, p_emb_v, p_out_emb, n_q, headers, n_k, dim_head, q_x_bmm3, q_y_bmm3, q_o_bmm3, max_rel), "luna_bmm_rel_value_int8");
     THINKER_RET_CHECK(luna_split_mat_trans_i8o8(p_out_emb, p_out_emb_T, n_q, headers*dim_head), "luna_split_mat_trans_i8o8");
-    
+
     THINKER_RET_CHECK(luna_add_int8(p_out, p_out_emb_T, p_out, 0, n_q*headers*dim_head, q_x_add2, q_y_add2, q_o_add2), "luna_add_int8");
 
     // Step 9: Final projection
@@ -354,9 +354,9 @@ static int32_t luna_self_attention_int_trans(int8_t *p_input, //(n,c)
  * @param attrs Attention attributes
  * @return Operation status
  */
-int32_t multiheadattention_luna(tTensor *X, tTensor *W_q, tTensor *Bias_q, tTensor *W_k, tTensor *Bias_k, 
+int32_t multiheadattention_luna(tTensor *X, tTensor *W_q, tTensor *Bias_q, tTensor *W_k, tTensor *Bias_k,
                                 tTensor *W_v, tTensor *Bias_v, tTensor *W_o, tTensor *Bias_o, tTensor *emb_pos_qk,
-                                tTensor *emb_pos_qkv, tTensor *Y, tTensor *workspace, MultiheadAttentionAttrs *attrs) 
+                                tTensor *emb_pos_qkv, tTensor *Y, tTensor *workspace, MultiheadAttentionAttrs *attrs)
 {
     // Extract tensor pointers
     int8_t *p_input       = (int8_t *)X->dptr_;
@@ -388,7 +388,7 @@ int32_t multiheadattention_luna(tTensor *X, tTensor *W_q, tTensor *Bias_q, tTens
     uint32_t n_q          = n;
     uint32_t n_k          = n;
     uint32_t max_rel      = emb_pos_qk->shape_.dims_[0] / 2;
-    
+
     // Extract scales
     int32_t scale         = attrs->iqmul_scalar;
     int32_t q_input       = X->scale_;

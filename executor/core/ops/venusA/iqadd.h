@@ -13,6 +13,19 @@
 #endif
 #include "thinker_status.h"
 
+static int32_t iqadd_check_scale_shift(int32_t shift, int32_t dtype) {
+    if (shift > 63) {
+        return T_ERR_INVALID_PARA;
+    }
+    if (shift < 0) {
+        int32_t max_lshift = (dtype == Int8) ? 6 : ((dtype == Int16) ? 14 : 30);
+        if ((-shift) > max_lshift) {
+            return T_ERR_INVALID_PARA;
+        }
+    }
+    return T_SUCCESS;
+}
+
 /**
  * @brief Quantized tensor addition operation
  * @param X1 Input tensor 1
@@ -22,13 +35,18 @@
  * @return int32_t Operation status
  */
 int32_t iqadd_luna(tTensor *X1, tTensor *X2, tTensor *Temp, tTensor *Y) {
-    // Check if tensors have the same shape and data type
-    if (!equalShape(&X1->shape_, &X2->shape_) || 
-        X1->dtype_ != X2->dtype_ || 
-        X1->dtype_ != Y->dtype_)
-    {
-        return T_ERR_INVALID_DATATYPE;
+    #if THINKER_PARAM_CHECK
+    if (X1 == NULL || X2 == NULL || Y == NULL ||
+                        X1->dptr_ == 0 || X2->dptr_ == 0 || Y->dptr_ == 0) {
+        return (T_ERR_INVALID_PARA);
     }
+
+if (!equalShape(&X1->shape_, &X2->shape_) ||
+        X1->dtype_ != X2->dtype_ ||
+        X1->dtype_ != Y->dtype_) {
+    return (T_ERR_INVALID_DATATYPE);
+}
+#endif
 
     // Get tensor size and data pointers
     void *src1 = (void *)X1->dptr_;
@@ -40,10 +58,33 @@ int32_t iqadd_luna(tTensor *X1, tTensor *X2, tTensor *Temp, tTensor *Y) {
     bool x1_in_psram = (X1->mem_.type_ != 2);
     bool x2_in_psram = (X2->mem_.type_ != 2);
     bool y_in_psram = (Y->mem_.type_ != 2);
+    #if THINKER_PARAM_CHECK
+    if ((X1->mem_.type_ != 1 && X1->mem_.type_ != 2) ||
+                        (X2->mem_.type_ != 1 && X2->mem_.type_ != 2) ||
+                        (Y->mem_.type_ != 1 && Y->mem_.type_ != 2)) {
+        return (T_ERR_NO_SUPPORT_OP);
+    }
+#endif
+    if ((x1_in_psram || x2_in_psram || y_in_psram) &&
+        (Temp == NULL || Temp->dptr_ == 0 || Temp->shape_.dims_[0] == 0 ||
+         Temp->mem_.type_ != 2 || Temp->dtype_ != Int8 || Temp->byte_ != 1 ||
+         ((uintptr_t)Temp->dptr_ & 3U) != 0)) {
+        return T_ERR_NO_WORKSPACE;
+    }
 
     // Calculate shifts
     int32_t shift1 = (int32_t)X1->scale_ - (int32_t)Y->scale_;
     int32_t shift2 = (int32_t)X2->scale_ - (int32_t)Y->scale_;
+    int32_t check_ret = T_SUCCESS;
+    #if THINKER_PARAM_CHECK
+    if ((check_ret = iqadd_check_scale_shift(shift1, X1->dtype_)) != T_SUCCESS) {
+        return (check_ret);
+    }
+
+    if ((check_ret = iqadd_check_scale_shift(shift2, X1->dtype_)) != T_SUCCESS) {
+        return (check_ret);
+    }
+#endif
 
     int32_t past_size = 0;
     switch (X1->dtype_)
@@ -53,8 +94,8 @@ int32_t iqadd_luna(tTensor *X1, tTensor *X2, tTensor *Temp, tTensor *Y) {
             int32_t workspace_size = Temp ? Temp->shape_.dims_[0] : 0;
             int8_t *workspace = Temp ? (int8_t *)Temp->dptr_ : NULL;
             int8_t *dst_temp = y_in_psram ? workspace : (int8_t *)dst;
-            if ((x1_in_psram == x2_in_psram) && (shift1 == 0) && (shift2 == 0))
-            {   
+            if (!x1_in_psram && !x2_in_psram && (shift1 == 0) && (shift2 == 0))
+            {
                 if (!y_in_psram) {
                     THINKER_RET_CHECK(API_LIB(add_i8i8o8)((const int8_t *)src1, (int8_t *)src2, (int8_t *)dst_temp, total_size, 0), "luna_add_i8i8o8");
                 }
@@ -63,7 +104,7 @@ int32_t iqadd_luna(tTensor *X1, tTensor *X2, tTensor *Temp, tTensor *Y) {
                         int32_t remain_size = total_size - past_size;
                         int32_t cur_size = workspace_size < remain_size ? workspace_size : remain_size;
                         THINKER_RET_CHECK(API_LIB(add_i8i8o8)((const int8_t *)src1 + past_size, (int8_t *)src2 + past_size, (int8_t *)dst_temp, cur_size, 0), "luna_add_i8i8o8");
-                        opi_psram_cpy_out((void *)dst + past_size, dst_temp, cur_size * sizeof(int8_t));
+                        opi_psram_cpy_out((uint8_t *)dst + past_size * sizeof(int8_t), dst_temp, cur_size * sizeof(int8_t));
                         past_size += cur_size;
                     }
                 }
@@ -87,7 +128,7 @@ int32_t iqadd_luna(tTensor *X1, tTensor *X2, tTensor *Temp, tTensor *Y) {
 
                         int8_t *src2_temp = (int8_t *)src2 + past_size;
                         THINKER_RET_CHECK(API_LIB(add_i8i8o8)((int8_t *)src1_temp, (int8_t *)src2_temp, (int8_t *)dst_temp, cur_size, 0), "luna_add_i8i8o8");
-                        opi_psram_cpy_out((void *)dst + past_size, dst_temp, cur_size * sizeof(int8_t));
+                        opi_psram_cpy_out((uint8_t *)dst + past_size * sizeof(int8_t), dst_temp, cur_size * sizeof(int8_t));
                         past_size += cur_size;
                     }
                 }
@@ -113,7 +154,7 @@ int32_t iqadd_luna(tTensor *X1, tTensor *X2, tTensor *Temp, tTensor *Y) {
                         uint32_t shift1_1 = shift1 < 0 ? 0 : shift1;
                         THINKER_RET_CHECK(API_LIB(scale_i8i8o8)((int8_t *)src2 + past_size, shift2_0, (int8_t *)src2_temp, cur_size, shift2_1), "luna_scale_i8i8o8");
                         THINKER_RET_CHECK(API_LIB(add_i8i8o8)((int8_t *)src1_temp, (int8_t *)src2_temp, (int8_t *)dst_temp, cur_size, 0), "luna_add_i8i8o8");
-                        opi_psram_cpy_out((void *)dst + past_size, dst_temp, cur_size * sizeof(int8_t));
+                        opi_psram_cpy_out((uint8_t *)dst + past_size * sizeof(int8_t), dst_temp, cur_size * sizeof(int8_t));
                         past_size += cur_size;
                     }
                 }
@@ -136,7 +177,7 @@ int32_t iqadd_luna(tTensor *X1, tTensor *X2, tTensor *Temp, tTensor *Y) {
                     THINKER_RET_CHECK(API_LIB(scale_i8i8o8)((int8_t *)src2 + past_size, shift2_0, (int8_t *)src2_temp, cur_size, shift2_1), "luna_scale_i8i8o8");
                     THINKER_RET_CHECK(API_LIB(add_i8i8o8)((int8_t *)src1_temp, (int8_t *)src2_temp, (int8_t *)dst_temp, cur_size, 0), "luna_add_i8i8o8");
                     if (y_in_psram)
-                        opi_psram_cpy_out((void *)dst + past_size, dst_temp, cur_size * sizeof(int8_t));
+                        opi_psram_cpy_out((uint8_t *)dst + past_size * sizeof(int8_t), dst_temp, cur_size * sizeof(int8_t));
                     past_size += cur_size;
                 }
             }
@@ -148,7 +189,7 @@ int32_t iqadd_luna(tTensor *X1, tTensor *X2, tTensor *Temp, tTensor *Y) {
             int32_t workspace_size = Temp ? Temp->shape_.dims_[0] >> 1 : 0;
             int16_t *workspace = Temp ? (int16_t *)Temp->dptr_ : NULL;
             int16_t *dst_temp = y_in_psram ? workspace : (int16_t *)dst;
-            if ((x1_in_psram == x2_in_psram) && (shift1 == 0) && (shift2 == 0))
+            if (!x1_in_psram && !x2_in_psram && (shift1 == 0) && (shift2 == 0))
             {
                 THINKER_RET_CHECK(API_LIB(add_i16i16o16)((const int16_t *)src1, (int16_t *)src2, (int16_t *)dst, total_size, 0), "luna_add_i16i16o16");
             }
@@ -172,7 +213,7 @@ int32_t iqadd_luna(tTensor *X1, tTensor *X2, tTensor *Temp, tTensor *Y) {
 
                         int16_t *src2_temp = (int16_t *)src2 + past_size;
                         THINKER_RET_CHECK(API_LIB(add_i16i16o16)((int16_t *)src1_temp, (int16_t *)src2_temp, (int16_t *)dst_temp, cur_size, 0), "luna_add_i16i16o16");
-                        opi_psram_cpy_out((void *)dst + past_size, dst_temp, cur_size * sizeof(int16_t));
+                        opi_psram_cpy_out((uint8_t *)dst + past_size * sizeof(int16_t), dst_temp, cur_size * sizeof(int16_t));
                         past_size += cur_size;
                     }
                 }
@@ -196,7 +237,7 @@ int32_t iqadd_luna(tTensor *X1, tTensor *X2, tTensor *Temp, tTensor *Y) {
                         int16_t *src2_temp = dst_temp;
                         THINKER_RET_CHECK(API_LIB(scale_i16i16o16)((int16_t *)src2 + past_size, shift2_0, (int16_t *)src2_temp, cur_size, shift2_1), "luna_scale_i16i16o16");
                         THINKER_RET_CHECK(API_LIB(add_i16i16o16)((int16_t *)src1_temp, (int16_t *)src2_temp, (int16_t *)dst_temp, cur_size, 0), "luna_add_i16i16o16");
-                        opi_psram_cpy_out((void *)dst + past_size, dst_temp, cur_size * sizeof(int16_t));
+                        opi_psram_cpy_out((uint8_t *)dst + past_size * sizeof(int16_t), dst_temp, cur_size * sizeof(int16_t));
                         past_size += cur_size;
                     }
                 }
@@ -219,7 +260,7 @@ int32_t iqadd_luna(tTensor *X1, tTensor *X2, tTensor *Temp, tTensor *Y) {
                     THINKER_RET_CHECK(API_LIB(scale_i16i16o16)((int16_t *)src2 + past_size, shift2_0, (int16_t *)src2_temp, cur_size, shift2_1), "luna_scale_i16i16o16");
                     THINKER_RET_CHECK(API_LIB(add_i16i16o16)((int16_t *)src1_temp, (int16_t *)src2_temp, (int16_t *)dst_temp, cur_size, 0), "luna_add_i16i16o16");
                     if (y_in_psram)
-                        opi_psram_cpy_out((void *)dst + past_size, dst_temp, cur_size * sizeof(int16_t));
+                        opi_psram_cpy_out((uint8_t *)dst + past_size * sizeof(int16_t), dst_temp, cur_size * sizeof(int16_t));
                     past_size += cur_size;
                 }
             }
@@ -231,7 +272,7 @@ int32_t iqadd_luna(tTensor *X1, tTensor *X2, tTensor *Temp, tTensor *Y) {
             int32_t workspace_size = Temp ? Temp->shape_.dims_[0] >> 2 : 0;
             int32_t *workspace = Temp ? (int32_t *)Temp->dptr_ : NULL;
             int32_t *dst_temp = y_in_psram ? workspace : (int32_t *)dst;
-            if ((x1_in_psram == x2_in_psram) && (shift1 == 0) && (shift2 == 0))
+            if (!x1_in_psram && !x2_in_psram && (shift1 == 0) && (shift2 == 0))
             {
                 THINKER_RET_CHECK(API_LIB(add_i32i32o32)((const int32_t *)src1, (int32_t *)src2, (int32_t *)dst, total_size, 0), "luna_add_i32i32o32");
             }
@@ -255,7 +296,7 @@ int32_t iqadd_luna(tTensor *X1, tTensor *X2, tTensor *Temp, tTensor *Y) {
 
                         int32_t *src2_temp = (int32_t *)src2 + past_size;
                         THINKER_RET_CHECK(API_LIB(add_i32i32o32)((int32_t *)src1_temp, (int32_t *)src2_temp, (int32_t *)dst_temp, cur_size, 0), "luna_add_i32i32o32");
-                        opi_psram_cpy_out((void *)dst + past_size, dst_temp, cur_size * sizeof(int32_t));
+                        opi_psram_cpy_out((uint8_t *)dst + past_size * sizeof(int32_t), dst_temp, cur_size * sizeof(int32_t));
                         past_size += cur_size;
                     }
                 }
@@ -279,7 +320,7 @@ int32_t iqadd_luna(tTensor *X1, tTensor *X2, tTensor *Temp, tTensor *Y) {
                         int32_t *src2_temp = dst_temp;
                         THINKER_RET_CHECK(API_LIB(scale_i32i32o32)((int32_t *)src2 + past_size, shift2_0, (int32_t *)src2_temp, cur_size, shift2_1), "luna_scale_i32i32o32");
                         THINKER_RET_CHECK(API_LIB(add_i32i32o32)((int32_t *)src1_temp, (int32_t *)src2_temp, (int32_t *)dst_temp, cur_size, 0), "luna_add_i32i32o32");
-                        opi_psram_cpy_out((void *)dst + past_size, dst_temp, cur_size * sizeof(int32_t));
+                        opi_psram_cpy_out((uint8_t *)dst + past_size * sizeof(int32_t), dst_temp, cur_size * sizeof(int32_t));
                         past_size += cur_size;
                     }
                 }
@@ -302,7 +343,7 @@ int32_t iqadd_luna(tTensor *X1, tTensor *X2, tTensor *Temp, tTensor *Y) {
                     THINKER_RET_CHECK(API_LIB(scale_i32i32o32)((int32_t *)src2 + past_size, shift2_0, (int32_t *)src2_temp, cur_size, shift2_1), "luna_scale_i32i32o32");
                     THINKER_RET_CHECK(API_LIB(add_i32i32o32)((int32_t *)src1_temp, (int32_t *)src2_temp, (int32_t *)dst_temp, cur_size, 0), "luna_add_i32i32o32");
                     if (y_in_psram)
-                        opi_psram_cpy_out((void *)dst + past_size, dst_temp, cur_size * sizeof(int32_t));
+                        opi_psram_cpy_out((uint8_t *)dst + past_size * sizeof(int32_t), dst_temp, cur_size * sizeof(int32_t));
                     past_size += cur_size;
                 }
             }

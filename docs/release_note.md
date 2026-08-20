@@ -2,6 +2,18 @@
 
 本文档按版本倒序记录 Thinker 的主要功能更新、工具链变化与文档调整。
 
+## Unreleased · 2026-08-20
+
+- 新增 MOSS 模型适配能力：增加 MOSS 运行时头文件、C API 适配层、资源打包工具和按模型生成 host 代码的构建配置，支持将 MOSS 模型编译进 Thinker x86 仿真库。
+- 统一三平台构建入口：CMake、Linux / Windows 构建脚本和编译文档支持通过 `THINKER_TARGET_PLATFORM` 切换 Venus、Arcs、VenusA，并增加 `THINKER_PARAM_CHECK` 与 `THINKER_RUNTIME_CHECK` 独立检查开关。
+- 重构执行器参数与运行时校验：将检查逻辑改为传统条件编译方式，支持按文件合并参数检查主体；完善指针、shape、dtype、workspace、内存位置和运行时资源校验，并修复检查关闭时的条件编译、控制流和默认分支问题。
+- 优化 Venus、Arcs、VenusA 算子实现：更新 `ArgMax`、`AvgPool2dInt`、`BatchNorm1dInt`、`BatchNorm2dInt`、`BmmInt`、`Concat`、`Conv1dInt`、`Conv2dInt`、`ConvTranspose2dInt`、`Dequant`、`Expand`、`Gelu`、`GLUInt`、`GRUInt`、`Gather`、`LayerNormInt`、`LinearInt`、`LstmInt`、`Pool`、`Requant`、`Slice`、`SoftmaxInt`、`Split`、`Swish`、`Tile`、`TopN`、`Transpose` 及 IQ 系列算子，补充多平台数据类型、量化、workspace、PSRAM 和分块处理路径。
+- 优化 Venus 二维转置退化路径：当二维矩阵任一维度为 1 时直接使用 `luna_memcpy`，避免调用矩阵转置接口；同步修复 `luna_memcpy` 的源地址 `const` 类型声明和相关地址转换。
+- 完善参数检查基础设施：`CHECK_EQ`、`CHECK_GE` 等检查宏受 `THINKER_PARAM_CHECK` 控制并采用安全的 `do { ... } while (0)` 形式；修复 Venus `iqPad` padding 参数初始化及多个平台算子检查边界问题。
+- 更新 tpacker / tvalidator：扩展三平台算子图分析、量化参数和 workspace 推导，增加平台工具映射、MOSS 相关资源处理，并增强模型导出、验证和运行参数配置。
+- 更新 Venus、Arcs、VenusA 芯片侧和 Linux 仿真依赖库，补充 MOSS、NNBLAS、Luna 运行库及相关平台驱动资源。
+- 更新编译、打包、量化算子支持和工具链文档，补充平台切换、检查开关、MOSS 模型编译及资源目录配置说明。
+
 ## v3.0.14 · 2026-08-08
 
 - 版本升级至 `3.0.14`，同步 C API、Python 包和多平台 Thinker 静态库版本。

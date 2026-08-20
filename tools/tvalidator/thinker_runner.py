@@ -147,7 +147,7 @@ class ThinkerRunner:
         
         return True
 
-    def run(self, input_list):
+    def run(self, input_list, alternate_input_list=None):
         # import pdb; pdb.set_trace()
         T_SUCCESS = 0
 
@@ -234,7 +234,6 @@ class ThinkerRunner:
         f"Input mismatch: Model needs {input_count} inputs, but {len(input_list)} were provided."
 
         self._input_info_list = []
-        self._input_array_list = []
         for i in range(input_count):
             input_array = np.ascontiguousarray(input_list[i])
             
@@ -242,6 +241,27 @@ class ThinkerRunner:
             ret = self.lib.tGetInputInfo(hdl, i, ct.byref(input_info))
             if ret != T_SUCCESS:
                 raise RuntimeError(f"tGetInputInfo failed for input {i}: {ret}")
+
+            expected_dtype = DTYPE_TO_NP.get(input_info.dtype_)
+            if expected_dtype is None:
+                raise RuntimeError(f"Unsupported model input dtype: {input_info.dtype_}")
+            if input_array.dtype != np.dtype(expected_dtype):
+                if alternate_input_list is None:
+                    raise TypeError(
+                        f"Input {i} dtype {input_array.dtype} does not match model dtype "
+                        f"{np.dtype(expected_dtype)}"
+                    )
+                alternate = alternate_input_list[i]
+                if hasattr(alternate, "detach"):
+                    alternate = alternate.detach().cpu().numpy()
+                alternate = np.ascontiguousarray(alternate)
+                if alternate.dtype != np.dtype(expected_dtype):
+                    raise TypeError(
+                        f"Neither input representation matches model input {i} dtype "
+                        f"{np.dtype(expected_dtype)}"
+                    )
+                input_array = alternate
+                print(f"    ->-> Selected {input_array.dtype} representation for input {i}.")
             
             if self.dynamic_shape:
                 for j in range(len(input_array.shape)):
@@ -254,7 +274,6 @@ class ThinkerRunner:
                 raise RuntimeError(f"tSetInput failed for input {i}: {ret}")
                 
             self._input_info_list.append(input_info) # keep lifetime of input_info
-            self._input_array_list.append(input_array)
         print("    ->-> All inputs set successfully.")
 
         if self.dynamic_shape:

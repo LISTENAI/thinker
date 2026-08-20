@@ -3,19 +3,19 @@ from .device_info import Device
 # 定义VENUS平台配置
 VENUS_CONFIG = {
     "name": "VENUS",
-    "sram_size": 640 * 1024,  # 1024 KB
+    "sram_size": 640 * 1024,  # 640 KB
     "psram_size": 8192 * 1024,  # 8192 KB
     "dma_support": True,
     "supported_operators": [
         "ArgMax", "Conv1dInt", "Conv2dInt", "ConvTranspose2dInt",
-        "Relu", "Prelu", "Clip", "MaxPool", "AvgPool2dInt",
+        "Relu", "PRelu", "Clip", "MaxPool", "AvgPool2dInt",
         "LinearInt", "GRUInt", "LSTMInt", "BmmInt",
         "iqSigmoid", "iqTanh", "iqCat", "iqPad",
         "Transpose", "Reshape", "Squeeze", "Unsqueeze",
         "Flatten", "Slice", "iqSum", "iqSub", "iqAdd",
         "iqMul", "iqDiv", "Resize", "Gather",
-        "Quant", "Dequant", "SoftmaxInt", "ShuffleChannel",
-        "LogSoftmaxInt", "Split", "BatchNorm2dInt",
+        "Quant", "Dequant", "SoftmaxInt",
+        "LogSoftmaxInt", "Split", "BatchNorm1dInt", "BatchNorm2dInt",
         "ReduceMean", "Requant", "LayerNormInt",
         "iqVar", "Cast", "Expand", "Tile",
         "topN", "topN2", "LogSoftmax", "Shape",

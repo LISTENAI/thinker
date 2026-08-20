@@ -59,6 +59,9 @@ class OperatorAttrs:
         """Get attribute value with default if key not found."""
         return self.attrs.get(key, default)
 
+    def __contains__(self, key):
+        return key in self.attrs
+
 
 class Operator(BaseLayout):
     """Base class for all operators."""
@@ -131,6 +134,12 @@ class Operator(BaseLayout):
                     self.attrs['pads'] = (pads[1], pads[0])
                 elif len(pads) == 4:
                     self.attrs['pads'] = (pads[1], pads[0], pads[3], pads[2])
+                if op_type == 'ConvTranspose2dInt' and 'output_padding' in self.attrs:
+                    output_padding = tuple(self.attrs['output_padding'])
+                    if len(output_padding) >= 2:
+                        self.attrs['output_padding'] = (
+                            output_padding[1], output_padding[0], *output_padding[2:]
+                        )
         elif op_type in {"MaxPool", "MeanPool"}:
             pads = tuple(self.attrs['pads'])
             strides = tuple(self.attrs['strides'])

@@ -26,6 +26,11 @@ class ShuffleChannel(Operator):
         assert len(inputs) == 1, "ShuffleChannel expects exactly one input"
         X = inputs[0]
         assert len(X.shape) == 4, "Input tensor must be 4-dimensional (NCHW)"
+        axis = self.attrs["axis"]
+        groups = self.attrs["groups"]
+        assert axis in (1, 3), "ShuffleChannel only supports axis 1 (NCHW) or 3 (NHWC)"
+        assert isinstance(groups, int) and groups > 0, "ShuffleChannel groups must be positive"
+        assert X.shape[axis] % groups == 0, "ShuffleChannel groups must divide the channel dimension"
         
         # Create output tensor with same properties as input
         Y = Tensor.clone(X, scale=X.scale)

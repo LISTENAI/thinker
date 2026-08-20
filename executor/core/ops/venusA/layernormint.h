@@ -179,15 +179,36 @@ static const int16_t calc_sqrt_reciprocal(const int64_t data, int32_t q_x, int32
  * @return int32_t Operation status
  */
 int32_t layernormalint_venus(const tTensor *X, const tTensor *W, const tTensor *Bias, tTensor *Y, tTensor *workspace, LayerNormIntAttrs *attrs) {
-  if (X == NULL || W == NULL || Bias == NULL || Y == NULL || workspace == NULL) {
-    return T_ERR_INVALID_PARA;
+  if (X == NULL || W == NULL || Bias == NULL || Y == NULL || workspace == NULL ||
+      attrs == NULL || X->dptr_ == 0 || W->dptr_ == 0 || Bias->dptr_ == 0 ||
+      Y->dptr_ == 0 || workspace->dptr_ == 0) return T_ERR_INVALID_PARA;
+  #if THINKER_PARAM_CHECK
+  if (X->dtype_ != Int8 || W->dtype_ != Int8 ||
+                      Bias->dtype_ != Int32 ||
+                      (Y->dtype_ != Int8 && Y->dtype_ != Int16 && Y->dtype_ != Int32)) {
+      return (T_ERR_INVALID_DATATYPE);
   }
-  if (X->dtype_ != Int8 || W->dtype_ != Int8 || Bias->dtype_ != Int32 ||
-      (Y->dtype_ != Int8 && Y->dtype_ != Int16)) {
-    return T_ERR_INVALID_DATATYPE;
-  }
+#endif
   int32_t n_dims = X->shape_.ndim_;
+  #if THINKER_PARAM_CHECK
+  if (n_dims < 3 || !equalShape(&X->shape_, &Y->shape_)) {
+      return (T_ERR_INVALID_DATA);
+  }
+#endif
   int32_t size = getTensorSize(W);
+  #if THINKER_PARAM_CHECK
+  if (size <= 0 || size > 32767 ||
+                      getTensorSize(Bias) != size) {
+      return (T_ERR_INVALID_PARA);
+  }
+#endif
+  for (int32_t i = 0; i < n_dims - 3; ++i) {
+    #if THINKER_PARAM_CHECK
+    if (X->shape_.dims_[i] != 1) {
+        return (T_ERR_INVALID_DATA);
+    }
+#endif
+  }
   int32_t leading = 1;
   int32_t T = 1;
   if (size == X->shape_.dims_[n_dims - 1]) 
@@ -200,6 +221,13 @@ int32_t layernormalint_venus(const tTensor *X, const tTensor *W, const tTensor *
     T = X->shape_.dims_[n_dims - 1] * X->shape_.dims_[n_dims - 2];
     leading = X->shape_.dims_[n_dims - 3];
   }
+  else {
+#if THINKER_PARAM_CHECK
+if (1) {
+    return (T_ERR_INVALID_PARA);
+}
+#endif
+  }
 
     int32_t input_size  = leading * T;
     // float eps = attrs->eps;
@@ -207,7 +235,7 @@ int32_t layernormalint_venus(const tTensor *X, const tTensor *W, const tTensor *
 	int32_t *p_beta     = (int32_t *)Bias->dptr_;
     int8_t *p_src       = (int8_t *)X->dptr_;
     int8_t *p_gamma     = (int8_t *)W->dptr_;
-    int8_t *p_dst       = (int8_t *)Y->dptr_;
+    uint8_t *p_dst       = (uint8_t *)Y->dptr_;
     int8_t *p_tmp       = (int8_t *)workspace->dptr_;
 
 	int32_t q_normal    = 15;
@@ -216,6 +244,21 @@ int32_t layernormalint_venus(const tTensor *X, const tTensor *W, const tTensor *
 	int32_t q_beta      = (int32_t)Bias->scale_;
 	int32_t q_y         = (int32_t)Y->scale_;
 	int32_t shift       = q_normal + q_gamma - q_y;
+#if THINKER_PARAM_CHECK
+if (shift < 0 || shift > 63 || q_x < 0 || q_x > 15) {
+    return (T_ERR_INVALID_PARA);
+}
+#endif
+    size_t required_workspace = ALIGN2(T) * sizeof(int16_t) + 4 +
+                                (size_t)T * sizeof(int32_t) * 2;
+    #if THINKER_RUNTIME_CHECK
+    if (X->mem_.type_ != 2 || Y->mem_.type_ != 2 ||
+                          workspace->mem_.type_ != 2 ||
+                          workspace->shape_.ndim_ != 1 ||
+                          getTensorDataSize(workspace) < required_workspace) {
+        return (T_ERR_NO_WORKSPACE);
+    }
+#endif
 
     int16_t *p_src2_int16= (int16_t *)p_tmp;
 	int32_t *p_src2     = (int32_t *)(p_tmp + ALIGN2(T) * sizeof(int16_t)); // T * sizeof(int32_t)
@@ -228,18 +271,16 @@ int32_t layernormalint_venus(const tTensor *X, const tTensor *W, const tTensor *
 	int32_t *p_y1       = (int32_t *)(p_tmp  + T * sizeof(int32_t) + ALIGN2(T) * sizeof(int16_t) + 4);
 
 	int32_t *p_y2       = p_y1;
-    int32_t compute_workspace_size = ALIGN2(T) * sizeof(int16_t) + 4 +
-                                     T * sizeof(int32_t) * 2;
-    int8_t *p_output_tmp = p_tmp + compute_workspace_size;
 
-	int64_t q_eps = floor(eps * (1 << (q_x * 2)) * T * T + 0.5f);
+	int64_t eps_base = ((int64_t)T * (int64_t)T) << (q_x * 2);
+	int64_t q_eps = (eps_base + 50000) / 100000;
 
     for (int i = 0; i < leading; i++) {
         int8_t *p_src_once = p_src + i * T;
-        int8_t *p_dst_once = p_dst + i * T * Y->byte_;
+        uint8_t *p_dst_once = p_dst + i * T * Y->byte_;
 
-        if (Y->mem_.mem_type_ != 2) {
-            p_dst_once = p_output_tmp;
+        if (Y->mem_.type_ != 2) {
+            p_dst_once = (uint8_t *)p_tmp;
         }
         int32_t *sum_x = (int32_t *)p_tmp;
         int32_t *sum_x2 = (int32_t *)p_tmp + 1;
@@ -248,7 +289,8 @@ int32_t layernormalint_venus(const tTensor *X, const tTensor *W, const tTensor *
         THINKER_RET_CHECK(API_LIB(vector_sum_i32o32)(p_src2, sum_x2, T, 0), "luna_vector_sum_i32o32");          // sum(x^2)
         THINKER_RET_CHECK(API_LIB(vector_sum_i8o32)(p_src_once, sum_x, T, 0), "luna_vector_sum_i8o32");        // sum(x)
 
-        int64_t denominator = (int64_t)(T * sum_x2[0]) - (int64_t)(sum_x[0] * sum_x[0]); // N * sum(x^2) - (sum(x))^2
+        int64_t denominator = (int64_t)T * sum_x2[0] -
+                              (int64_t)sum_x[0] * sum_x[0];
         denominator = denominator + q_eps;
 
         int32_t label_shift = 0;
@@ -268,18 +310,20 @@ int32_t layernormalint_venus(const tTensor *X, const tTensor *W, const tTensor *
             convert_4bitto32bit(p_weight, p_gamma, T);
         THINKER_RET_CHECK(API_LIB(mul_i32i32o32)(p_y1, p_weight, p_y2, T, 0), "luna_mul_i32i32o32");
         int32_t *p_bias = (int32_t *)p_beta;
-        if (2 != W->mem_.type_){
+        if (2 != Bias->mem_.type_){
             p_bias = (int32_t *)p_tmp;
             THINKER_RET_CHECK(API_LIB(memcpy_i8o8)((int8_t *)p_bias, (int8_t *)p_beta, T * sizeof(int32_t)), "luna_memcpy_i8o8");
         }
 
         if (Y->dtype_ == Int8) {
-            THINKER_RET_CHECK(API_LIB(add_i32i32o8)(p_y2, p_bias, p_dst_once, T, shift), "luna_add_i32i32o8");
-        } else {
+            THINKER_RET_CHECK(API_LIB(add_i32i32o8)(p_y2, p_bias, (int8_t *)p_dst_once, T, shift), "luna_add_i32i32o8");
+        } else if (Y->dtype_ == Int16) {
             THINKER_RET_CHECK(API_LIB(add_i32i32o16)(p_y2, p_bias, (int16_t *)p_dst_once, T, shift), "luna_add_i32i32o16");
+        } else {
+            THINKER_RET_CHECK(API_LIB(add_i32i32o32)(p_y2, p_bias, (int32_t *)p_dst_once, T, shift), "luna_add_i32i32o32");
         }
 
-        if (Y->mem_.mem_type_ != 2) {
+        if (Y->mem_.type_ != 2) {
             opi_psram_cpy_out(p_dst + i * T * Y->byte_, p_dst_once, T * Y->byte_);
         }
     }

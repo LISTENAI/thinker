@@ -1,7 +1,7 @@
 from .utils.utils import *
 from ...xsympy import *
 from ...resource_packer._type._ctype import tffi
-from ...enum_defines import Layout, DevType
+from ...enum_defines import Layout, DevType, MemType
 from .base import Operator, OperatorAttrs, register_op
 
 def conv_int(value):
@@ -25,9 +25,19 @@ class Slice(Operator):
     def infer_tensor(self, dynamic_shape):
         """Infer output tensor shape based on input tensor and slicing parameters."""
         inputs = self.inputs
-        assert len(inputs) >= 3, "At least three inputs are required"
+        assert 3 <= len(inputs) <= 5, "Slice requires three to five inputs"
         X = inputs[0]
+        assert X.dtype.itemsize > 0 and float(X.bits) >= 1, \
+            "Slice only supports byte-addressable data types"
         shape = list(X.shape)
+
+        # VenusA consumes scalar begin/end/axis/step values, not vectors.
+        for parameter in inputs[1:]:
+            assert len(parameter.shape) == 1 and parameter.size == 1, \
+                "Slice parameters must be one-element tensors"
+            assert parameter.has_data(), "Slice parameters must be constant"
+            assert parameter.dtype in (np.dtype(np.int32), np.dtype(np.int64)), \
+                "Slice parameters must be int32 or int64"
 
         # Parse slicing parameters
         starts = conv_int(inputs[1].data[0])
@@ -41,17 +51,17 @@ class Slice(Operator):
         elif len(inputs) == 4:
             axes = conv_int(inputs[3].data[0])
 
-        assert axes < len(shape), "Axis out of bounds"
+        assert steps == 1, "Slice only supports step == 1"
+
+        assert -len(shape) <= axes < len(shape), "Axis out of bounds"
         axes = axes + len(shape) if axes < 0 else axes
 
         # Adjust starts and ends for negative values
         dim_size = shape[axes]
         if not is_sympy(starts):
-            starts = starts + dim_size if starts < 0 else starts
-            starts = max(0, min(starts, dim_size - 1)) if steps < 0 else max(0, min(starts, dim_size))
+            starts = max(0, min(starts + dim_size if starts < 0 else starts, dim_size))
         if not is_sympy(ends):
-            ends = ends + dim_size if ends < 0 else ends
-            ends = max(0, min(ends, dim_size)) if steps > 0 else max(0, min(ends, dim_size - 1))
+            ends = max(0, min(ends + dim_size if ends < 0 else ends, dim_size))
 
         # Calculate output shape
         if steps < 0:
@@ -62,10 +72,9 @@ class Slice(Operator):
         # Create output tensor
         Y = X.clone(shape=tuple(shape))
         if X.has_data() and not is_sympy(starts) and not is_sympy(ends):
-            if axes == 0:
-                Y.data = X.data[starts:ends:steps]
-            elif axes == 1:
-                Y.data = X.data[:, starts:ends:steps]
+            slices = [slice(None)] * len(shape)
+            slices[axes] = slice(starts, ends, steps)
+            Y.data = X.data[tuple(slices)]
 
         # Handle dynamic data
         if is_sympy(starts):

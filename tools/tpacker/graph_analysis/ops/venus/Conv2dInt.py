@@ -45,6 +45,7 @@ def get_Conv2dInt_workspace(
 
     if data.dtype == np.int8 and weight.dtype == np.int8:
         if dilations[0] > 1:
+            assert dilations[1] == 1 and group == 1, "Conv2dInt does not support this dilation type!"
             split_h_in = h_in - ((kernel_h - 1) * dilations[0] + 1) // dilations[0] + kernel_h
             split_h_ou = (split_h_in - kernel_h) // stride_h + 1
             split_input_condition = data_size_withouth * split_h_in
@@ -65,6 +66,7 @@ def get_Conv2dInt_workspace(
                     workspace_size = (c_in * h_in * w_in) * (data.mem_type != MemType.SHARE_MEM) + (c_ou * h_ou * w_ou * out.dtype.itemsize) *(out.mem_type != MemType.SHARE_MEM)
                 elif (data_size <= 65536) and (weight_size > 32768):
                     c_ou_max = 32768 // (ALIGN8(c_in) * kernel_h * kernel_w)
+                    assert c_ou_max >= 2, "Conv2dInt cannot split this weight!"
                     split_num = (c_ou + c_ou_max - 1) // c_ou_max
                     split_c_ou = (c_ou + 2 * split_num - 1) // split_num
                     out_size = split_c_ou * h_ou * w_ou * out.dtype.itemsize
@@ -77,14 +79,17 @@ def get_Conv2dInt_workspace(
                         split_h     = (h_ou * stride_h) // split_num + kernel_h - stride_h
                         if split_num > h_in or split_num > h_ou:
                             break
+                    assert split_num <= h_in and split_num <= h_ou and \
+                        split_h * data_size_withouth <= 65536 and h_ou % split_num == 0, \
+                        "Conv2dInt cannot split input height!"
                     # if h_in * w_in >= 65536:
                     workspace_size = max(c_in * split_h * w_in, c_ou * h_ou//split_num * w_ou * out.dtype.itemsize)
                 else:
-                    pass
+                    raise AssertionError("Conv2dInt input and weight exceed hardware capacity!")
             elif group == c_ou:
                 weight_size = ALIGN16(c_in) * kernel_h * kernel_w # depthwise conv
                 if (data_size <= 65536) and (weight_size <= 32768):
-                    workspace_size = c_in * h_in * w_in * (data.mem_type != MemType.SHARE_MEM) + c_ou * h_ou * w_ou * (out.mem_type != MemType.SHARE_MEM)
+                    workspace_size = c_in * h_in * w_in * (data.mem_type != MemType.SHARE_MEM) + c_ou * h_ou * w_ou * out.dtype.itemsize * (out.mem_type != MemType.SHARE_MEM)
                 elif (data_size > 65536) and (weight_size <= 32768):
                     split_num = 1
                     split_h_in = h_in
@@ -93,11 +98,16 @@ def get_Conv2dInt_workspace(
                         split_h_in = (h_ou * stride_h) // split_num + kernel_h - stride_h
                         if split_num > h_in or split_num > h_ou:
                             break
-                    workspace_size = c_in * split_h_in * w_in + c_ou * w_ou * h_ou
+                    assert split_num <= h_in and split_num <= h_ou and \
+                        split_h_in * data_size_withouth <= 65536 and h_ou % split_num == 0, \
+                        "Conv2dInt cannot split input height!"
+                    workspace_size = c_in * split_h_in * w_in + c_ou * w_ou * h_ou * out.dtype.itemsize
                 else:
                     raise AssertionError("Do not support this type!")
             else:
                 raise AssertionError("Do not support this type!")
+        else:
+            raise AssertionError("Conv2dInt does not support this dilation type!")
     elif data.dtype == np.int16 and weight.dtype == np.int16:
         assert dilations == (1, 1) and group == 1  and \
         data.mem_type == MemType.SHARE_MEM and out.mem_type == MemType.SHARE_MEM

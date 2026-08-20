@@ -144,11 +144,11 @@ int32_t tile_luna(tTensor *X, tTensor *xRepeat, tTensor *Y)
 {
   int32_t ndim = X->shape_.ndim_;
 
-  // Validate dimensions match
-  if (ndim != xRepeat->shape_.dims_[0]) 
-  {
-    return T_ERR_INVALID_DATA;
-  }
+#if THINKER_PARAM_CHECK
+if (ndim != xRepeat->shape_.dims_[0]) {
+    return (T_ERR_INVALID_DATA);
+}
+#endif
 
   const uint32_t *inShape = X->shape_.dims_;
   const uint32_t *outShape = Y->shape_.dims_;

@@ -47,7 +47,7 @@ int32_t nnblas_prelu_q31_int16(const q31_t *src, uint32_t slope, q15_t *dst, uin
 
 int32_t nnblas_prelu_q31_int32(const q31_t *src, uint32_t slope, q31_t *dst, uint32_t size, uint32_t post_shift);
 
-int32_t nnblas_memcpy(void* dst, void* src, int size);
+int32_t nnblas_memcpy(void *dst, const void *src, int size);
 
 int32_t nnblas_memset(void *dst, q7_t value, uint32_t size);
 

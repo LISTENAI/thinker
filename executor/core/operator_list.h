@@ -9,13 +9,13 @@
               func(Conv1dInt) func(iqVar) func(Relu) func(Transpose) func(     \
                   ConvTranspose2dInt) func(iqSub) func(Quant) func(LogSoftmax) \
                       func(Expand) func(iqSum) func(iqMul) func(GluInt) func(FFNInt)\
-                          func(SoftmaxInt) func(ShuffleChannel) func(Flatten)      \
+                          func(SoftmaxInt) func(Flatten)      \
                               func(LSTMInt) func(LogSoftmaxInt) func(Squeeze)      \
                                   func(Dequant) func(topN2) func(Cast) func(iqPad) \
                                       func(Gather) func(Requant) func(Slice)       \
                                           func(GRUInt) func(Shape) func(QSwish)    \
                                               func(BatchNorm2dInt) func(LinearInt) \
-                                                func(PRelu) func(Clip) func(ArgMax) \
+                                                 func(PRelu) func(Relux) func(Clip) func(ArgMax) \
                                                  func(Unsqueeze) func(SparifyFFNInt) \
                                                    func(MultiheadAttention) \
                                                     func(BatchNorm1dInt)

@@ -7,8 +7,10 @@
 import os
 import json
 import argparse
+import sys
 from typing import Dict, Optional, Tuple, List
 from .enum_defines import MemType, Colors, MemoryConfig, ModelConfig, DeviceConfig
+from .platform_utils import normalize_platform_name
 
 def parse_boolean(value: str) -> bool:
     """Parse a string to a boolean value."""
@@ -23,7 +25,7 @@ def parse_boolean(value: str) -> bool:
 
 def get_platform_list() -> List[str]:
     """获取所有支持的平台列表."""
-    return ['venus', 'mars', 'arcs', 'venusa', 'VENUS', 'MARS', 'ARCS', 'VENUSA']
+    return ['venus', 'mars', 'arcs', 'venusA', 'venusa', 'VENUS', 'MARS', 'ARCS', 'VENUSA']
 
 def parse_shape_config(s: str) -> Dict[str, Tuple[int]]:
     """Parse dynamic shapes configuration string into a dictionary."""
@@ -79,6 +81,16 @@ def read_config_file(args, parameter_source, parameter_comments):
         print(f"{Colors.RED}Error: Invalid JSON format in configuration file{Colors.RESET}")
         return False
 
+def _get_command_line_parameters(parser, argv):
+    """Return parameters explicitly provided on the command line."""
+    command_line_parameters = set()
+    for action in parser._actions:
+        for option in action.option_strings:
+            if any(arg == option or arg.startswith(option + "=") for arg in argv):
+                command_line_parameters.add(action.dest)
+                break
+    return command_line_parameters
+
 def export_configuration(args, model_config, device_config, memory_config, parameter_comments, config_file):
     """保存当前参数到配置文件."""
     try:
@@ -111,7 +123,10 @@ def export_configuration(args, model_config, device_config, memory_config, param
                     "comment": parameter_comments["strategy"]
                 },
                 "dynamic_shape": {
-                    "value": ",".join(model_config.dynamic_shape) if model_config.dynamic_shape else "",
+                    "value": ",".join(
+                        f"{name}={':'.join(str(value) for value in shape)}"
+                        for name, shape in model_config.dynamic_shape.items()
+                    ),
                     "comment": parameter_comments["dynamic_shape"]
                 },
                 "isstream": {
@@ -168,8 +183,10 @@ def export_configuration(args, model_config, device_config, memory_config, param
         print(f"{Colors.RED}Error saving configuration file: {str(e)}{Colors.RESET}")
         return False
 
-def parse_arguments() -> Tuple[argparse.Namespace, Dict, Dict]:
+def parse_arguments(argv=None) -> Tuple[argparse.Namespace, Dict]:
     """解析命令行参数."""
+    print("=" * 83)
+    print(f"{Colors.BLUE}1. Parse input information{Colors.RESET}")
     parser = argparse.ArgumentParser(
         description="Welcome to use tpacker",
         add_help=True,
@@ -218,12 +235,12 @@ def parse_arguments() -> Tuple[argparse.Namespace, Dict, Dict]:
         help="Target platform"
     )
     device_config.add_argument(
-        "-r", "--ramsize", default=655360, type=int,
-        help="Maximum valid Share-Memory size"
+        "-r", "--ramsize", default=None, type=int,
+        help="Maximum valid Share-Memory size (default: platform maximum)"
     )
     device_config.add_argument(
-        "--psramsize", default=8388608, type=int,
-        help="Maximum valid PSRAM size"
+        "--psramsize", default=None, type=int,
+        help="Maximum valid PSRAM size (default: platform maximum)"
     )
 
     # Memory Preallocate Configuration
@@ -263,7 +280,10 @@ def parse_arguments() -> Tuple[argparse.Namespace, Dict, Dict]:
         help="Export current configuration to a JSON file"
     )
 
-    args = parser.parse_args()
+    if argv is None:
+        argv = sys.argv[1:]
+    args = parser.parse_args(argv)
+    command_line_parameters = _get_command_line_parameters(parser, argv)
 
     # 确保至少提供了--graph或--config-file
     if not args.graph_path and not args.config_file:
@@ -282,18 +302,17 @@ def parse_arguments() -> Tuple[argparse.Namespace, Dict, Dict]:
             comment = action.help if action.help else "No comment provided"
             parameter_comments[param_name] = comment
 
-            if getattr(args, param_name) is not None:
-                if action.default == getattr(args, param_name):
-                    parameter_source[param_name] = "default"
-                else:
-                    parameter_source[param_name] = "command_line"
-            else:
-                parameter_source[param_name] = "default"
+            parameter_source[param_name] = (
+                "command_line"
+                if param_name in command_line_parameters
+                else "default"
+            )
     print(f"{Colors.GREEN}1.1 Parse command line input passed{Colors.RESET}")
 
     # 读取配置文件
     if args.config_file:
-        read_config_file(args, parameter_source, parameter_comments)
+        if not read_config_file(args, parameter_source, parameter_comments):
+            parser.error(f"Failed to read configuration file: {args.config_file}")
         print(f"{Colors.GREEN}1.2 Parse config file input passed{Colors.RESET}")
     else:
         print(f"{Colors.YELLOW}1.2 Parse config file input skipped{Colors.RESET}")
@@ -310,7 +329,7 @@ def parse_parameters(args) -> Tuple[ModelConfig, DeviceConfig, MemoryConfig]:
     )
 
     device_config = DeviceConfig(
-        platform=args.platform,
+        platform=normalize_platform_name(args.platform),
         ramsize=args.ramsize,
         psramsize=args.psramsize
     )

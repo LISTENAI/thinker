@@ -158,12 +158,97 @@ int32_t gruint_luna(tTensor *input, tTensor *history_h, tTensor *i2h_w,
                    tTensor *h2h_w, tTensor *i2h_bias, tTensor *h2h_bias,
                    tTensor *output, tTensor *hidden_o,
                    GRUIntAttrs *params, tTensor *workspace) {
-    if (input->dtype_ != Int8) {
-        return T_ERR_INVALID_DATATYPE;
+     #if THINKER_PARAM_CHECK
+     if (input == NULL || history_h == NULL || i2h_w == NULL || h2h_w == NULL ||
+                         i2h_bias == NULL || h2h_bias == NULL || output == NULL || hidden_o == NULL ||
+                         params == NULL || input->dptr_ == 0 || i2h_w->dptr_ == 0 ||
+                         h2h_w->dptr_ == 0 || i2h_bias->dptr_ == 0 || h2h_bias->dptr_ == 0 ||
+                         output->dptr_ == 0 || hidden_o->dptr_ == 0 ||
+                         (history_h->shape_.ndim_ != 0 && history_h->dptr_ == 0)) {
+         return (T_ERR_INVALID_PARA);
+     }
+     if (input->dtype_ != Int8 || i2h_w->dtype_ != Int8 ||
+                        h2h_w->dtype_ != Int8 || i2h_bias->dtype_ != Int32 ||
+                        h2h_bias->dtype_ != Int32 || output->dtype_ != Int8 ||
+                        hidden_o->dtype_ != Int8) {
+        return (T_ERR_INVALID_DATATYPE);
     }
-
-    if (output->mem_.type_ != 2)
-        return T_ERR_NO_SUPPORT_OP;
+    if ((params->layout != 0 && params->layout != 1) || params->direction < 0 ||
+                        params->direction > 1 || params->input_size <= 0 ||
+                        params->hidden_size <= 0) {
+        return (T_ERR_INVALID_PARA);
+    }
+    #endif
+    int32_t batch_dim = params->layout == 0 ? 1 : 0;
+    int32_t seq_dim = params->layout == 0 ? 0 : 1;
+    #if THINKER_PARAM_CHECK
+    if (input->shape_.ndim_ != 3 || input->shape_.dims_[batch_dim] != 1 ||
+                         input->shape_.dims_[2] != params->input_size ||
+                         output->shape_.ndim_ != 3 ||
+                         output->shape_.dims_[seq_dim] != input->shape_.dims_[seq_dim] ||
+                         output->shape_.dims_[batch_dim] != 1 ||
+                         output->shape_.dims_[2] != params->hidden_size ||
+                        hidden_o->shape_.ndim_ != 3 || hidden_o->shape_.dims_[0] != 1 ||
+                        hidden_o->shape_.dims_[1] != 1 ||
+                        hidden_o->shape_.dims_[2] != params->hidden_size) {
+        return (T_ERR_INVALID_DATA);
+    }
+    if (i2h_w->shape_.ndim_ != 2 ||
+                        i2h_w->shape_.dims_[0] != params->input_size ||
+                        i2h_w->shape_.dims_[1] != params->hidden_size * 3 ||
+                        h2h_w->shape_.ndim_ != 2 ||
+                        h2h_w->shape_.dims_[0] != params->hidden_size ||
+                        h2h_w->shape_.dims_[1] != params->hidden_size * 3 ||
+                        i2h_bias->shape_.ndim_ != 1 ||
+                        i2h_bias->shape_.dims_[0] != params->hidden_size * 3 ||
+                        h2h_bias->shape_.ndim_ != 1 ||
+                        h2h_bias->shape_.dims_[0] != params->hidden_size * 3) {
+        return (T_ERR_INVALID_DATA);
+    }
+    #endif
+    if (history_h->shape_.ndim_ != 0) {
+        #if THINKER_PARAM_CHECK
+        if (history_h->dtype_ != Int8 || history_h->shape_.ndim_ != 3 ||
+                            history_h->shape_.dims_[0] != 1 ||
+                            history_h->shape_.dims_[1] != 1 ||
+                            history_h->shape_.dims_[2] != params->hidden_size) {
+            return (T_ERR_INVALID_DATA);
+        }
+        #endif
+    }
+    #if THINKER_PARAM_CHECK
+    if (input->scale_ + i2h_w->scale_ < 11 ||
+                        input->scale_ + i2h_w->scale_ - 11 > 63 ||
+                        hidden_o->scale_ + h2h_w->scale_ < 11 ||
+                        hidden_o->scale_ + h2h_w->scale_ - 11 > 63 ||
+                        15 - hidden_o->scale_ < 0 || 15 - hidden_o->scale_ > 63 ||
+                        output->scale_ != hidden_o->scale_) {
+        return (T_ERR_INVALID_PARA);
+    }
+    if (ALIGN(params->input_size, 8) *
+                            ALIGN(params->hidden_size * 3, 4) > 32768 ||
+                        ALIGN(params->hidden_size, 8) *
+                            ALIGN(params->hidden_size * 3, 4) > 32768) {
+        return (T_ERR_NO_IMPLEMENTED);
+    }
+    #endif
+    #if THINKER_RUNTIME_CHECK
+    if (input->mem_.type_ != 2 || output->mem_.type_ != 2 ||
+                          hidden_o->mem_.type_ != 2 || i2h_w->mem_.type_ != 2 ||
+                          h2h_w->mem_.type_ != 2 || i2h_bias->mem_.type_ != 2 ||
+                          h2h_bias->mem_.type_ != 2 ||
+                          (history_h->shape_.ndim_ != 0 && history_h->mem_.type_ != 2)) {
+        return (T_ERR_NO_SUPPORT_OP);
+    }
+    #endif
+    #if THINKER_RUNTIME_CHECK
+    if (workspace == NULL || workspace->dptr_ == 0 ||
+                          workspace->shape_.ndim_ == 0 ||
+                          workspace->mem_.type_ != 2 ||
+                          workspace->shape_.dims_[0] < params->hidden_size * 24) {
+        return (T_ERR_NO_WORKSPACE);
+    }
+    #endif
 
     int32_t seq_len = 0, batch_size = 0;
     if (params->layout == 0) {
@@ -209,7 +294,8 @@ int32_t gruint_luna(tTensor *input, tTensor *history_h, tTensor *i2h_w,
         memset(gru_param.p_h_in, 0, gru_param.hidden_size * gru_param.batch_size * hidden_o->byte_);
     }
     else{
-        gru_param.p_h_in = (int8_t *)history_h->dptr_;
+        memcpy(gru_param.p_h_in, (void *)history_h->dptr_,
+               gru_param.hidden_size * gru_param.batch_size * hidden_o->byte_);
     }
 
     if (go_forward == 1) {

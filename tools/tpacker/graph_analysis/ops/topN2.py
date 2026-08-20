@@ -25,6 +25,9 @@ class topN2(Operator, BaseLayout):
         """Initialize topN2 operator with given attributes."""
         self.attrs = topN2Attrs(attrs)
 
+    def layout_convert(self, op_type: str):
+        return
+
     def infer_tensor(self, dynamic_shape):
         """Infer output tensor shape based on input tensor and topN2 parameters."""
         inputs = self.inputs
@@ -38,10 +41,13 @@ class topN2(Operator, BaseLayout):
         axis = axis + ndims if axis < 0 else axis
 
         platform = self.attrs.get("platform", "venus")
-        if platform == "venus":
-            assert inputs[0].dtype == np.int16, "topN2 on venus only supports int16 input"
-            assert N == 1, "topN2 on venus only supports max_num=1"
-            assert axis == ndims - 1, "topN2 on venus only supports the last axis"
+        expected_dtype = np.int16 if platform == "venus" else np.int32
+        assert inputs[0].dtype == expected_dtype, \
+            f"topN2 on {platform} runtime expects {expected_dtype} value/index input"
+        assert N == 1, f"topN2 on {platform} runtime only supports max_num=1"
+        assert ndims == 3, f"topN2 on {platform} requires [value/index, rows, width] input"
+        assert shape[0] == 2, f"topN2 on {platform} requires value/index dimension of 2"
+        assert axis == ndims - 1, f"topN2 on {platform} runtime only supports the last axis"
 
         shape[axis] = N
         shape[0] = 2
@@ -50,6 +56,11 @@ class topN2(Operator, BaseLayout):
         scale_o = self.attrs.get("scale_o", 1.0)
         temp = math.log(scale_o, 2)
         assert abs(temp - int(temp)) < 0.000001, "scale_o must be a power of 2"
+        scale_x = self.attrs.get("scale_x", scale_o)
+        input_scale = math.log(scale_x, 2)
+        assert abs(input_scale - int(input_scale)) < 0.000001, "scale_x must be a power of 2"
+        assert int(input_scale) == inputs[0].scale == int(temp), \
+            "topN2 runtime requires matching input and output scales"
 
         # Create output tensor based on platform
         if platform == "venus":

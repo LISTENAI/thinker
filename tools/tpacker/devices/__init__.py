@@ -1,3 +1,5 @@
+from copy import deepcopy
+
 from .device_info import *
 from .venus import *
 from .arcs import *
@@ -19,13 +21,13 @@ def create_device_from_name(platform_name):
         ValueError: 如果平台名称不存在。
     """
     if platform_name.upper() == 'VENUS':
-        return venus_device
+        return deepcopy(venus_device)
     elif platform_name.upper() == 'MARS':
-        return mars_device
+        return deepcopy(mars_device)
     elif platform_name.upper() == 'ARCS':
-        return arcs_device
+        return deepcopy(arcs_device)
     elif platform_name.upper() == 'VENUSA':
-        return venusa_device
+        return deepcopy(venusa_device)
     else:
         raise ValueError(f"{Colors.RED}Platform {platform_name} is not supported.{Colors.RESET}")
 

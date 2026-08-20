@@ -1,3 +1,7 @@
+from importlib.metadata import version as _distribution_version
+
+__version__ = _distribution_version("pythinker")
+
 from .tpacker import *
 from .load_model import *
 from .enum_defines import *

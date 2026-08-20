@@ -81,6 +81,35 @@ static int calc_mat_mul_split_num(int M,int N,int L,int byte)
     return split_num;
 }
 
+static int32_t lstm_check_scale_to_q27(int32_t q) {
+    int32_t diff = q > 27 ? q - 27 : 27 - q;
+    #if THINKER_PARAM_CHECK
+    if (q < 27 && diff > 30) {
+        return (T_ERR_INVALID_PARA);
+    }
+
+    if (q > 27 && diff > 63) {
+        return (T_ERR_INVALID_PARA);
+    }
+#endif
+    return T_SUCCESS;
+}
+
+static int32_t lstm_validate_quant(const luna_lstm_param_t *params) {
+    THINKER_RET_CHECK(lstm_check_scale_to_q27(params->q_ib), "lstm_check_scale_to_q27");
+    THINKER_RET_CHECK(lstm_check_scale_to_q27(params->q_hb), "lstm_check_scale_to_q27");
+    #if THINKER_PARAM_CHECK
+    if (params->q_c < 15 || params->q_c - 15 > 63) {
+        return (T_ERR_INVALID_PARA);
+    }
+
+    if (30 - params->q_h < 0 || 30 - params->q_h > 63) {
+        return (T_ERR_INVALID_PARA);
+    }
+#endif
+    return T_SUCCESS;
+}
+
 /**
  * @brief LSTM kernel function (quantized version)
  * @param params LSTM parameters
@@ -296,19 +325,33 @@ int32_t lstmint_luna2(const tTensor *data, const tTensor *history_h, const tTens
                      const tTensor *out, const tTensor *hidden_o, const tTensor *cell_o, const LstmIntAttrs *params,
                      const tTensor *workspace, tDMA_List *list) {
   // gru default num_directions forward
-  if (data->dtype_ != Int8) {
-    return T_ERR_INVALID_DATATYPE;
+  #if THINKER_PARAM_CHECK
+  if (data->dtype_ != Int8 || i2h_weight->dtype_ != Int8 || h2h_weight->dtype_ != Int8 ||
+                      i2h_bias->dtype_ != Int32 || h2h_bias->dtype_ != Int32 || out->dtype_ != Int8 ||
+                      hidden_o->dtype_ != Int8 || cell_o->dtype_ != Int32) {
+      return (T_ERR_INVALID_DATATYPE);
+  }
+#endif
+  if (workspace == NULL) {
+    return T_ERR_NO_WORKSPACE;
+  }
+  if (workspace->dptr_ == 0 || workspace->mem_.type_ != 2 ||
+      ((uintptr_t)workspace->dptr_ & 3U) != 0 || workspace->shape_.dims_[0] < params->hidden_size * 32) {
+    return T_ERR_NO_WORKSPACE;
+  }
+  if (out->mem_.type_ != 2 || hidden_o->mem_.type_ != 2 || cell_o->mem_.type_ != 2) {
+    return T_ERR_NO_SUPPORT_OP;
   }
   int32_t seq_len = 0, batch_size = 0;
   if (params->layout == 0) {
     // T B D
-    seq_len = data->shape_.dims_[1];
-    batch_size = data->shape_.dims_[2];
+    seq_len = data->shape_.dims_[0];
+    batch_size = data->shape_.dims_[1];
   } 
   else {
     // B T D
-    seq_len = data->shape_.dims_[2];
-    batch_size = data->shape_.dims_[1];
+    seq_len = data->shape_.dims_[1];
+    batch_size = data->shape_.dims_[0];
   }
   if (mask)
   {
@@ -338,6 +381,12 @@ int32_t lstmint_luna2(const tTensor *data, const tTensor *history_h, const tTens
   p_lstm_param.p_hw = (void *)h2h_weight->dptr_;
   p_lstm_param.p_ib = (void *)i2h_bias->dptr_;
   p_lstm_param.p_hb = (void *)h2h_bias->dptr_;
+  int32_t check_ret = T_SUCCESS;
+  #if THINKER_PARAM_CHECK
+  if ((check_ret = lstm_validate_quant(&p_lstm_param)) != T_SUCCESS) {
+      return (check_ret);
+  }
+#endif
 
   int32_t go_forward = p_lstm_param.go_forward;
   int32_t step_size = p_lstm_param.input_size;
@@ -383,8 +432,17 @@ int32_t lstmint_luna(const tTensor *data, const tTensor *history_h, const tTenso
                      const tTensor *out, const tTensor *hidden_o, const tTensor *cell_o, const LstmIntAttrs *params,
                      const tTensor *workspace) {
   // gru default num_directions forward
-  if (data->dtype_ != Int8) {
+  if (data->dtype_ != Int8 || i2h_weight->dtype_ != Int8 || h2h_weight->dtype_ != Int8 ||
+      i2h_bias->dtype_ != Int32 || h2h_bias->dtype_ != Int32 || out->dtype_ != Int8 ||
+      hidden_o->dtype_ != Int8 || cell_o->dtype_ != Int32) {
     return T_ERR_INVALID_DATATYPE;
+  }
+  if (workspace == NULL || workspace->dptr_ == 0 || workspace->mem_.type_ != 2 ||
+      workspace->shape_.ndim_ == 0 || workspace->shape_.dims_[0] < params->hidden_size * 32) {
+    return T_ERR_NO_WORKSPACE;
+  }
+  if (out->mem_.type_ != 2 || hidden_o->mem_.type_ != 2 || cell_o->mem_.type_ != 2) {
+    return T_ERR_NO_SUPPORT_OP;
   }
   int32_t seq_len = 0, batch_size = 0;
   if (params->layout == 0) {
@@ -425,6 +483,7 @@ int32_t lstmint_luna(const tTensor *data, const tTensor *history_h, const tTenso
   p_lstm_param.p_hw         = (void *)h2h_weight->dptr_;
   p_lstm_param.p_ib         = (void *)i2h_bias->dptr_;
   p_lstm_param.p_hb         = (void *)h2h_bias->dptr_;
+  THINKER_RET_CHECK(lstm_validate_quant(&p_lstm_param), "lstm_validate_quant");
 
   int32_t go_forward        = p_lstm_param.go_forward;
   int32_t step_size         = p_lstm_param.input_size;

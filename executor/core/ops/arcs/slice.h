@@ -26,14 +26,24 @@
  * @param Y Output tensor
  * @return Operation result status
  */
-tStatus slice_luna(tTensor* X, int32_t begin, int32_t end, int32_t axis, int32_t step, tTensor* Y) {
-    // Normalize axis to handle negative values
-    int32_t real_axis = (axis + X->shape_.ndim_) % X->shape_.ndim_;
-    int32_t real_begin;
-    int32_t x_shape = X->shape_.dims_[real_axis];
+static int32_t slice_copy_bytes(void *dst, const void *src, uint32_t size,
+                                bool dst_psram, bool src_psram) {
+    if (size == 0 || dst == src) return T_SUCCESS;
+    if (dst_psram) {
+        opi_psram_cpy_out(dst, (void *)src, size);
+        return T_SUCCESS;
+    }
+    return API_LIB(memcpy_i8o8)((int8_t *)dst, (int8_t *)src, size);
+}
 
-    // Calculate actual beginning index with wraparound
-    real_begin = (begin + x_shape >= 0) ? (begin + X->shape_.dims_[real_axis]) % X->shape_.dims_[real_axis] : 0;
+tStatus slice_luna(tTensor* X, int32_t begin, int32_t end, int32_t axis, int32_t step, tTensor* Y) {
+    #if THINKER_PARAM_CHECK
+    if (step != 1) {
+        return (T_ERR_NO_IMPLEMENTED);
+    }
+#endif
+    int32_t real_axis = axis;
+    int32_t real_begin = begin;
 
     // Special case: slice along first axis - direct memory copy
     if (real_axis == 0) {
@@ -47,13 +57,10 @@ tStatus slice_luna(tTensor* X, int32_t begin, int32_t end, int32_t axis, int32_t
             output_size *= Y->shape_.dims_[i];
         }
         
-        if (2 == Y->mem_.type_) {
-            THINKER_RET_CHECK(API_LIB(memcpy_i8o8)((int8_t*)Y->dptr_, (int8_t*)X->dptr_ + start * X->byte_, output_size * Y->byte_), "luna_memcpy_i8o8");
-        }
-        else {
-            opi_psram_cpy_out((int8_t*)Y->dptr_, (int8_t*)X->dptr_ + start * X->byte_, output_size * Y->byte_);
-            return T_SUCCESS;
-        }
+        return slice_copy_bytes((int8_t *)Y->dptr_,
+                                (int8_t *)X->dptr_ + start * X->byte_,
+                                output_size * Y->byte_,
+                                Y->mem_.type_ == 1, X->mem_.type_ == 1);
     }
 
     // General case: slice along non-first axis using leading/mid/trailing architecture
@@ -74,17 +81,15 @@ tStatus slice_luna(tTensor* X, int32_t begin, int32_t end, int32_t axis, int32_t
     int32_t o_mt = Y->shape_.dims_[real_axis] * trailing;
     int32_t offset = real_begin * trailing;
     
-    // Only support fast memory (type 2) for output
-    if (2 != Y->mem_.type_)
-        return T_ERR_NO_IMPLEMENTED;
-
     // Copy data block by block
     for (int32_t l = 0; l < leading; l++) {
         int32_t i_lmt_this = l * i_mt + offset;
         int32_t o_lmt_this = l * o_mt;
-        THINKER_RET_CHECK(API_LIB(memcpy_i8o8)((int8_t*)Y->dptr_ + o_lmt_this * Y->byte_, 
-                                  (int8_t*)X->dptr_ + i_lmt_this * X->byte_, 
-                                  o_mt * Y->byte_), "luna_memcpy_i8o8");
+        THINKER_RET_CHECK(slice_copy_bytes(
+            (int8_t *)Y->dptr_ + o_lmt_this * Y->byte_,
+            (int8_t *)X->dptr_ + i_lmt_this * X->byte_,
+            o_mt * Y->byte_, Y->mem_.type_ == 1, X->mem_.type_ == 1),
+            "slice_copy_bytes");
     }
 
     return T_SUCCESS;

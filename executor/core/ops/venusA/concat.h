@@ -43,6 +43,24 @@ void scale_requant16bit_cpu(int16_t *src, int16_t *dst, int32_t size, int8_t sca
  * @return int32_t Operation status
  */
 int32_t concat_luna(tTensor **tensors, int32_t axis, int32_t input_num, tTensor *workspace, tTensor *output) {
+    #if THINKER_PARAM_CHECK
+    if (output->dtype_ != Int8 && output->dtype_ != Int16 &&
+                        output->dtype_ != Int32) {
+        return (T_ERR_INVALID_DATATYPE);
+    }
+#endif
+    for (int32_t i = 0; i < input_num; ++i) {
+        #if THINKER_PARAM_CHECK
+        if (tensors[i]->dtype_ != output->dtype_) {
+            return (T_ERR_INVALID_DATATYPE);
+        }
+
+        if (output->dtype_ == Int32 &&
+                            tensors[i]->scale_ != output->scale_) {
+            return (T_ERR_INVALID_PARA);
+        }
+#endif
+    }
     // Calculate dimensions
     int32_t leading = 1, middle = 1, trailing = 1;
     for (int32_t i = 0; i < axis; ++i) {
@@ -62,9 +80,11 @@ int32_t concat_luna(tTensor **tensors, int32_t axis, int32_t input_num, tTensor 
         int8_t *dst_ptr = workspace ? (int8_t *)workspace->dptr_ : NULL;
         if (leading == 1) {
             for (int32_t i = 0; i < input_num; ++i) {
-                if (tensors[i]->dtype_ != Int8) {
-                    return T_ERR_INVALID_DATATYPE;
-                }
+#if THINKER_PARAM_CHECK
+if (tensors[i]->dtype_ != Int8) {
+    return (T_ERR_INVALID_DATATYPE);
+}
+#endif
 
                 int8_t *src = (int8_t *)tensors[i]->dptr_;
                 int32_t input_scale = tensors[i]->scale_;
@@ -85,10 +105,18 @@ int32_t concat_luna(tTensor **tensors, int32_t axis, int32_t input_num, tTensor 
                 else {
                     uint32_t shift1 = (input_scale < output_scale) ? (output_scale - input_scale) : 0;
                     uint32_t shift2 = (input_scale > output_scale) ? (input_scale - output_scale) : 0;
+#if THINKER_PARAM_CHECK
+if (shift1 > 6 || shift2 > 63) {
+    return (T_ERR_INVALID_PARA);
+}
+#endif
                     if (output->mem_.type_ == 2) {
                         THINKER_RET_CHECK(API_LIB(scale_i8i8o8)(src, 1UL << shift1, dst, hw_curr, shift2), "luna_scale_i8i8o8");
                     } 
                     else {
+                        if (workspace_size <= 0) {
+                            return T_ERR_NO_WORKSPACE;
+                        }
                         int32_t past_size = 0;
                         while (past_size < hw_curr) {
                             int32_t remain_size = hw_curr - past_size;
@@ -105,9 +133,11 @@ int32_t concat_luna(tTensor **tensors, int32_t axis, int32_t input_num, tTensor 
         } 
         else {
             for (int32_t i = 0; i < input_num; ++i) {
-                if (tensors[i]->dtype_ != Int8) {
-                    return T_ERR_INVALID_DATATYPE;
-                }
+#if THINKER_PARAM_CHECK
+if (tensors[i]->dtype_ != Int8) {
+    return (T_ERR_INVALID_DATATYPE);
+}
+#endif
 
                 int8_t *src = (int8_t *)tensors[i]->dptr_;
                 int32_t input_scale = tensors[i]->scale_;
@@ -144,6 +174,11 @@ int32_t concat_luna(tTensor **tensors, int32_t axis, int32_t input_num, tTensor 
                 else {
                     uint32_t shift1 = (input_scale < output_scale) ? (output_scale - input_scale) : 0;
                     uint32_t shift2 = (input_scale > output_scale) ? (input_scale - output_scale) : 0;
+#if THINKER_PARAM_CHECK
+if (shift1 > 6 || shift2 > 63) {
+    return (T_ERR_INVALID_PARA);
+}
+#endif
                     if (output->mem_.type_ == 2) {
                         for (int32_t l = 0; l < leading; ++l) {
                             THINKER_RET_CHECK(
@@ -170,101 +205,58 @@ int32_t concat_luna(tTensor **tensors, int32_t axis, int32_t input_num, tTensor 
     else if (output->dtype_ == Int16) {
         int16_t *dst = (int16_t *)output->dptr_;
         int32_t output_scale = output->scale_;
+        int32_t workspace_elems = workspace ? workspace->shape_.dims_[0] >> 1 : 0;
+        int16_t *dst_ptr = workspace ? (int16_t *)workspace->dptr_ : NULL;
 
-        if (leading == 1) {
-            for (int32_t i = 0; i < input_num; ++i) {
-                if (tensors[i]->dtype_ != Int16) {
-                    return T_ERR_INVALID_DATATYPE;
-                }
+        for (int32_t i = 0; i < input_num; ++i) {
+#if THINKER_PARAM_CHECK
+if (tensors[i]->dtype_ != Int16) {
+    return (T_ERR_INVALID_DATATYPE);
+}
+#endif
 
-                int16_t *src = (int16_t *)tensors[i]->dptr_;
-                int32_t input_scale = tensors[i]->scale_;
-                int32_t hw_curr = tensors[i]->shape_.dims_[axis] * trailing;
+            int16_t *src = (int16_t *)tensors[i]->dptr_;
+            int32_t input_scale = tensors[i]->scale_;
+            int32_t hw_curr = tensors[i]->shape_.dims_[axis] * trailing;
+            if (hw_curr == 0) {
+                continue;
+            }
 
-                if (hw_curr == 0) {
-                    continue;
-                }
+            int32_t shift1 = (input_scale < output_scale) ? (output_scale - input_scale) : 0;
+            int32_t shift2 = (input_scale > output_scale) ? (input_scale - output_scale) : 0;
+#if THINKER_PARAM_CHECK
+if (shift1 > 14 || shift2 > 63) {
+    return (T_ERR_INVALID_PARA);
+}
+#endif
+
+            for (int32_t l = 0; l < leading; ++l) {
+                int16_t *src_ptr = src + l * hw_curr;
+                int16_t *out_ptr = dst + l * hw;
 
                 if (input_scale == output_scale) {
                     if (output->mem_.type_ == 2) {
-                        THINKER_RET_CHECK(API_LIB(memcpy_i8o8)((int8_t *)dst + i * hw_curr * 2, (int8_t *)src, hw_curr * 2), "luna_memcpy_i8o8");
+                        THINKER_RET_CHECK(API_LIB(memcpy_i8o8)((int8_t *)out_ptr, (int8_t *)src_ptr, hw_curr * (int32_t)sizeof(int16_t)), "luna_memcpy_i8o8");
                     } else {
-                        opi_psram_cpy_out((int8_t *)dst + i * hw_curr * 2, (int8_t *)src, hw_curr * 2);
+                        opi_psram_cpy_out((void *)out_ptr, (void *)src_ptr, hw_curr * (int32_t)sizeof(int16_t));
                     }
-                }
-                else {
-                  if (2 == output->mem_.type_) {
-                      // just support (output_scale > input_scale)
-                      THINKER_RET_CHECK(API_LIB(scale_i16i16o16)(src, 1UL<<(output_scale - input_scale), dst, hw_curr, 0), "luna_scale_i16i16o16");
-
-                  } 
-                  else { // output on psram
-                    int32_t workspace_size = workspace->shape_.dims_[0] >> 2;
-                    int16_t *dst_ptr = (int16_t *)workspace->dptr_;
-
+                } else if (output->mem_.type_ == 2) {
+                    THINKER_RET_CHECK(API_LIB(scale_i16i16o16)(src_ptr, (int16_t)(1UL << shift1), out_ptr, hw_curr, shift2), "luna_scale_i16i16o16");
+                } else {
+                    if (workspace_elems <= 0) {
+                        return T_ERR_NO_WORKSPACE;
+                    }
                     int32_t past_size = 0;
-                    while (past_size < hw_curr)
-                    {
-                      int32_t remain_size = hw_curr - past_size;
-                      int32_t cur_size = (workspace_size < remain_size)? workspace_size : remain_size; 
-
-                      THINKER_RET_CHECK(API_LIB(scale_i16i16o16)(src + past_size, 1UL<<(output_scale - input_scale), dst_ptr, cur_size, 0), "luna_scale_i16i16o16");
-                      opi_psram_cpy_out(dst + past_size, dst_ptr, cur_size * sizeof(int16_t));
-                      past_size += cur_size;
-                    }
-                  }
-                }
-            }
-        }
-        else {
-            for (int32_t i = 0; i < input_num; ++i) {
-                if (tensors[i]->dtype_ != Int16) {
-                    return T_ERR_INVALID_DATATYPE;
-                }
-
-                int16_t *src = (int16_t *)tensors[i]->dptr_;
-                int32_t input_scale = tensors[i]->scale_;
-                int32_t hw_curr = tensors[i]->shape_.dims_[axis] * trailing;
-
-                if (hw_curr == 0) {
-                    continue;
-                }
-
-                if (input_scale == output_scale) {
-                    for (int32_t l = 0; l < leading; ++l) {
-                        int16_t *indptr_curr = (int16_t *)src + l * hw_curr;
-                        int16_t *output_ptr = (int16_t *)dst + l * hw + i * hw_curr;
-                        if (output->mem_.type_ == 2) {
-                            THINKER_RET_CHECK(API_LIB(memcpy_i8o8)((int8_t *)output_ptr, (int8_t *)indptr_curr, hw_curr * 2), "luna_memcpy_i8o8");
-                        } 
-                        else {
-                            opi_psram_cpy_out((int8_t *)output_ptr, (int8_t *)indptr_curr, hw_curr * 2);
-                        }
+                    while (past_size < hw_curr) {
+                        int32_t remain_size = hw_curr - past_size;
+                        int32_t cur_size = (workspace_elems < remain_size) ? workspace_elems : remain_size;
+                        THINKER_RET_CHECK(API_LIB(scale_i16i16o16)(src_ptr + past_size, (int16_t)(1UL << shift1), dst_ptr, cur_size, shift2), "luna_scale_i16i16o16");
+                        opi_psram_cpy_out((void *)(out_ptr + past_size), (void *)dst_ptr, cur_size * (int32_t)sizeof(int16_t));
+                        past_size += cur_size;
                     }
                 }
-                else {
-                    if (2 == output->mem_.type_) {
-                        // just support output_scale >= input_scale
-                        THINKER_RET_CHECK(API_LIB(scale_i16i16o16)(src, 1UL<<(output_scale - input_scale), dst, hw_curr, 0), "luna_scale_i16i16o16");
-                    } 
-                    else { // output on psram
-                        int32_t workspace_size = workspace ? (workspace->shape_.dims_[0] >> 2) : 0;
-                        int16_t *dst_ptr = workspace ? (int16_t *)workspace->dptr_ : NULL;
-
-                        int past_size = 0;
-                        
-                        while (past_size < hw_curr)
-                        {
-                          int32_t remain_size = hw_curr - past_size;
-                          int32_t cur_size = (workspace_size < remain_size)? workspace_size : remain_size; 
-
-                          THINKER_RET_CHECK(API_LIB(scale_i16i16o16)(src + past_size, 1UL<<(output_scale - input_scale), dst_ptr, cur_size, 0), "luna_scale_i16i16o16");
-                          opi_psram_cpy_out(dst + past_size, dst_ptr, cur_size * sizeof(int16_t));
-                          past_size += cur_size;
-                        }
-                      }
-                }
             }
+            dst += hw_curr;
         }
     } 
     else if (output->dtype_ == Int32) {
@@ -273,11 +265,12 @@ int32_t concat_luna(tTensor **tensors, int32_t axis, int32_t input_num, tTensor 
 
         if (leading == 1) {
             if (output->mem_.type_ == 2) {
-                int32_t past_size = 0;
                 for (int32_t i = 0; i < input_num; ++i) {
-                    if (tensors[i]->dtype_ != Int32) {
-                        return T_ERR_INVALID_DATATYPE;
-                    }
+#if THINKER_PARAM_CHECK
+if (tensors[i]->dtype_ != Int32) {
+    return (T_ERR_INVALID_DATATYPE);
+}
+#endif
 
                     int32_t *src = (int32_t *)tensors[i]->dptr_;
                     int32_t input_scale = tensors[i]->scale_;
@@ -292,14 +285,20 @@ int32_t concat_luna(tTensor **tensors, int32_t axis, int32_t input_num, tTensor 
                         dst += hw_curr;
                     } 
                     else {
-                        return T_ERR_INVALID_PARA;
+#if THINKER_PARAM_CHECK
+if (1) {
+    return (T_ERR_INVALID_PARA);
+}
+#endif
                     }
                 }
             } else {
                 for (int32_t i = 0; i < input_num; ++i) {
-                    if (tensors[i]->dtype_ != Int32) {
-                        return T_ERR_INVALID_DATATYPE;
-                    }
+#if THINKER_PARAM_CHECK
+if (tensors[i]->dtype_ != Int32) {
+    return (T_ERR_INVALID_DATATYPE);
+}
+#endif
 
                     int32_t *src = (int32_t *)tensors[i]->dptr_;
                     int32_t input_scale = tensors[i]->scale_;
@@ -313,17 +312,22 @@ int32_t concat_luna(tTensor **tensors, int32_t axis, int32_t input_num, tTensor 
                         opi_psram_cpy_out(dst, src, hw_curr * 4);
                         dst += hw_curr;
                     } else {
-                        return T_ERR_INVALID_PARA;
+#if THINKER_PARAM_CHECK
+if (1) {
+    return (T_ERR_INVALID_PARA);
+}
+#endif
                     }
                 }
             }
         } else {
             if (output->mem_.type_ == 2) {
-                int32_t past_size = 0;
                 for (int32_t i = 0; i < input_num; ++i) {
-                    if (tensors[i]->dtype_ != Int32) {
-                        return T_ERR_INVALID_DATATYPE;
-                    }
+#if THINKER_PARAM_CHECK
+if (tensors[i]->dtype_ != Int32) {
+    return (T_ERR_INVALID_DATATYPE);
+}
+#endif
 
                     int32_t *src = (int32_t *)tensors[i]->dptr_;
                     int32_t input_scale = tensors[i]->scale_;
@@ -336,22 +340,27 @@ int32_t concat_luna(tTensor **tensors, int32_t axis, int32_t input_num, tTensor 
                     if (input_scale == output_scale) {
                         for (int32_t l = 0; l < leading; ++l) {
                             int32_t *indptr_curr = (int32_t *)src + l * hw_curr;
-                            int32_t *output_ptr = (int32_t *)dst + l * hw + past_size;
+                            int32_t *output_ptr = (int32_t *)dst + l * hw;
                             THINKER_RET_CHECK(API_LIB(memcpy_i8o8)((int8_t *)output_ptr, (int8_t *)indptr_curr, hw_curr * 4), "luna_memcpy_i8o8");
                         }
-                        past_size += hw_curr;
+                        dst += hw_curr;
                     } 
                     else {
-                        return T_ERR_INVALID_DATATYPE;
+#if THINKER_PARAM_CHECK
+if (1) {
+    return (T_ERR_INVALID_DATATYPE);
+}
+#endif
                     }
                 }
             } 
             else {
-                int32_t past_size = 0;
                 for (int32_t i = 0; i < input_num; ++i) {
-                    if (tensors[i]->dtype_ != Int32) {
-                        return T_ERR_INVALID_DATATYPE;
-                    }
+#if THINKER_PARAM_CHECK
+if (tensors[i]->dtype_ != Int32) {
+    return (T_ERR_INVALID_DATATYPE);
+}
+#endif
 
                     int32_t *src = (int32_t *)tensors[i]->dptr_;
                     int32_t input_scale = tensors[i]->scale_;
@@ -364,20 +373,28 @@ int32_t concat_luna(tTensor **tensors, int32_t axis, int32_t input_num, tTensor 
                     if (input_scale == output_scale) {
                         for (int32_t l = 0; l < leading; ++l) {
                             int32_t *indptr_curr = (int32_t *)src + l * hw_curr;
-                            int32_t *output_ptr = (int32_t *)dst + l * hw + past_size;
+                            int32_t *output_ptr = (int32_t *)dst + l * hw;
                             opi_psram_cpy_out((void *)output_ptr, (void *)indptr_curr, hw_curr * 4);
                         }
-                        past_size += hw_curr;
+                        dst += hw_curr;
                     } 
                     else {
-                        return T_ERR_INVALID_DATATYPE;
+#if THINKER_PARAM_CHECK
+if (1) {
+    return (T_ERR_INVALID_DATATYPE);
+}
+#endif
                     }
                 }
             }
         }
     } 
     else {
-        return T_ERR_INVALID_DATATYPE;
+#if THINKER_PARAM_CHECK
+if (1) {
+    return (T_ERR_INVALID_DATATYPE);
+}
+#endif
     }
 
     return T_SUCCESS;

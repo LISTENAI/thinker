@@ -71,11 +71,21 @@ static uint32_t iqsigmoid_split_size(uint16_t dtype, uint32_t input_size,
 
     while (split_size > 0 &&
            iqsigmoid_workspace_bytes(dtype, split_size, x_in_psram,
-                                     y_in_psram, need_i32_buf) > workspace_size) {
-        split_size = split_size - 4;
+                                      y_in_psram, need_i32_buf) > workspace_size) {
+        split_size = split_size <= 4 ? 0 : split_size - 4;
     }
 
     return split_size;
+}
+
+static void iqsigmoid_copy_out(int8_t *dst, int8_t *src, uint32_t size) {
+    uint32_t dma_size = size & ~3U;
+    if (dma_size != 0) {
+        opi_psram_cpy_out(dst, src, dma_size);
+    }
+    if (dma_size != size) {
+        cpu_memcpy(dst + dma_size, src + dma_size, size - dma_size);
+    }
 }
 
 /**
@@ -87,21 +97,30 @@ static uint32_t iqsigmoid_split_size(uint16_t dtype, uint32_t input_size,
  */
 int32_t iqsigmoid(tTensor *X, tTensor *Y, tTensor *Temp) {
     uint32_t input_size = getTensorSize(X);
-    uint32_t workspace_size = Temp ? Temp->shape_.dims_[0] : 0;
+    uint32_t workspace_size = Temp ? (uint32_t)getTensorDataSize(Temp) : 0;
     int8_t *workspace = Temp ? (int8_t *)Temp->dptr_ : NULL;
     int32_t x_in_psram = (X->mem_.type_ != 2);
     int32_t y_in_psram = (Y->mem_.type_ != 2);
     const int32_t Q_INPUT = 27;
     int32_t shift = Q_INPUT - (int32_t)X->scale_;
 
-#ifdef RUNTIME_PARAM_CHECK
-    if (Y->dtype_ != Int8) {
-        return T_ERR_INVALID_DATATYPE;
+#if THINKER_PARAM_CHECK
+if ((X->dtype_ != Int8 && X->dtype_ != Int32) ||
+                    Y->dtype_ != Int8) {
+    return (T_ERR_INVALID_DATATYPE);
+}
+
+    if ((X->dtype_ == Int8 && (shift < 0 || shift > 30)) ||
+                        (X->dtype_ == Int32 && X->scale_ != Q_INPUT)) {
+        return (T_ERR_INVALID_PARA);
     }
 #endif
 
     if (input_size == 0) {
         return T_SUCCESS;
+    }
+    if (y_in_psram) {
+        HAL_FlushInvalidateDCache_by_Addr((uint32_t *)Y->dptr_, input_size);
     }
 
     if (X->dtype_ == Int8) {
@@ -132,7 +151,7 @@ int32_t iqsigmoid(tTensor *X, tTensor *Y, tTensor *Temp) {
             THINKER_RET_CHECK(API_LIB(scale_i32i32o32)(tmp_i32, 1UL << shift_l, tmp_i32, cur_size, shift_r), "luna_scale_i32i32o32");
             THINKER_RET_CHECK(API_LIB(sigmoid_i32o8)(tmp_i32, dst_i8, cur_size), "luna_sigmoid_i32o8");
             if (y_in_psram) {
-                opi_psram_cpy_out((int8_t *)Y->dptr_ + past_size, dst_i8, cur_size * sizeof(int8_t));
+                iqsigmoid_copy_out((int8_t *)Y->dptr_ + past_size, dst_i8, cur_size);
             }
         }
     } else if (X->dtype_ == Int32) {
@@ -169,7 +188,7 @@ int32_t iqsigmoid(tTensor *X, tTensor *Y, tTensor *Temp) {
 
             THINKER_RET_CHECK(API_LIB(sigmoid_i32o8)(src_i32, dst_i8, cur_size), "luna_sigmoid_i32o8");
             if (y_in_psram) {
-                opi_psram_cpy_out((int8_t *)Y->dptr_ + past_size, dst_i8, cur_size * sizeof(int8_t));
+                iqsigmoid_copy_out((int8_t *)Y->dptr_ + past_size, dst_i8, cur_size);
             }
         }
     } else {

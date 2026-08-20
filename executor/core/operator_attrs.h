@@ -105,7 +105,7 @@ typedef struct _Conv1dIntAttrs {
 typedef struct _Conv2dIntAttrs {
     uint8_t dilation[3];   // Dilation factors
     uint16_t kernel[3];    // Kernel sizes [height, width, depth]
-    uint8_t pad[6];        // Padding [top, bottom, left, right]
+    uint8_t pad[6];        // Padding [top, left, bottom, right]
     uint8_t stride[3];     // Stride [height, width, depth]
     int16_t group;         // Group count
     int16_t layout;        // Data layout

@@ -2,6 +2,8 @@
 
 #undef __OP__
 #define __OP__ PRelu
+#include "core/comm/thinker_log.h"
+#include "core/comm/utils.h"
 #include "core/operator_attrs.h"
 #include "core/operator_register.h"
 #include "thinker_status.h"
@@ -27,15 +29,27 @@
  * @return int32_t Execution status
  */
 int32_t X(Forward)(tOperator *op, tTensor **tensors, int32_t num_tensor, tDMA_List *list) {
-    CHECK_EQ(num_tensor, (op->num_input_ + op->num_output_));  // Validate tensor count
-    
+#if THINKER_PARAM_CHECK
+    if (op == NULL || tensors == NULL || op->num_input_ != 1 ||
+                        op->num_output_ != 1 || num_tensor != 2) {
+        return (T_ERR_INVALID_PARA);
+    }
+#endif
     PreluAttrs *attrs = (PreluAttrs *)((int8_t *)op + op->attr_offset_);
+    tTensor *X = tensors[0];
+    tTensor *Y = tensors[1];
+#if THINKER_PARAM_CHECK
+    if (X == NULL || Y == NULL || X->dptr_ == 0 || Y->dptr_ == 0 ||
+                        !equalShape(&X->shape_, &Y->shape_) || X->dtype_ != Y->dtype_) {
+        return (T_ERR_INVALID_DATA);
+    }
+#endif
 
 #if THINKER_USE_VENUS || THINKER_USE_ARCS || THINKER_USE_VENUSA
 #if THINKER_PROFILE
     uint64_t start_t = tick_count();  // Start profiling
 #endif
-    THINKER_RET_CHECK(prelu_luna(tensors[0], tensors[op->num_input_], attrs), "prelu_luna");  // Execute PRelu operation
+    THINKER_RET_CHECK(prelu_luna(X, Y, attrs), "prelu_luna");
     
 #if THINKER_PROFILE
     uint64_t finish_t = tick_count();

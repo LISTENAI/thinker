@@ -16,6 +16,19 @@
 #define API_LIB(api) luna_##api
 #endif
 
+static int32_t gather_copy_bytes(void *dst, const void *src, uint32_t size,
+                                 bool dst_psram, bool src_psram) {
+  if (size == 0 || dst == src) return T_SUCCESS;
+  if (src_psram) {
+    return API_LIB(psrammemcpy_i8o8)((int8_t *)dst, (int8_t *)src, size);
+  }
+  if (dst_psram) {
+    opi_psram_cpy_out(dst, (void *)src, size);
+    return T_SUCCESS;
+  }
+  return API_LIB(memcpy_i8o8)((int8_t *)dst, (int8_t *)src, size);
+}
+
 /**
  * @brief Perform gather operation along specified axis
  * @param X Input tensor
@@ -26,12 +39,30 @@
  */
 int32_t gather_luna(tTensor *X, tTensor *indices, tTensor *Y, GatherAttrs *attr) {
   int32_t axis = attr->axis < 0 ? X->shape_.ndim_ + attr->axis : attr->axis;
+  #if THINKER_PARAM_CHECK
+  if (axis < 0 || axis >= X->shape_.ndim_) {
+      return (T_ERR_INVALID_PARA);
+  }
+
+  if (X->dtype_ == Int4) {
+      return (T_ERR_INVALID_DATATYPE);
+  }
+
+  if (Y->scale_ != X->scale_) {
+      return (T_ERR_INVALID_PARA);
+  }
+#endif
 
   // Calculate number of elements in indices
-  int32_t ndim = 1;
+  size_t ndim = 1;
   for (int32_t i = 0; i < indices->shape_.ndim_; ++i)
       ndim *= indices->shape_.dims_[i];
-  ndim = ndim == 0 ? 1 : ndim;
+  if (ndim == 0) return T_SUCCESS;
+  #if THINKER_PARAM_CHECK
+  if (ndim > INT32_MAX) {
+      return (T_ERR_INVALID_DATA);
+  }
+#endif
 
   // Calculate tensor dimensions
   int32_t leading = 1, i = 0;
@@ -46,35 +77,21 @@ int32_t gather_luna(tTensor *X, tTensor *indices, tTensor *Y, GatherAttrs *attr)
   if (indices->dtype_ == Int64) 
   {
     int64_t *index 	= (int64_t *)(indices->dptr_);
-    if (Int4 == X->dtype_) 
     {
-      if (Y->dtype_ != Int8) return T_ERR_INVALID_DATATYPE;
-      for (int32_t l = 0; l < leading; ++l) {
-        for (int32_t j = 0; j < ndim; ++j) {
-          int64_t idx = index[j] == -1 ? X->shape_.dims_[axis] - 1 : index[j];
-          convert_4bitto8bit(output + l * ndim * tail + j * tail, input + l * middle * (tail/2) + idx * (tail/2), tail);
-        }
-      }
-#if !(defined(WIN32) || defined(linux))
-      if (2 != Y->mem_.type_) {
-		    HAL_FlushDCache_by_Addr((uint32_t *)output, leading * ndim * tail);
-      }
-#endif
-    }
-    else {
       for (int32_t l = 0; l < leading; ++l)
-        for (int32_t j = 0; j < ndim; ++j) 
+        for (size_t j = 0; j < ndim; ++j)
         {
-          int64_t idx = index[j] == -1 ? X->shape_.dims_[axis] - 1 : index[j];
-          if (Y->mem_.type_ == 2)
-            THINKER_RET_CHECK(API_LIB(memcpy_i8o8)(output + (l * ndim * tail + j * tail) * X->byte_,
-                  input + (l * middle * tail + idx * tail) * X->byte_,
-                  X->byte_ * tail), "luna_memcpy_i8o8");
-          else {
-            opi_psram_cpy_out(output + (l * ndim * tail + j * tail) * X->byte_,
-                    input + (l * middle * tail + idx * tail) * X->byte_,
-                    X->byte_ * tail);
-          }
+           int64_t idx = index[j] == -1 ? X->shape_.dims_[axis] - 1 : index[j];
+           #if THINKER_PARAM_CHECK
+           if (idx < 0 || idx >= X->shape_.dims_[axis]) {
+               return (T_ERR_INVALID_PARA);
+           }
+#endif
+          THINKER_RET_CHECK(gather_copy_bytes(
+              output + (l * ndim * tail + j * tail) * X->byte_,
+              input + (l * middle * tail + idx * tail) * X->byte_,
+              X->byte_ * tail, Y->mem_.type_ == 1, X->mem_.type_ == 1),
+              "gather_copy_bytes");
         }
     }
   }
@@ -82,23 +99,28 @@ int32_t gather_luna(tTensor *X, tTensor *indices, tTensor *Y, GatherAttrs *attr)
   {
     int32_t *index = (int32_t *)(indices->dptr_);
     for (int32_t l = 0; l < leading; ++l)
-      for (int32_t j = 0; j < ndim; ++j) 
+      for (size_t j = 0; j < ndim; ++j)
       {
-        int32_t idx = index[j] == -1 ? X->shape_.dims_[axis] - 1 : index[j];
-        if (Y->mem_.type_ == 2) {
-          THINKER_RET_CHECK(API_LIB(memcpy_i8o8)(output + (l * ndim * tail + j * tail) * X->byte_,
-                            input + (l * middle * tail + idx * tail) * X->byte_,
-                            X->byte_ * tail), "luna_memcpy_i8o8");
-        }
-        else {
-          opi_psram_cpy_out(output + (l * ndim * tail + j * tail) * X->byte_,
-                  input + (l * middle * tail + idx * tail) * X->byte_,
-                  X->byte_ * tail);
-        }
+         int32_t idx = index[j] == -1 ? X->shape_.dims_[axis] - 1 : index[j];
+         #if THINKER_PARAM_CHECK
+         if (idx < 0 || idx >= X->shape_.dims_[axis]) {
+             return (T_ERR_INVALID_PARA);
+         }
+#endif
+        THINKER_RET_CHECK(gather_copy_bytes(
+            output + (l * ndim * tail + j * tail) * X->byte_,
+            input + (l * middle * tail + idx * tail) * X->byte_,
+            X->byte_ * tail, Y->mem_.type_ == 1, X->mem_.type_ == 1),
+            "gather_copy_bytes");
       }
   }
-  else
-    return T_ERR_INVALID_DATATYPE;
+  else {
+#if THINKER_PARAM_CHECK
+if (1) {
+    return (T_ERR_INVALID_DATATYPE);
+}
+#endif
+  }
 
   return T_SUCCESS;
 }

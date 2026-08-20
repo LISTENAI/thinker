@@ -70,15 +70,19 @@ tStatus prelu_luna(tTensor *X, tTensor *Y, PreluAttrs *attrs) {
     int32_t slope = attrs->slope;
     int32_t post_shift = attrs->post_shift;
     uint32_t size = getTensorSize(X);
-#ifdef RUNTIME_PARAM_CHECK
-        /*Check the storage locations for input and output, 
-        as it is unnecessary because they have already been limited in tpacker.*/
-        if ((X->mem_.type_ != 2) || (Y->mem_.type_ != 2)) {
-            return T_ERR_INVALID_DATATYPE;
-        }
-        if ((X->dtype_ == Int16) || (Y->dtype_ == Int16)) {
-            return T_ERR_INVALID_DATATYPE;
-        }
+#if THINKER_PARAM_CHECK
+if ((X->mem_.type_ != 2) || (Y->mem_.type_ != 2)) {
+    return (T_ERR_INVALID_DATATYPE);
+}
+
+if ((X->dtype_ == Int16) || (Y->dtype_ == Int16)) {
+    return (T_ERR_INVALID_DATATYPE);
+}
+
+if (post_shift < 0 || post_shift > 63 || slope < 0 || slope > 63 ||
+                    post_shift + slope > 63) {
+    return (T_ERR_INVALID_PARA);
+}
 #endif
     return calc_prelu(X, Y, size, slope, post_shift);
 }

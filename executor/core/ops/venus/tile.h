@@ -153,14 +153,32 @@ int32_t tile_luna(tTensor *X, tTensor *xRepeat, tTensor *Y) {
     int32_t ndim = X->shape_.ndim_;
 
     // Check if dimensions match
-    if (ndim != xRepeat->shape_.dims_[0]) {
-        return -1;
+    #if THINKER_PARAM_CHECK
+    if (ndim <= 0 || Y->shape_.ndim_ != ndim ||
+                        xRepeat->shape_.ndim_ != 1 ||
+                        ndim != xRepeat->shape_.dims_[0]) {
+        return (T_ERR_INVALID_PARA);
     }
+    if (xRepeat->dtype_ != Int64) {
+        return (T_ERR_INVALID_DATATYPE);
+    }
+    if (X->dtype_ != Int8 && X->dtype_ != Float32) {
+        return (T_ERR_INVALID_DATATYPE);
+    }
+    #endif
 
     const uint32_t *inShape = X->shape_.dims_;
     const uint32_t *outShape = Y->shape_.dims_;
     int64_t *repeat = (int64_t *)xRepeat->dptr_;
     int32_t size = getShapeSize(&X->shape_);
+    for (int32_t i = 0; i < ndim; ++i) {
+        #if THINKER_PARAM_CHECK
+        if (repeat[i] <= 0 ||
+                            Y->shape_.dims_[i] != X->shape_.dims_[i] * repeat[i]) {
+            return (T_ERR_INVALID_PARA);
+        }
+        #endif
+    }
 
     if (X->dtype_ == Int8) {
         int8_t *input = (int8_t *)X->dptr_;
@@ -172,7 +190,7 @@ int32_t tile_luna(tTensor *X, tTensor *xRepeat, tTensor *Y) {
         tile_float(input, output, ndim, inShape, outShape, repeat, size);
     }
 
-    return 0;
+    return T_SUCCESS;
 }
 
 #endif

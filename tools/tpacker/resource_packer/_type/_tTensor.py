@@ -12,12 +12,17 @@ def nptype_to_thinker(nptype):
 
 class tTensor(object):
     def __init__(self, tensor, mem_id, mem_offset, mem_type):
-        dtype = nptype_to_thinker(tensor.dtype)
+        if tensor.bits == 0.5:
+            # thinker_type.h defines Int4 as 0x6900. dtype_ and byte_ share a union.
+            dtype = 0x6900
+        else:
+            dtype = nptype_to_thinker(tensor.dtype)
 
         self.obj = tffi.new("tTensor *")
         self.obj.mem_.type_ = mem_type
         self.obj.dtype_ = dtype
-        self.obj.byte_ = np.uint8(tensor.bits)
+        if tensor.bits != 0.5:
+            self.obj.byte_ = np.uint8(tensor.bits)
         self.obj.mem_id_ = mem_id
         self.obj.scale_ = tensor.scale
         self.obj.zero_ = tensor.zero

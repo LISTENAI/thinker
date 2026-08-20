@@ -63,13 +63,26 @@ tStatus relu_luna(tTensor *X, tTensor *Y, tTensor *Workspace) {
     }
 
     uint32_t size = getTensorSize(X);
+    #if THINKER_PARAM_CHECK
+    if ((X->dtype_ != Int8 && X->dtype_ != Int32) ||
+                        (Y->dtype_ != Int8 && Y->dtype_ != Int32)) {
+        return (T_ERR_INVALID_DATATYPE);
+    }
+
+    if (shift < 0 || shift > 63) {
+        return (T_ERR_INVALID_PARA);
+    }
+#endif
     // If input is in PSRAM, process in chunks
     if ((X->mem_.type_ != 2) || (Y->mem_.type_ != 2)) {
-#ifdef RUNTIME_PARAM_CHECK
-        /*Check the storage locations for input and output, 
-        as it is unnecessary because they have already been limited in tpacker.*/
-        if (X->dtype_ != Int8 || Y->dtype_ != Int8) {
-            return T_ERR_INVALID_DATATYPE;
+#if THINKER_PARAM_CHECK
+if (X->dtype_ != Int8 || Y->dtype_ != Int8) {
+    return (T_ERR_INVALID_DATATYPE);
+}
+#endif
+        #if THINKER_RUNTIME_CHECK
+        if (tmp_buf == NULL || tmp_size == 0) {
+            return (T_ERR_NO_WORKSPACE);
         }
 #endif
 

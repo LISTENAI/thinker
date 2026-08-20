@@ -11,8 +11,24 @@ class Expand(Operator):
     def infer_tensor(self, dynamic_shape):
         """Infer the output tensor's shape and data based on input tensors."""
         inputs = self.inputs
+        assert len(inputs) == 2, "Expand requires data and shape inputs"
         X = inputs[0]
-        shape2 = list(inputs[1].data)
+        shape_input = inputs[1]
+        assert shape_input.has_data(), "Expand shape input must be constant"
+        assert shape_input.dtype in (np.dtype(np.int32), np.dtype(np.int64)), \
+            "Expand shape input must be int32 or int64"
+        assert len(shape_input.shape) == 1, "Expand shape input must be one-dimensional"
+        shape_data = np.asarray(shape_input.data)
+        assert shape_data.size == shape_input.shape[0], \
+            "Expand shape input data does not match its tensor shape"
+        shape2 = shape_data.reshape(-1).tolist()
+        assert len(shape2) <= 7, "Expand runtime supports at most 7 dimensions"
+        assert all(isinstance(dim, (int, np.integer)) and dim > 0 for dim in shape2), \
+            "Expand dimensions must be positive integers"
+        assert all(is_sympy(dim) or dim > 0 for dim in X.shape), \
+            "Expand input dimensions must be positive"
+        assert X.dtype.itemsize > 0 and float(X.bits) >= 1, \
+            "Expand runtime only supports byte-addressable data types"
 
         # Ensure both shapes have the same length by padding with 1s
         shape1 = list(X.shape)
@@ -21,7 +37,7 @@ class Expand(Operator):
         else:
             shape1 = [1] * (len(shape2) - len(shape1)) + shape1
 
-        assert len(shape1) == len(shape2), "Shape lengths must be equal after padding"
+        assert len(shape1) <= 7, "Expand runtime supports at most 7 dimensions"
 
         # Determine the output shape
         output_shape = []
@@ -39,11 +55,7 @@ class Expand(Operator):
 
         # Perform data expansion if applicable
         if X.has_data() and not is_sympy(output_shape):
-            input_shape = list(X.data.shape)
-            if len(input_shape) < len(output_shape):
-                input_shape = [1] * (len(output_shape) - len(input_shape)) + input_shape
-            tile_shape = np.array(output_shape) // np.array(input_shape)
-            Y.data = np.tile(X.data, tuple(tile_shape))
+            Y.data = np.broadcast_to(X.data, tuple(output_shape)).copy()
 
         self.outputs = [Y]
 

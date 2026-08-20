@@ -30,6 +30,10 @@ class LogSoftmax(UnaryOperator):
 
         # Ensure axis is within valid range
         assert -len(X.shape) <= axis < len(X.shape), "Axis out of bounds"
+        if self.attrs.get("platform", "venus") == "venus":
+            normalized_axis = axis + len(X.shape) if axis < 0 else axis
+            assert normalized_axis == len(X.shape) - 1, "LogSoftmax on venus only supports the last axis"
+            assert X.dtype == np.float32, "LogSoftmax on venus only supports float32"
 
         # Create output tensor with the same shape as input
         Y = X.clone()

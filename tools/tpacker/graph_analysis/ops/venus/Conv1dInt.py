@@ -33,54 +33,21 @@ def get_Conv1dInt_workspace(
     """
     assert data.mem_type == MemType.SHARE_MEM, "input of conv1d must be in share-memory"
 
-    workspace_size = 0
-    group_align = ALIGN16(group)
-    stride_h = 1
+    workspace_size = out.nbytes if out.mem_type != MemType.SHARE_MEM else 0
     stride_w = strides[0]
-    kernel_h = 1
     kernel_w = kernels[0]
-    pad_l = pads[0]
-    pad_r = pads[1]
 
     c_in = data.shape[1]
-    h_in = 1
     w_in = data.shape[2]
-    data_size = ALIGN8(c_in) * 8 * h_in
+    data_size = ALIGN8(c_in) * ((w_in + 8 * stride_w - 1) // (8 * stride_w)) * (8 * stride_w)
     c_ou = out.shape[1]
-    h_ou = 1
-    w_ou = out.shape[2]
-    out_size = out.nbytes
 
     if kernel_w < 6:
-        weight_size = ALIGN2(c_ou) * ALIGN8(c_in) * kernel_w * kernel_h
+        weight_size = ALIGN2(c_ou) * ALIGN8(c_in) * kernel_w
+        assert data_size <= 65536, "Input size of Conv1dInt exceeds the Venus runtime limit"
         assert weight_size <= 32768 or data_size <= 65536
-        if w_in >= 65536 and weight_size <= 32768:
-            split_num = 1
-            tmp_in_w = w_in
-            ou_w = (w_in + pad_l + pad_r - kernel_w) // stride_w + 1
-            data_size_without_w = ALIGN8(c_in) * 8
-            while tmp_in_w * data_size_without_h > 65536 or (ou_h % split_num) != 0:
-                split_num += 1
-                tmp_in_h = ((ou_h * stride_h) / split_num) + kernel_h - stride_h
-                assert split_num < h_in and split_num < h_ou
-            tmp_ou_h = ou_h / split_num
-            workspace_size = max(c_in * tmp_in_h, c_ou * tmp_ou_h * out.dtype.itemsize)
     else:
-        left_matrix_size = ALIGN4(h_ou) * ALIGN8(c_in * kernel_h)
-        right_matrix_size = ALIGN8(c_in * kernel_h) * ALIGN4(c_ou)
-        if left_matrix_size > 65536:
-            if right_matrix_size <= 32768:
-                split_num = 2
-                split_M = math.ceil(ALIGN4(h_ou) / split_num)
-                while ALIGN4(split_M) * ALIGN8(c_in * kernel_h) > 65536:
-                    split_num += 1
-                    split_M = math.ceil(ALIGN4(h_ou) / split_num)
-                if len(data.shape) == 3:
-                    workspace_size = ALIGN4(h_ou) * c_in * kernel_h + max(c_in * (h_in + pad_t + pad_b), split_M * c_ou * 4 * out.dtype.itemsize)
-                else:
-                    workspace_size = ALIGN4(h_ou) * c_in * kernel_h + c_in * (h_in + pad_t + pad_b)
-            else:
-                raise AssertionError("Conv1dInt does not support this type!")
+        raise AssertionError("Conv1dInt on venus only supports kernels up to 5")
 
     return workspace_size
 
@@ -152,9 +119,13 @@ def Conv1dInt_weight_rearrange(
                 new_weight_data = new_weight_data.transpose(0, 2, 3, 1)
 
                 new_weight = weight.clone()
-                new_weight.data = new_weight_data
-                new_weight.shape = new_weight.data.shape
+                if weight_bits == 4:
+                    new_weight.data = combine4bit_8bit(new_weight_data)
+                else:
+                    new_weight.data = new_weight_data
+                new_weight.shape = new_weight_data.shape
                 new_weight.layout = Layout.NHWC16
+                return new_weight
             else:
                 raise AssertionError("group Conv1dInt should split in op_divide")
         else:
@@ -185,8 +156,12 @@ def Conv1dInt_weight_rearrange(
             new_weight_data = new_weight_data.reshape(shape[0], shape[1] * shape[2], shape[3], -1, 8)
 
             new_weight = weight.clone()
-            new_weight.data = new_weight_data.transpose(0, 1, 3, 2, 4)
-            new_weight.shape = new_weight.data.shape
+            new_weight_data = new_weight_data.transpose(0, 1, 3, 2, 4)
+            if weight_bits == 4:
+                new_weight.data = combine4bit_8bit(new_weight_data)
+            else:
+                new_weight.data = new_weight_data
+            new_weight.shape = new_weight_data.shape
             assert data.layout in {Layout.NCHW, Layout.NCWH}
             if data.layout == Layout.NCHW:
                 new_weight.layout = Layout.NHWC8

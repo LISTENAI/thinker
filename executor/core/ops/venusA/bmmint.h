@@ -1,5 +1,5 @@
-#ifndef _BMMINT_VENUS_H_
-#define _BMMINT_VENUS_H_
+#ifndef _BMMINT_VENUSA_H_
+#define _BMMINT_VENUSA_H_
 
 #include "core/comm/thinker_log.h"
 #include "core/comm/utils.h"
@@ -20,44 +20,80 @@
  * @return int32_t Operation status
  */
 int32_t bmmint_luna(tTensor *lhs, tTensor *rhs, tTensor *out, tTensor *workspace) {
-    // Check input and output data types
-    if (lhs->dtype_ != Int8 && lhs->dtype_ != Int16 && lhs->dtype_ != Int32) {
-        return T_ERR_INVALID_DATATYPE;
-    }
-    if (out->dtype_ != Int8 && out->dtype_ != Int16 && out->dtype_ != Int32) {
-        return T_ERR_INVALID_DATATYPE;
+    #if THINKER_PARAM_CHECK
+    if (lhs == NULL || rhs == NULL || out == NULL) {
+        return (T_ERR_INVALID_PARA);
     }
 
-    // Initialize dimensions and offsets
+    if ((lhs->dtype_ != Int8 && lhs->dtype_ != Int16 && lhs->dtype_ != Int32) ||
+                        rhs->dtype_ != lhs->dtype_ ||
+                        (out->dtype_ != Int8 && out->dtype_ != Int16 && out->dtype_ != Int32)) {
+        return (T_ERR_INVALID_PARA);
+    }
+#endif
     int32_t batch = 1;
     int32_t n_dim = lhs->shape_.ndim_;
+    #if THINKER_PARAM_CHECK
+    if (n_dim < 2 || n_dim > 3 || rhs->shape_.ndim_ != n_dim ||
+                        out->shape_.ndim_ != n_dim) {
+        return (T_ERR_INVALID_PARA);
+    }
+#endif
     int32_t M = lhs->shape_.dims_[n_dim - 2];
     int32_t N = lhs->shape_.dims_[n_dim - 1];
     int32_t L = rhs->shape_.dims_[n_dim - 1];
     int32_t src1_offset = M * N;
     int32_t src2_offset = N * L;
     int32_t dst_offset = M * L;
+    #if THINKER_RUNTIME_CHECK
+    if (M <= 0 || N <= 0 || L <= 0 ||
+                          rhs->shape_.dims_[n_dim - 2] != N ||
+                          out->shape_.dims_[n_dim - 2] != M ||
+                          out->shape_.dims_[n_dim - 1] != L || lhs->dptr_ == 0 ||
+                          rhs->dptr_ == 0 || out->dptr_ == 0) {
+        return (T_ERR_INVALID_PARA);
+    }
+#endif
+    #if THINKER_RUNTIME_CHECK
+    if (out->dptr_ == lhs->dptr_ || out->dptr_ == rhs->dptr_) {
+        return (T_ERR_NO_SUPPORT_OP);
+    }
+#endif
 
     // Calculate scale factors
     int32_t q_l = (int32_t)lhs->scale_;
     int32_t q_r = (int32_t)rhs->scale_;
     int32_t q_o = (int32_t)out->scale_;
-    int32_t shift = q_l + q_r - q_o;
-    int32_t workspace_size = workspace ? workspace->shape_.dims_[0] : 0;
+    int64_t shift_value = (int64_t)q_l + q_r - q_o;
     int32_t y_in_psram = (out->mem_.type_ != 2);
     int32_t output_size = dst_offset * out->byte_;
 
-    if (shift < 0) {
-        return T_ERR_FAIL;
+    #if THINKER_PARAM_CHECK
+    if (shift_value < 0 || shift_value > 63) {
+        return (T_ERR_INVALID_PARA);
     }
+#endif
+    int32_t shift = (int32_t)shift_value;
 
     if (n_dim == 3) {
         batch = lhs->shape_.dims_[0];
+        #if THINKER_RUNTIME_CHECK
+        if (batch <= 0 || rhs->shape_.dims_[0] != batch ||
+                              out->shape_.dims_[0] != batch) {
+            return (T_ERR_INVALID_PARA);
+        }
+#endif
     }
 
-    if (y_in_psram && (workspace == NULL || workspace_size < output_size)) {
-        return T_ERR_FAIL;
+    #if THINKER_RUNTIME_CHECK
+    if (y_in_psram &&
+                          (workspace == NULL || workspace->dptr_ == 0 ||
+                           workspace->mem_.type_ != 2 || workspace->dtype_ != Int8 ||
+                           workspace->shape_.ndim_ != 1 ||
+                           workspace->shape_.dims_[0] < (uint32_t)output_size)) {
+        return (T_ERR_NO_WORKSPACE);
     }
+#endif
 
     // Dispatch based on input and output data types
     if (lhs->dtype_ == Int8) {

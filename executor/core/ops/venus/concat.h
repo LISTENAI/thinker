@@ -49,6 +49,40 @@ static void scale_dequant8bit(int8_t *src, int8_t *dst, int32_t size, int8_t sca
  */
 int32_t concat_luna(tTensor **tensors, int32_t axis, int32_t input_num,
                     tTensor *workspace, tTensor *output) {
+    #if THINKER_PARAM_CHECK
+    if (input_num <= 0 || axis < 0 ||
+                        axis >= output->shape_.ndim_) {
+        return (T_ERR_INVALID_PARA);
+    }
+    #endif
+    for (int32_t i = 0; i < input_num; ++i) {
+        #if THINKER_PARAM_CHECK
+        if (tensors[i]->dtype_ != tensors[0]->dtype_ ||
+                            tensors[i]->shape_.ndim_ != output->shape_.ndim_) {
+            return (T_ERR_INVALID_DATA);
+        }
+        #endif
+        if (tensors[0]->dtype_ == Int8 && tensors[i]->scale_ != output->scale_) {
+            int32_t shift = output->scale_ - tensors[i]->scale_;
+            #if THINKER_PARAM_CHECK
+            if (shift > 6 || shift < -63) {
+                return (T_ERR_INVALID_PARA);
+            }
+            #endif
+            #if THINKER_RUNTIME_CHECK
+            if (tensors[i]->mem_.type_ != 2 ||
+                                  output->mem_.type_ != 2) {
+                return (T_ERR_NO_SUPPORT_OP);
+            }
+            #endif
+        }
+        #if THINKER_PARAM_CHECK
+        if (tensors[0]->dtype_ != Int8 &&
+                            tensors[i]->scale_ != output->scale_) {
+            return (T_ERR_INVALID_PARA);
+        }
+        #endif
+    }
     int32_t leading = 1, mid = output->shape_.dims_[axis], trailing = 1;
     int8_t *data_temp = (workspace == NULL) ? NULL : (int8_t *)workspace->dptr_;
 
@@ -92,10 +126,7 @@ int32_t concat_luna(tTensor **tensors, int32_t axis, int32_t input_num,
                             memcpy((int8_t *)output->dptr_, output_ptr, hw_curr);
                         }
                     } else {
-                        if ((2 == tensors[i]->mem_.type_) && (2 == output->mem_.type_))
-                            API_LIB(memcpy)(output_ptr, src, hw_curr);
-                        else
-                            memcpy(output_ptr, src, hw_curr);
+                        memcpy(output_ptr, src, hw_curr);
                     }
 
                     output_ptr += hw_curr;
@@ -103,7 +134,7 @@ int32_t concat_luna(tTensor **tensors, int32_t axis, int32_t input_num,
             } else {
                 int32_t hw = mid * trailing * output->byte_;
                 for (int32_t l = 0; l < leading; l++) {
-                    int8_t *output_ptr = (int8_t *)(output->dptr_) + l * hw;
+                    int32_t output_offset = 0;
                     for (int32_t i = 0; i < input_num; ++i) {
                         int32_t hw_curr = tensors[i]->shape_.dims_[axis] * trailing * output->byte_;
                         int8_t *indptr_curr = (int8_t *)(tensors[i]->dptr_) + l * hw_curr;
@@ -112,7 +143,11 @@ int32_t concat_luna(tTensor **tensors, int32_t axis, int32_t input_num,
                         if (0 == hw_curr)
                             continue;
 
+                        int8_t *output_real =
+                            (int8_t *)output->dptr_ + l * hw + output_offset;
+
                         if (input_scale != output->scale_) {
+                            int8_t *output_ptr = output_real;
                             if (2 != tensors[i]->mem_.type_) {
                                 memcpy(data_temp, indptr_curr, hw_curr);
                                 indptr_curr = data_temp;
@@ -130,15 +165,12 @@ int32_t concat_luna(tTensor **tensors, int32_t axis, int32_t input_num,
                             }
 
                             if (2 != output->mem_.type_) {
-                                memcpy((int8_t *)output->dptr_ + l * hw + i * hw_curr, output_ptr, hw_curr);
+                                memcpy(output_real, output_ptr, hw_curr);
                             }
                         } else {
-                            if ((2 == tensors[i]->mem_.type_) && (2 == output->mem_.type_))
-                                THINKER_RET_CHECK(API_LIB(memcpy)(output_ptr, indptr_curr, hw_curr), "luna_memcpy");
-                            else
-                                memcpy(output_ptr, indptr_curr, hw_curr);
+                            memcpy(output_real, indptr_curr, hw_curr);
                         }
-                        output_ptr += hw_curr;
+                        output_offset += hw_curr;
                     }
                 }
             }

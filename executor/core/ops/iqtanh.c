@@ -1,5 +1,6 @@
 #undef __OP__
 #define __OP__ iqTanh
+#include "core/comm/utils.h"
 #include "core/operator_register.h"
 #include "thinker_status.h"
 
@@ -25,8 +26,35 @@
  * @return: Status code indicating success or failure
  */
 int32_t X(Forward)(tOperator *op, tTensor **tensors, int32_t num_tensor, tDMA_List *list) {
-    // Validate tensor count
-    CHECK_EQ(num_tensor, (op->num_input_ + op->num_output_));
+    (void)list;
+#if THINKER_PARAM_CHECK
+    if (op == NULL || tensors == NULL || op->num_input_ != 1 ||
+                        op->num_output_ != 1 || num_tensor != 2) {
+        return (T_ERR_INVALID_PARA);
+    }
+#endif
+    tTensor *X = tensors[0];
+    tTensor *Y = tensors[1];
+#if THINKER_PARAM_CHECK
+    if (X == NULL || Y == NULL || X->dptr_ == 0 || Y->dptr_ == 0 ||
+                        X->shape_.ndim_ == 0 || !equalShape(&X->shape_, &Y->shape_)) {
+        return (T_ERR_INVALID_PARA);
+    }
+
+    if (Y->dtype_ != Int8) {
+        return (T_ERR_INVALID_DATATYPE);
+    }
+
+    if (X->zero_ != 0 || Y->zero_ != 0 ||
+                        !isfinite(X->scale_) || !isfinite(Y->scale_) ||
+                        X->scale_ != floorf(X->scale_) || Y->scale_ != 7) {
+        return (T_ERR_INVALID_DATA);
+    }
+
+    if (X->mem_.type_ != 2 || Y->mem_.type_ != 2) {
+        return (T_ERR_NO_SUPPORT_OP);
+    }
+#endif
     
 #if THINKER_USE_VENUS || THINKER_USE_ARCS || THINKER_USE_VENUSA
 #if THINKER_PROFILE
@@ -34,7 +62,7 @@ int32_t X(Forward)(tOperator *op, tTensor **tensors, int32_t num_tensor, tDMA_Li
 #endif
 
     // Call hardware-specific tanh implementation
-    THINKER_RET_CHECK(iqtanh(tensors[0], tensors[op->num_input_]), "iqtanh");
+    THINKER_RET_CHECK(iqtanh(X, Y), "iqtanh");
 
 #if THINKER_PROFILE
     uint64_t finish_t = tick_count();

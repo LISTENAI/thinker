@@ -30,6 +30,15 @@
  */
 int32_t X(Forward)(tOperator* op, tTensor** tensors, int32_t num_tensor, tDMA_List* list) {
     // Validate tensor count and input requirements
+#if THINKER_PARAM_CHECK
+    if (op == NULL || tensors == NULL || list == NULL) {
+        return (T_ERR_INVALID_PARA);
+    }
+
+    if (op->num_output_ != 1) {
+        return (T_ERR_INVALID_PARA);
+    }
+#endif
     CHECK_GE(num_tensor, (op->num_input_ + op->num_output_));
     CHECK_GE(op->num_input_, 2);
     CHECK_LE(op->num_input_, 3);
@@ -37,6 +46,11 @@ int32_t X(Forward)(tOperator* op, tTensor** tensors, int32_t num_tensor, tDMA_Li
     // Get transpose convolution attributes
     ConvTranspose2dIntAttrs* attrs = (ConvTranspose2dIntAttrs*)((int8_t*)op + op->attr_offset_);
     tTensor* X = ((tTensor**)tensors)[0];
+#if THINKER_PARAM_CHECK
+    if (X == NULL || X->shape_.ndim_ != 4 || X->shape_.dims_[0] != 1) {
+        return (T_ERR_INVALID_PARA);
+    }
+#endif
     
     // Handle weight data from DMA list if present
 #if THINKER_USE_VENUS || THINKER_USE_ARCS || THINKER_USE_VENUSA
@@ -47,7 +61,20 @@ int32_t X(Forward)(tOperator* op, tTensor** tensors, int32_t num_tensor, tDMA_Li
     // Get weight and output tensors
     tTensor* W = ((tTensor**)tensors)[1];
     tTensor* Y = ((tTensor**)tensors)[op->num_input_];
-    
+#if THINKER_PARAM_CHECK
+    if (W == NULL || Y == NULL || Y->shape_.ndim_ != 4 ||
+                        Y->shape_.dims_[0] != 1 || attrs->quant_type > 1) {
+        return (T_ERR_INVALID_PARA);
+    }
+
+    if (op->num_input_ == 3) {
+        tTensor *Bias = tensors[op->num_input_ - 1];
+        if (Bias == NULL || Bias->dtype_ != Int32) {
+            return (T_ERR_INVALID_DATATYPE);
+        }
+    }
+#endif
+
     // Initialize temporary tensors
     tTensor* Temp = NULL;
     tTensor* dma_temp = NULL;
@@ -77,7 +104,7 @@ int32_t X(Forward)(tOperator* op, tTensor** tensors, int32_t num_tensor, tDMA_Li
             tTensor* Bias = ((tTensor**)tensors)[op->num_input_ - 1];
             tTensor Bias_temp = Bias[0];
             Bias_temp.scale_ = X->scale_ + W->scale_;
-            int32_t size = getShapeSize(&(W->shape_));
+            size_t size = getTensorDataSize(&Weight_temp);
             Bias_temp.dptr_ = (addr_type)((int8_t*)Weight_temp.dptr_ + ALIGN16(size));
             THINKER_RET_CHECK(deconv2dint_luna(X, &Weight_temp, &Bias_temp, Y, Temp, attrs), "deconv2dint_luna");
         } 

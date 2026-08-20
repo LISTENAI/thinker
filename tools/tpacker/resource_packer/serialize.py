@@ -52,7 +52,7 @@ def serialize_model(graph: Graph, memory_plan: Dict[int, List[int]], device: Dev
     # 构建模型
     packed_model = tModel(
         graph.platform,
-        tMemoryList(shared_memory_list, runtime_memory_list, device.sram_size),
+        tMemoryList(shared_memory_list, runtime_memory_list, device.sram_size, device.psram_size),
         tTensorList(tensor_list),
         tOperatorList(operator_list),
         tIOInfo(input_list, output_list),

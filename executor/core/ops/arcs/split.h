@@ -27,14 +27,33 @@
  * @param attrs Split attributes including axis and split sizes
  * @return Operation status
  */
-int32_t split_venus(tTensor *X, tTensor **tensors, SliceAttrs *attrs) {    
+static int32_t split_copy_bytes(void *dst, const void *src, uint32_t size,
+                                bool dst_psram, bool src_psram) {
+    if (size == 0 || dst == src) return T_SUCCESS;
+    if (dst_psram && src_psram) {
+        return API_LIB(psrammemcpy_i8o8)((int8_t *)dst, (int8_t *)src, size);
+    }
+    if (dst_psram) {
+        opi_psram_cpy_out(dst, (void *)src, size);
+        return T_SUCCESS;
+    }
+    if (src_psram) {
+        opi_psram_cpy_in(dst, (void *)src, size);
+        return T_SUCCESS;
+    }
+    return API_LIB(memcpy_i8o8)((int8_t *)dst, (int8_t *)src, size);
+}
+
+int32_t split_venus(tTensor *X, tTensor **tensors, SplitAttrs *attrs) {
     // Handle negative axis values
     if (attrs->axis < 0) {
         attrs->axis += X->shape_.ndim_;
     }
+    #ifdef RUNTIME_PARAM_CHECK
     if (attrs->axis >= X->shape_.ndim_) {
         return T_ERR_INVALID_PARA;
     }
+    #endif
 
     // Calculate dimensions for memory operations
     int32_t leading = 1, middle = 1, stride = 1;
@@ -59,26 +78,21 @@ int32_t split_venus(tTensor *X, tTensor **tensors, SliceAttrs *attrs) {
         const tTensor *out = tensors[n + 1];
         
         // Validate data types match
+        #ifdef RUNTIME_PARAM_CHECK
         if (X->dtype_ != out->dtype_)
             return T_ERR_INVALID_DATATYPE;
+        #endif
 
         // Copy data based on memory type
-        if(2 == out->mem_.type_) {
-            for (int32_t i = 0; i < leading; ++i) {
-                int8_t *idst = (int8_t *)(out->dptr_) + i * attrs->split[n] * stride * out->byte_;
-                int8_t *isrc = (int8_t *)(X->dptr_) + i * middle * stride + offset * stride * X->byte_;
-                THINKER_RET_CHECK(API_LIB(memcpy_i8o8)(idst, isrc, sizeof(int8_t) * attrs->split[n] * stride * out->byte_), "luna_memcpy_i8o8");
-            }
-        } else {
-            for (int32_t i = 0; i < leading; ++i) {
-                int8_t *idst = (int8_t *)(out->dptr_) + i * attrs->split[n] * stride * out->byte_;
-                int8_t *isrc = (int8_t *)(X->dptr_) + i * middle * stride * X->byte_ + offset * stride * X->byte_;
-                opi_psram_cpy_out(idst, isrc, sizeof(int8_t) * attrs->split[n] * stride * out->byte_);
-            }
-#if !(defined(WIN32) || defined(linux))
-            if (2 != out->mem_.type_)
-                HAL_FlushInvalidateDCache_by_Addr((uint32_t *)out->dptr_, leading * attrs->split[n] * stride * out->byte_);
-#endif
+        for (int32_t i = 0; i < leading; ++i) {
+            int8_t *idst = (int8_t *)out->dptr_ +
+                           i * attrs->split[n] * stride * out->byte_;
+            int8_t *isrc = (int8_t *)X->dptr_ +
+                           (i * middle + offset) * stride * X->byte_;
+            THINKER_RET_CHECK(split_copy_bytes(
+                idst, isrc, attrs->split[n] * stride * out->byte_,
+                out->mem_.type_ == 1, X->mem_.type_ == 1),
+                "split_copy_bytes");
         }
         
         offset += attrs->split[n];

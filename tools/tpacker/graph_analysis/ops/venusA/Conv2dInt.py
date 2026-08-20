@@ -38,19 +38,22 @@ def get_Conv2dInt_workspace(
     c_in, h_in, w_in = data.shape[1:4]
     ou_c, ou_h, ou_w = out.shape[1:4]
 
-    data_size = (((w_in + 8 * stride_w - 1) // (8 * stride_w)) * (8 * stride_w) * ALIGN8(c_in) * h_in)
-    data_size_withouth = (((w_in + 8 * stride_w - 1) // (8 * stride_w)) * (8 * stride_w) * ALIGN8(c_in))
+    align_w = (((w_in + 8 * stride_w - 1) // (8 * stride_w)) * (8 * stride_w))
+    data_size = align_w * ALIGN8(c_in) * h_in
+    data_size_withouth = align_w * ALIGN8(c_in)
 
     if group != 1:
         if group == ou_c:  # Depthwise convolution
-            data_size_align = (((w_in + 8 * stride_w - 1) // (8 * stride_w)) * (8 * stride_w) * ALIGN4(c_in) * h_in)
-            data_size_withouth = (((w_in + 8 * stride_w - 1) // (8 * stride_w)) * (8 * stride_w) * ALIGN4(c_in))
-            assert data_size_withouth * kernel_h <= 32768
+            effective_kernel_h = (kernel_h - 1) * dilations[0] + 1
+            h_eff = h_in + pad_up + pad_down
+            data_size_align = align_w * ALIGN4(c_in) * h_eff
+            data_size_withouth = align_w * ALIGN4(c_in)
+            assert data_size_withouth * effective_kernel_h <= 32768
 
             if out.mem_type != MemType.SHARE_MEM:
-                if data_size > 32768:
+                if data_size_align > 32768:
                     target_elements = 32768 // data_size_withouth
-                    split_max_ou_h = max((target_elements - kernel_h + stride_h) // stride_h, 1)
+                    split_max_ou_h = max((target_elements - effective_kernel_h + stride_h) // stride_h, 1)
                     split_num = (ou_h // split_max_ou_h) if (ou_h % split_max_ou_h == 0) else (ou_h // split_max_ou_h + 1)
                     tmp_ou_h = max(split_max_ou_h, ou_h - (split_num - 1) * split_max_ou_h)
                     return ou_c * tmp_ou_h * ou_w
@@ -121,6 +124,7 @@ def Conv2dInt_weight_rearrange(
                 num_output_align = ALIGN8(kernel_num)
                 kernel_h_align = ALIGN2(kernel_h)
                 kernel_size = num_output_align * kernel_h_align * kernel_w
+                assert kernel_size <= 32768, "kernel size of depthwise Conv2dInt must be less than 32KB"
 
                 new_weight_data = np.zeros(
                     (num_output_align, num_input_align, kernel_h_align, kernel_w),

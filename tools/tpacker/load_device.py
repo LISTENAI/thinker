@@ -9,6 +9,7 @@ from typing import Dict, List, Tuple
 
 from .devices import *
 from .enum_defines import Colors, DeviceConfig
+from .platform_utils import normalize_platform_name
 
 def load_device_info(graph_platform: str, device_config: DeviceConfig) -> Device:
     """Load device information and adjust memory settings based on configuration
@@ -20,6 +21,9 @@ def load_device_info(graph_platform: str, device_config: DeviceConfig) -> Device
     Returns:
         Device: Configured device object
     """
+    graph_platform = normalize_platform_name(graph_platform)
+    device_config.platform = normalize_platform_name(device_config.platform)
+
     # Check and set platform
     if device_config.platform:
         assert graph_platform.upper() == device_config.platform.upper(), "Platform mismatch"
@@ -30,7 +34,10 @@ def load_device_info(graph_platform: str, device_config: DeviceConfig) -> Device
     device = create_device_from_name(graph_platform)
     
     # Adjust SRAM size
-    if device_config.ramsize < device.sram_size:
+    if device_config.ramsize is None:
+        device_config.ramsize = device.sram_size
+        print(f"{Colors.GREEN}4.1 use platform maximum sram size{Colors.RESET}")
+    elif device_config.ramsize < device.sram_size:
         print(f'{Colors.YELLOW}Warning: The set sram size({device_config.ramsize}) is less than the default value({device.sram_size}) and it works{Colors.RESET}')
         device.sram_size = device_config.ramsize
     elif device_config.ramsize > device.sram_size:
@@ -40,7 +47,10 @@ def load_device_info(graph_platform: str, device_config: DeviceConfig) -> Device
         print(f"{Colors.GREEN}4.1 set sram size passed{Colors.RESET}")
 
     # Adjust PSRAM size
-    if device_config.psramsize < device.psram_size:
+    if device_config.psramsize is None:
+        device_config.psramsize = device.psram_size
+        print(f"{Colors.GREEN}4.2 use platform maximum psram size{Colors.RESET}")
+    elif device_config.psramsize < device.psram_size:
         print(f'{Colors.YELLOW}Warning: The set psram size({device_config.psramsize}) is less than the default value({device.psram_size}) and it works{Colors.RESET}')
         device.psram_size = device_config.psramsize
     elif device_config.psramsize > device.psram_size:

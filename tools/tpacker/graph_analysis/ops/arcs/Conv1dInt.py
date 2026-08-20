@@ -32,6 +32,8 @@ def get_Conv1dInt_workspace(
         AssertionError: If input memory type is not SHARE_MEM
     """
     assert data.mem_type == MemType.SHARE_MEM, "input of conv1d must be in share-memory"
+    if out.mem_type != MemType.SHARE_MEM:
+        return out.nbytes
     return 0
 
 
@@ -86,7 +88,7 @@ def Conv1dInt_weight_rearrange(
                 for p in range(kernel_num):
                     new_weight_data[p, :, :] = weight.data[p, :, :]
 
-                new_weight_data = new_weight_data.reshape(-1, 8, 1, kernel_h)
+                new_weight_data = new_weight_data.reshape(-1, 8, 1, kernel_w)
                 new_weight_data = new_weight_data.transpose(0, 2, 3, 1)
                 new_weight.data = new_weight_data
                 new_weight.shape = new_weight_data.shape
@@ -116,12 +118,13 @@ def Conv1dInt_weight_rearrange(
             new_weight_data = new_weight_data.transpose(0, 1, 3, 2, 4)
 
             assert weight.layout in {Layout.NCHW, Layout.NCWH}
+            logical_shape = new_weight_data.shape
             if weight_bits == 4:
                 new_weight.data = combine4bit_8bit(new_weight_data)
             else:
                 new_weight.data = new_weight_data
 
-            new_weight.shape = new_weight.data.shape
+            new_weight.shape = logical_shape
             new_weight.layout = Layout.NHWC8 if weight.layout == Layout.NCHW else Layout.NWHC8
             return new_weight
     else:

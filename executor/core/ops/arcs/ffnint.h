@@ -80,6 +80,70 @@ int32_t luna_ffn_int_trans(int8_t *p_input,
  */
 int32_t ffnint_luna(tTensor *X, tTensor *weight1, tTensor *bias1, tTensor *weight2, tTensor *bias2, 
                     tTensor *workspace, tTensor *Y, FFNIntAttrs *attrs) {
+    int64_t shift0;
+    int64_t shift1;
+    int64_t required_workspace;
+    int32_t seq_len;
+    int32_t dim_in;
+    int32_t dim_hidden;
+    int32_t dim_out;
+
+    #if THINKER_PARAM_CHECK
+    if (X == NULL || weight1 == NULL || bias1 == NULL || weight2 == NULL || bias2 == NULL ||
+                        workspace == NULL || Y == NULL || attrs == NULL) {
+        return (T_ERR_INVALID_PARA);
+    }
+
+    if (X->dtype_ != Int8 || weight1->dtype_ != Int8 || weight2->dtype_ != Int8 ||
+                        bias1->dtype_ != Int32 || bias2->dtype_ != Int32 || Y->dtype_ != Int8) {
+        return (T_ERR_INVALID_DATATYPE);
+    }
+
+    if (X->shape_.ndim_ != 3 || Y->shape_.ndim_ != 3 || weight1->shape_.ndim_ != 2 ||
+                        weight2->shape_.ndim_ != 2 || bias1->shape_.ndim_ != 1 || bias2->shape_.ndim_ != 1) {
+        return (T_ERR_INVALID_PARA);
+    }
+#endif
+    #if THINKER_RUNTIME_CHECK
+    if (X->mem_.type_ != 2 || Y->mem_.type_ != 2 || workspace->mem_.type_ != 2 ||
+                          workspace->dptr_ == 0) {
+        return (T_ERR_INVALID_PLATFROM);
+    }
+
+    if (X->dptr_ == Y->dptr_ || Y->dptr_ == workspace->dptr_) {
+        return (T_ERR_NO_SUPPORT_OP);
+    }
+#endif
+
+    seq_len = X->shape_.dims_[0] * X->shape_.dims_[1];
+    dim_in = X->shape_.dims_[2];
+    dim_hidden = weight1->shape_.dims_[0];
+    dim_out = weight2->shape_.dims_[0];
+    #if THINKER_PARAM_CHECK
+    if (seq_len <= 0 || dim_in <= 0 || dim_hidden <= 0 || dim_out <= 0 ||
+                        Y->shape_.dims_[0] != X->shape_.dims_[0] || Y->shape_.dims_[1] != X->shape_.dims_[1] ||
+                        Y->shape_.dims_[2] != dim_out || weight1->shape_.dims_[1] != dim_in ||
+                        weight2->shape_.dims_[1] != dim_hidden || bias1->shape_.dims_[0] != dim_hidden ||
+                        bias2->shape_.dims_[0] != dim_out) {
+        return (T_ERR_INVALID_PARA);
+    }
+#endif
+    shift0 = (int64_t)X->scale_ + weight1->scale_ - attrs->middle_scale;
+    shift1 = (int64_t)attrs->middle_scale + weight2->scale_ - Y->scale_;
+    #if THINKER_PARAM_CHECK
+    if (shift0 < 0 || shift0 > 63 || shift1 < 0 || shift1 > 63) {
+        return (T_ERR_INVALID_PARA);
+    }
+#endif
+    required_workspace = (int64_t)(dim_hidden + dim_out) * sizeof(int32_t) +
+                         (int64_t)seq_len * dim_hidden;
+    #if THINKER_RUNTIME_CHECK
+    if (required_workspace > INT32_MAX ||
+                          (int64_t)getTensorSize(workspace) * workspace->byte_ < required_workspace) {
+        return (T_ERR_NO_WORKSPACE);
+    }
+#endif
+
     int8_t *p_input = (int8_t *)X->dptr_;
     int8_t *p_weight_m0 = (int8_t *)weight1->dptr_;
     int8_t *p_weight_m1 = (int8_t *)weight2->dptr_;
@@ -94,11 +158,6 @@ int32_t ffnint_luna(tTensor *X, tTensor *weight1, tTensor *bias1, tTensor *weigh
     THINKER_RET_CHECK(API_LIB(memcpy_i8o8)((int8_t *)p_bias_m1, (int8_t *)bias2->dptr_, size_bias), "luna_memcpy_i8o8");
 
     int8_t *p_temp = (int8_t *)p_bias_m1 + getShapeSize(&(bias2->shape_)) * 4;
-
-    int32_t seq_len = X->shape_.dims_[0] * X->shape_.dims_[1];
-    int32_t dim_in = X->shape_.dims_[2];
-    int32_t dim_hidden = weight1->shape_.dims_[0];
-    int32_t dim_out = weight2->shape_.dims_[0];
 
     int32_t q_input_m0 = X->scale_;
     int32_t q_weight_m0 = weight1->scale_;

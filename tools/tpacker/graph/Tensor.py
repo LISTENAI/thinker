@@ -1,3 +1,4 @@
+import math
 import numpy as np
 from ..enum_defines import Layout, ALIGN16
 
@@ -32,7 +33,8 @@ class Tensor:
 
     @property
     def nbytes(self):
-        tmp = ALIGN16((int)(self.size * self.dtype.itemsize))
+        payload_bytes = math.ceil(self.size * float(self.bits))
+        tmp = ALIGN16(payload_bytes)
         return tmp
 
     @property

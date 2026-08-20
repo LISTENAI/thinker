@@ -16,6 +16,132 @@
 #endif
 #include "thinker_status.h"
 
+
+static int32_t iqpad_luna_generic(tTensor *X, tTensor *P, tTensor *data, tTensor *workspace, tTensor *Y, iqPadAttrs *attrs) {
+    int32_t ndim = X->shape_.ndim_;
+#if THINKER_PARAM_CHECK
+if (ndim <= 0 || ndim > 4 || X->dtype_ != Int8 || Y->dtype_ != Int8) {
+    return (T_ERR_INVALID_PARA);
+}
+#endif
+    int8_t fill_data = *((int8_t *)data->dptr_);
+#if THINKER_PARAM_CHECK
+if (fill_data != 0) {
+    return (T_ERR_INVALID_PARA);
+}
+#endif
+
+    int32_t pads_len = P->shape_.dims_[0];
+    int32_t before[4] = {0};
+    int32_t after[4] = {0};
+    int64_t *pads = (int64_t *)P->dptr_;
+    if (pads_len == 2 * ndim) {
+        for (int32_t i = 0; i < ndim; ++i) {
+            before[i] = (int32_t)pads[i];
+            after[i] = (int32_t)pads[i + ndim];
+        }
+    } else if (pads_len <= 8 && (pads_len & 1) == 0) {
+        int32_t pad_dims = pads_len >> 1;
+#if THINKER_PARAM_CHECK
+if (pad_dims > ndim) {
+    return (T_ERR_INVALID_PARA);
+}
+#endif
+        int32_t base = ndim - pad_dims;
+        for (int32_t i = 0; i < pad_dims; ++i) {
+            before[base + i] = (int32_t)pads[i];
+            after[base + i] = (int32_t)pads[i + pad_dims];
+        }
+    } else {
+#if THINKER_PARAM_CHECK
+if (1) {
+    return (T_ERR_INVALID_PARA);
+}
+#endif
+    }
+
+    int32_t in_stride[4] = {1, 1, 1, 1};
+    int32_t out_dims[4] = {1, 1, 1, 1};
+    int32_t out_coord[4] = {0, 0, 0, 0};
+    int32_t total_out = 1;
+    for (int32_t i = ndim - 1; i >= 0; --i) {
+#if THINKER_PARAM_CHECK
+if (before[i] < 0 || after[i] < 0) {
+    return (T_ERR_INVALID_PARA);
+}
+
+if (attrs->mode == 2 && (before[i] >= X->shape_.dims_[i] || after[i] >= X->shape_.dims_[i])) {
+    return (T_ERR_INVALID_PARA);
+}
+#endif
+        out_dims[i] = X->shape_.dims_[i] + before[i] + after[i];
+#if THINKER_PARAM_CHECK
+if (out_dims[i] != Y->shape_.dims_[i]) {
+    return (T_ERR_INVALID_PARA);
+}
+#endif
+        total_out *= out_dims[i];
+        if (i + 1 < ndim) {
+            in_stride[i] = in_stride[i + 1] * X->shape_.dims_[i + 1];
+        }
+    }
+
+    int8_t *dst = (int8_t *)Y->dptr_;
+    int32_t dst_in_psram = (Y->mem_.type_ != 2);
+    if (dst_in_psram) {
+        size_t workspace_size = workspace ? getTensorDataSize(workspace) : 0;
+        if (workspace == NULL || workspace_size < total_out) {
+            return T_ERR_NO_WORKSPACE;
+        }
+        dst = (int8_t *)workspace->dptr_;
+    }
+
+    int8_t *src = (int8_t *)X->dptr_;
+    for (int32_t out_idx = 0; out_idx < total_out; ++out_idx) {
+        int32_t src_offset = 0;
+        int32_t use_pad = 0;
+        for (int32_t d = 0; d < ndim; ++d) {
+            int32_t pos = out_coord[d] - before[d];
+            if (pos < 0 || pos >= X->shape_.dims_[d]) {
+                if (attrs->mode == 0) {
+                    use_pad = 1;
+                    break;
+                } else if (attrs->mode == 1) {
+                    pos = pos < 0 ? 0 : X->shape_.dims_[d] - 1;
+                } else if (attrs->mode == 2) {
+                    pos = pos < 0 ? -pos : (2 * X->shape_.dims_[d] - 2 - pos);
+#if THINKER_PARAM_CHECK
+if (pos < 0 || pos >= X->shape_.dims_[d]) {
+    return (T_ERR_INVALID_PARA);
+}
+#endif
+                } else {
+#if THINKER_PARAM_CHECK
+if (1) {
+    return (T_ERR_INVALID_PARA);
+}
+#endif
+                }
+            }
+            src_offset += pos * in_stride[d];
+        }
+        dst[out_idx] = use_pad ? fill_data : src[src_offset];
+
+        for (int32_t d = ndim - 1; d >= 0; --d) {
+            out_coord[d]++;
+            if (out_coord[d] < out_dims[d]) {
+                break;
+            }
+            out_coord[d] = 0;
+        }
+    }
+
+    if (dst_in_psram) {
+        opi_psram_cpy_out((void *)Y->dptr_, dst, total_out);
+    }
+    return T_SUCCESS;
+}
+
 /**
  * @brief Tensor padding operation implementation
  * @param X Input tensor
@@ -27,10 +153,34 @@
  * @return int32_t Operation status
  */
 int32_t iqpad_luna(tTensor *X, tTensor *P, tTensor *data, tTensor *workspace, tTensor *Y, iqPadAttrs *attrs) {
-    // Check if input tensor is 4D
-    if (X->shape_.ndim_ != 4) {
-        return T_ERR_INVALID_DATA;
+    #if THINKER_PARAM_CHECK
+    if (X == NULL || P == NULL || data == NULL || Y == NULL ||
+                        attrs == NULL || X->dptr_ == 0 || P->dptr_ == 0 ||
+                        data->dptr_ == 0 || Y->dptr_ == 0) {
+        return (T_ERR_INVALID_PARA);
     }
+
+    if (X->dtype_ != Int8 || Y->dtype_ != Int8 ||
+                        P->dtype_ != Int64 || data->dtype_ != Int8 ||
+                        P->shape_.ndim_ != 1 || getTensorSize(data) != 1) {
+        return (T_ERR_INVALID_DATATYPE);
+    }
+
+    if (X->mem_.type_ != 2 ||
+                        (Y->mem_.type_ != 1 && Y->mem_.type_ != 2)) {
+        return (T_ERR_NO_SUPPORT_OP);
+    }
+#endif
+    if (X->shape_.ndim_ != 4) {
+        return iqpad_luna_generic(X, P, data, workspace, Y, attrs);
+    }
+    #if THINKER_PARAM_CHECK
+    if (X->shape_.dims_[0] != 1 || Y->shape_.ndim_ != 4 ||
+                        Y->shape_.dims_[0] != 1 ||
+                        Y->shape_.dims_[1] != X->shape_.dims_[1]) {
+        return (T_ERR_INVALID_DATA);
+    }
+#endif
 
     // Get input and output dimensions
     int32_t c_in = X->shape_.dims_[1];
@@ -43,7 +193,7 @@ int32_t iqpad_luna(tTensor *X, tTensor *P, tTensor *data, tTensor *workspace, tT
 
     // Parse padding parameters
     int64_t pads[8] = {0};
-    int8_t pads_h_up, pads_h_down, pads_w_left, pads_w_right;
+    int32_t pads_h_up = 0, pads_h_down = 0, pads_w_left = 0, pads_w_right = 0;
     switch (P->shape_.dims_[0]) {
         case 4:
             pads_h_up = pads[0] = *((int64_t *)P->dptr_);
@@ -52,25 +202,40 @@ int32_t iqpad_luna(tTensor *X, tTensor *P, tTensor *data, tTensor *workspace, tT
             pads_w_right = pads[3] = *((int64_t *)P->dptr_ + 3);
             break;
         case 6:
+            pads[0] = *((int64_t *)P->dptr_);
             pads_h_up = pads[1] = *((int64_t *)P->dptr_ + 1);
             pads_w_left = pads[2] = *((int64_t *)P->dptr_ + 2);
             pads_h_down = pads[4] = *((int64_t *)P->dptr_ + 4);
             pads_w_right = pads[5] = *((int64_t *)P->dptr_ + 5);
-            if (pads[0] != 0 || pads[3] != 0) {
-                return T_ERR_INVALID_PARA;
-            }
+            pads[3] = *((int64_t *)P->dptr_ + 3);
+#if THINKER_PARAM_CHECK
+if (pads[0] != 0 || pads[3] != 0) {
+    return (T_ERR_INVALID_PARA);
+}
+#endif
             break;
         case 8:
+            pads[0] = *((int64_t *)P->dptr_);
+            pads[1] = *((int64_t *)P->dptr_ + 1);
             pads_h_up = pads[2] = *((int64_t *)P->dptr_ + 2);
             pads_w_left = pads[3] = *((int64_t *)P->dptr_ + 3);
             pads_h_down = pads[6] = *((int64_t *)P->dptr_ + 6);
             pads_w_right = pads[7] = *((int64_t *)P->dptr_ + 7);
-            if (pads[0] != 0 || pads[1] != 0 || pads[4] != 0 || pads[5] != 0) {
-                return T_ERR_INVALID_PARA;
-            }
+            pads[4] = *((int64_t *)P->dptr_ + 4);
+            pads[5] = *((int64_t *)P->dptr_ + 5);
+#if THINKER_PARAM_CHECK
+if (pads[0] != 0 || pads[1] != 0 || pads[4] != 0 || pads[5] != 0) {
+    return (T_ERR_INVALID_PARA);
+}
+#endif
             break;
         default:
-            return T_ERR_INVALID_PARA;
+#if THINKER_PARAM_CHECK
+if (1) {
+    return (T_ERR_INVALID_PARA);
+}
+#endif
+            break;
     }
 
     // Get input and output pointers
@@ -81,14 +246,37 @@ int32_t iqpad_luna(tTensor *X, tTensor *P, tTensor *data, tTensor *workspace, tT
     bool dstInPSRAM = (Y->mem_.type_ != 2);
 
     // Check mode validity
-    if (mode < 0 || mode > 2) {
-        return T_ERR_INVALID_PARA;
-    }
+#if THINKER_PARAM_CHECK
+if (mode < 0 || mode > 2) {
+    return (T_ERR_INVALID_PARA);
+}
+#endif
 
     // Get fill data
     int8_t fill_data = *((int8_t *)data->dptr_);
-    if (fill_data != 0) {
-        return T_ERR_INVALID_PARA;
+#if THINKER_PARAM_CHECK
+if (fill_data != 0) {
+    return (T_ERR_INVALID_PARA);
+}
+
+if (pads_h_up < 0 || pads_h_down < 0 || pads_w_left < 0 || pads_w_right < 0) {
+    return (T_ERR_INVALID_PARA);
+}
+
+    if (h_out != h_in + pads_h_up + pads_h_down ||
+                        w_out != w_in + pads_w_left + pads_w_right) {
+        return (T_ERR_INVALID_DATA);
+    }
+
+if (attrs->mode == 2 &&
+        (pads_h_up >= h_in || pads_h_down >= h_in || pads_w_left >= w_in || pads_w_right >= w_in)) {
+    return (T_ERR_INVALID_PARA);
+}
+#endif
+    size_t workspace_size = workspace ? getTensorDataSize(workspace) : 0;
+    int32_t required_workspace = out_size + (dstInPSRAM ? out_size : in_size);
+    if (workspace == NULL || workspace_size < required_workspace) {
+        return T_ERR_NO_WORKSPACE;
     }
 
     // Temporary workspace
@@ -138,10 +326,19 @@ int32_t iqpad_luna(tTensor *X, tTensor *P, tTensor *data, tTensor *workspace, tT
                     }
                 }
             }
+            if (pads_w_right > 0) {
+                for (int32_t i = 0; i < h_in + pads_h_up; i++) {
+                    for (int32_t j = w_in + pads_w_left; j < w_out; j++) {
+                        for (int32_t k = 0; k < c_in; k++) {
+                            dst_temp[(i * w_out + j) * c_in + k] = dst_temp[(i * w_out + w_in + pads_w_left - 1) * c_in + k];
+                        }
+                    }
+                }
+            }
             if (pads_h_down > 0) {
                 for (int32_t i = h_in + pads_h_up; i < h_out; i++) {
                     THINKER_RET_CHECK(API_LIB(memcpy_i8o8)(dst_temp + i * w_out * c_in, 
-                                                dst_temp + (h_in + pads_h_up - 1) * w_out * c_in, (w_in + pads_w_left) * c_in),
+                                                dst_temp + (h_in + pads_h_up - 1) * w_out * c_in, w_out * c_in),
                                                 "luna_memcpy_i8o8");
                 }
             }
@@ -171,10 +368,19 @@ int32_t iqpad_luna(tTensor *X, tTensor *P, tTensor *data, tTensor *workspace, tT
                     }
                 }
             }
+            if (pads_w_right > 0) {
+                for (int32_t i = 0; i < h_in + pads_h_up; i++) {
+                    for (int32_t j = w_in + pads_w_left; j < w_out; j++) {
+                        for (int32_t k = 0; k < c_in; k++) {
+                            dst_temp[(i * w_out + j) * c_in + k] = dst_temp[(i * w_out + 2 * (w_in + pads_w_left) - j - 2) * c_in + k];
+                        }
+                    }
+                }
+            }
             if (pads_h_down > 0) {
                 for (int32_t i = h_in + pads_h_up; i < h_out; i++) {
                     THINKER_RET_CHECK(API_LIB(memcpy_i8o8)(dst_temp + i * w_out * c_in, 
-                                                dst_temp + (2 * (h_in + pads_h_up) - i - 2) * w_out * c_in, (w_in + pads_w_left) * c_in),
+                                                dst_temp + (2 * (h_in + pads_h_up) - i - 2) * w_out * c_in, w_out * c_in),
                                                 "luna_memcpy_i8o8");
                 }
             }

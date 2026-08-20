@@ -105,8 +105,10 @@ int32_t shufflechannel_venus(tTensor *X, tTensor *Y, ShuffleChannelAttrs *attr)
     CHECK_GE(attr->num_group, 1);
     
     // Only support fast memory (type 2)
+    #ifdef RUNTIME_PARAM_CHECK
     if ((2 != X->mem_.type_) || (2 != Y->mem_.type_))
         return T_ERR_INVALID_PLATFROM;
+    #endif
 
     // Perform channel shuffle based on axis
     if (attr->axis == 1)  // NCHW format

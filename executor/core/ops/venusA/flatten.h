@@ -29,12 +29,14 @@ int32_t flatten_luna(tTensor *X, tTensor *Y, FlattenAttrs *attr)
 
     if (input != output) {
       size_t size = getTensorSize(X) * X->byte_;
-      if  (Y->mem_.type_ == 2)
-        return API_LIB(memcpy_i8o8)(output, input, size);
-      else {
-    	  opi_psram_cpy_out(output, input, size);
+      if (X->mem_.type_ == 1) {
+        return API_LIB(psrammemcpy_i8o8)(output, input, size);
+      }
+      if (Y->mem_.type_ == 1) {
+        opi_psram_cpy_out(output, input, size);
         return T_SUCCESS;
       }
+      return API_LIB(memcpy_i8o8)(output, input, size);
     }
     return T_SUCCESS;
 }

@@ -31,9 +31,11 @@ int32_t iqsub_luna(tTensor *X1, tTensor *X2, tTensor *Temp, tTensor *Y) {
     void *dst = (void *)Y->dptr_;
     size_t size = getTensorSize(X1);
 
+    #ifdef RUNTIME_PARAM_CHECK
     if (x1_q < y_q || x2_q < y_q) {
         return T_ERR_INVALID_PARA;
     }
+    #endif
 
     bool x1_psram = (X1->mem_.type_ == 1 || X1->mem_.type_ == 3) && Temp;
     bool x2_psram = (X2->mem_.type_ == 1 || X2->mem_.type_ == 3) && Temp;
@@ -69,7 +71,7 @@ int32_t iqsub_luna(tTensor *X1, tTensor *X2, tTensor *Temp, tTensor *Y) {
                     dst = (int8_t *)Temp->dptr_;
                 }
 
-                THINKER_RET_CHECK(API_LIB(sub_i8i8o8)((const int8_t *)dst, (int8_t *)src2, (int8_t *)dst, size, 0), "luna_sub_i8i8o8");
+                THINKER_RET_CHECK(API_LIB(sub_i8i8o8)((const int8_t *)src1, (int8_t *)src2, (int8_t *)dst, size, 0), "luna_sub_i8i8o8");
 
                 if (y_psram) {
                     opi_psram_cpy_out((void *)Y->dptr_, dst, size * sizeof(int8_t));

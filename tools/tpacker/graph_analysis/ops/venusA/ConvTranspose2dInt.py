@@ -1,7 +1,7 @@
 import math
 import numpy as np
 
-from ..utils import AutoPad, CeilMode
+from ..utils import AutoPad, CeilMode, combine4bit_8bit
 from ....enum_defines import Layout, MemType, ALIGN2, ALIGN4, ALIGN8, ALIGN16
 
 
@@ -28,8 +28,9 @@ def get_ConvTranspose2dInt_workspace(
     Returns:
         int: Workspace size
     """
-    workspace_size = min(65536, out.size * (weight.mem_type != MemType.SHARE_MEM))
-    return workspace_size
+    if out.mem_type != MemType.SHARE_MEM:
+        return min(65536, out.nbytes)
+    return 0
 
 
 def ConvTranspose2dInt_weight_rearrange(
@@ -69,7 +70,8 @@ def ConvTranspose2dInt_weight_rearrange(
     if data.layout == Layout.NCWH and weight.layout == Layout.NCHW:
         new_weight.data = weight.data.transpose(0, 1, 3, 2)
         new_weight.shape = new_weight.data.shape
-        new_weight.dtype = Layout.NCWH
+        new_weight.layout = Layout.NCWH
+        weight = new_weight
 
     if new_weight.layout in (Layout.NHWC8, Layout.NWHC8):
         return new_weight
@@ -89,6 +91,7 @@ def ConvTranspose2dInt_weight_rearrange(
         num_input_align = ALIGN8(kernel_c)
         num_output_align = ALIGN4(kernel_num)
         kernel_size = num_input_align * num_output_align * kernel_h * kernel_w
+        assert kernel_size <= 32768, "kernel size of ConvTranspose2dInt must be less than 32KB"
 
         weight_transpose = weight.data.transpose(1, 0, 2, 3)
         new_weight_transpose = np.zeros(
@@ -112,6 +115,8 @@ def ConvTranspose2dInt_weight_rearrange(
         new_weight.data = new_weight_transpose
         new_weight.shape = new_weight_transpose.shape
         new_weight.bits = np.float32(weight_bits / 8.0)
+        if weight_bits == 4:
+            new_weight.data = combine4bit_8bit(new_weight.data)
 
         if data.layout == Layout.NCHW:
             new_weight.layout = Layout.NHWC8

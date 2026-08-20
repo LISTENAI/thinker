@@ -1,7 +1,7 @@
 #include "utils.h"
 
 // Check if two shapes are equal
-bool equalShape(tShape *src, tShape *dst) {
+bool equalShape(const tShape *src, const tShape *dst) {
     if (src->ndim_ != dst->ndim_) return false;
     for (int32_t i = 0; i < src->ndim_; i++) {
         if (src->dims_[i] != dst->dims_[i]) return false;
@@ -35,6 +35,38 @@ size_t getTensorSize(const tTensor *tensor) {
         }
     }
     return size;
+}
+
+size_t getTensorDataSize(const tTensor *tensor) {
+    size_t elements = getTensorSize(tensor);
+    if (tensor->dtype_ == Int4) {
+        return (elements + 1) / 2;
+    }
+    return elements * tensor->byte_;
+}
+
+void thinker_psram_write_complete(void *dst, size_t size) {
+#if (THINKER_USE_ARCS || THINKER_USE_VENUSA) && \
+    !(defined(_WIN32) || defined(WIN32) || defined(linux) || defined(__linux__))
+#if THINKER_USE_ARCS
+    const uintptr_t psram_begin = 0x28000000u;
+#else
+    const uintptr_t psram_begin = 0x38000000u;
+#endif
+    const uintptr_t psram_end = psram_begin + 0x00800000u;
+    uintptr_t addr = (uintptr_t)dst;
+    if (addr < psram_begin || addr >= psram_end) return;
+    if (size > psram_end - addr) size = psram_end - addr;
+    while (size != 0) {
+        uint32_t chunk = size > UINT32_MAX ? UINT32_MAX : (uint32_t)size;
+        HAL_FlushInvalidateDCache_by_Addr((uint32_t *)addr, chunk);
+        addr += chunk;
+        size -= chunk;
+    }
+#else
+    (void)dst;
+    (void)size;
+#endif
 }
 
 // Calculate strides for a shape
@@ -83,27 +115,27 @@ void dequant32bit(int32_t *src, float *dst, int32_t size, int8_t scale) {
 
 // Convert 4-bit to 8-bit values with sign extension
 void convert_4bitto8bit(int8_t *dst, int8_t *src, int32_t size) {
-    for (int32_t i = 0; i < size / 2; i++) {
+    for (int32_t i = 0; i < (size + 1) / 2; i++) {
         int8_t high = (src[i] >> 4) & 0x0F;
         if ((high & 0x08) != 0) high |= 0xF0;
-        dst[2 * i + 1] = high;
+        if (2 * i + 1 < size) dst[2 * i + 1] = (int32_t)high;
 
         int8_t low = src[i] & 0x0F;
         if ((low & 0x08) != 0) low |= 0xF0;
-        dst[2 * i] = low;
+        dst[2 * i] = (int32_t)low;
     }
 }
 
 // Convert 4-bit to 32-bit values with sign extension
 void convert_4bitto32bit(int32_t *dst, int8_t *src, int32_t size) {
-    for (int32_t i = 0; i < size / 2; i++) {
+    for (int32_t i = 0; i < (size + 1) / 2; i++) {
         int8_t high = (src[i] >> 4) & 0x0F;
         if ((high & 0x08) != 0) high |= 0xF0;
-        dst[2 * i + 1] = high;
+        if (2 * i + 1 < size) dst[2 * i + 1] = (int32_t)high;
 
         int8_t low = src[i] & 0x0F;
         if ((low & 0x08) != 0) low |= 0xF0;
-        dst[2 * i] = low;
+        dst[2 * i] = (int32_t)low;
     }
 }
 
@@ -125,6 +157,19 @@ void getWeightData(tDMA_List *dma_list, int32_t channel) {
 }
 #elif THINKER_USE_ARCS
 #include "ops/arcs/luna/opi_psram_cpy.h"
+#undef opi_psram_cpy_out
+
+#if defined(WIN32) || defined(linux) || defined(__linux__)
+void HAL_FlushDCache_by_Addr(uint32_t *addr, uint32_t dsize) {
+    (void)addr;
+    (void)dsize;
+}
+
+void HAL_FlushInvalidateDCache_by_Addr(uint32_t *addr, uint32_t dsize) {
+    (void)addr;
+    (void)dsize;
+}
+#endif
 
 void getWeightData(tDMA_List *dma_list, int32_t channel) {
     dma_wait_complete(0);
@@ -139,12 +184,18 @@ void getWeightData(tDMA_List *dma_list, int32_t channel) {
 }
 
 void cpu_memcpy(void *dst, const void *src, size_t size) {
-#if !(defined(WIN32) || defined(linux))
+#if !(defined(_WIN32) || defined(WIN32) || defined(linux) || defined(__linux__))
     if ((src != dst) && (0 != size)) memcpy(dst, src, size);
-    if (((uint32_t)dst & 0x28000000) == 0x28000000) HAL_FlushDCache_by_Addr(dst, size);
+    thinker_psram_write_complete(dst, size);
 #else
     memcpy(dst, src, size);
 #endif
+}
+
+void thinker_psram_cpy_out(void *dst, void *src, int32_t size) {
+    if (dst == NULL || src == NULL || size <= 0) return;
+    opi_psram_cpy_out(dst, src, size);
+    thinker_psram_write_complete(dst, (size_t)size);
 }
 
 #elif THINKER_USE_VENUSA
@@ -185,8 +236,10 @@ void dma_cpy_async(int chn, void *dst, void *src, int32_t size) {
 }
 
 void opi_psram_cpy_out(void *dst, void *src, int32_t size) {
+    if (dst == NULL || src == NULL || size <= 0) return;
     dma_cpy_async(ALG_DMA_CH, dst, src, size);
     dma_wait_complete(ALG_DMA_CH);
+    thinker_psram_write_complete(dst, (size_t)size);
 }
 
 void getWeightData(tDMA_List *dma_list, int32_t channel) {
@@ -202,9 +255,12 @@ void getWeightData(tDMA_List *dma_list, int32_t channel) {
 }
 
 void cpu_memcpy(void *dst, const void *src, size_t size) {
-#if !(defined(WIN32) || defined(linux))
+#if !(defined(_WIN32) || defined(WIN32) || defined(linux) || defined(__linux__))
     if ((src != dst) && (0 != size)) memcpy(dst, src, size);
-    if (((uint32_t)dst & 0x28000000) == 0x28000000) HAL_FlushDCache_by_Addr(dst, size);
+    uintptr_t addr = (uintptr_t)dst;
+    if (addr >= 0x38000000u && addr < 0x38800000u) {
+        thinker_psram_write_complete(dst, size);
+    }
 #else
     memcpy(dst, src, size);
 #endif
@@ -221,7 +277,7 @@ static uint32_t g_last_counter;
 int32_t luna_execute_cmd_hook_for_get_list_length(const uint32_t *api, void* param, uint32_t param_size, void* userdata) {
     g_submit_pos += 1;
     g_param_size += param_size;
-    
+
     if (api == luna_api_split_cnn ||
         api == luna_api_split_depthwise ||
         api == luna_api_split_pool ||
@@ -236,7 +292,7 @@ int32_t luna_execute_cmd_hook_for_build_list(const uint32_t *api, void* param, u
     void* p_param_s = g_param_addr;
     g_param_addr += param_size;
     memcpy(p_param_s, param, param_size);
-    
+
     if (api == luna_api_split_cnn ||
         api == luna_api_split_depthwise ||
         api == luna_api_split_pool ||
@@ -247,9 +303,9 @@ int32_t luna_execute_cmd_hook_for_build_list(const uint32_t *api, void* param, u
         memcpy(p_static_param_s, p_static_param, sizeof(luna_cnn_static_para_t));
         ((volatile luna_cnn_para_t *)p_param_s)->cnn_static_para = p_static_param_s;
     }
-    
+
     *((volatile uint32_t *)p_param_s) |= (0x1 << 31);
-    
+
     luna_mtq_sq_elem_t *p_sq_elem = &(g_sq_addr_user_ch[g_submit_pos]);
     p_sq_elem->task_type = MTQ_TASK_TYPE_LUNA_TASK;
     p_sq_elem->mark_idx = MTQ_MARK_IDX_IOWR_OVER;
@@ -260,14 +316,15 @@ int32_t luna_execute_cmd_hook_for_build_list(const uint32_t *api, void* param, u
     p_sq_elem->op_id = g_submit_pos;
     p_sq_elem->task_base_addr.task_base_addr = (uint32_t)p_memset_api;
     p_sq_elem->task_param = (uint32_t)p_param_s;
-    
+
     luna_mtq_cq_elem_t *p_cq_elem = &(g_cq_addr_user_ch[g_submit_pos]);
     memset(p_cq_elem, 0, sizeof(luna_mtq_cq_elem_t));
-    
+
     g_submit_pos += 1;
     return 0;
 }
 #endif
+
 #endif
 
 #ifdef WIN32

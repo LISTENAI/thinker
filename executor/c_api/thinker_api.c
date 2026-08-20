@@ -1,3 +1,5 @@
+#if THINKER_USE_MOSS
+#else
 #include "thinker_api.h"
 
 #include <assert.h>
@@ -20,7 +22,7 @@
 #endif
 
 #if THINKER_USE_MTQ
-#include "luna/luna_mtq_math.h"
+#include "core/ops/venusA/luna/luna_mtq_math.h"
 #endif
 
 #ifndef NULL
@@ -251,7 +253,7 @@ tStatus tGetMemoryPlan(tMemory* memory_list, int32_t* num_memory,
  * @param num_memory Number of memory entries
  * @return Status code
  */
-#if !(defined(WIN32) || defined(linux))
+#if !(defined(WIN32) || defined(linux) || defined(__linux__))
 #pragma clang optimize off
 #endif
 tStatus tModelInit(tModelHandle* hdl, const int8_t* res, const uint64_t size,
@@ -441,7 +443,7 @@ tStatus tModelInit(tModelHandle* hdl, const int8_t* res, const uint64_t size,
   *hdl = ~((tModelHandle)inst);
   return T_SUCCESS;
 }
-#if !(defined(WIN32) || defined(linux))
+#if !(defined(WIN32) || defined(linux) || defined(__linux__))
 #pragma clang optimize on
 #endif
 
@@ -681,7 +683,7 @@ tShape tGetOutputShape(const tModelHandle hdl, const int32_t idx) {
  * @param num_memory Number of memory entries
  * @return Status code
  */
-#if !(defined(WIN32) || defined(linux))
+#if !(defined(WIN32) || defined(linux) || defined(__linux__))
 #pragma clang optimize off
 #endif
 tStatus tCreateExecutor(const tModelHandle model_hdl, tExecHandle *hdl,
@@ -797,6 +799,16 @@ tStatus tCreateExecutor(const tModelHandle model_hdl, tExecHandle *hdl,
   for (i = 0; i < inst->dma_list_->total_; i++) {
     uint32_t src_id = dma_temp->src_tensor_id_;
     uint32_t dst_id = dma_temp->dst_tensor_id_;
+#if THINKER_PARAM_CHECK
+    if (src_id >= model->num_tensor_ || dst_id >= model->num_tensor_) {
+        return (T_ERR_INDEX_OF_BOUND);
+    }
+    // A parameter DMA can cover consecutive 16-byte parameter slots (weight
+    // and bias), while src_tensor_id_ identifies only the first slot.
+    if (dma_temp->size_ > getTensorDataSize(inst->tensor_ + dst_id)) {
+        return (T_ERR_INVALID_PARA);
+    }
+#endif
     inst->dma_list_->dma_[i].src_tensors_ = inst->tensor_ + src_id;
     inst->dma_list_->dma_[i].dst_tensors_ = inst->tensor_ + dst_id;
     inst->dma_list_->dma_[i].size_ = dma_temp->size_;
@@ -809,7 +821,7 @@ tStatus tCreateExecutor(const tModelHandle model_hdl, tExecHandle *hdl,
   *hdl = ~((tModelHandle)inst);
   return T_SUCCESS;
 }
-#if !(defined(WIN32) || defined(linux))
+#if !(defined(WIN32) || defined(linux) || defined(__linux__))
 #pragma clang optimize on
 #endif
 
@@ -1098,8 +1110,9 @@ tStatus tForward(const tExecHandle hdl) {
         return ret;
     }
 
+
 #if THINKER_DUMP 
-#if (defined(WIN32) || defined(linux))
+#if (defined(WIN32) || defined(linux) || defined(__linux__))
     for (size_t j = 0; j < op->num_output_; j++) {
       tTensor *out_tensor = local_tensor[op->num_input_ + j];
       int32_t tensor_id = tensor_ids[op->num_input_ + j];
@@ -1114,7 +1127,7 @@ tStatus tForward(const tExecHandle hdl) {
       int32_t tensor_id = tensor_ids[op->num_input_ + j];
       uint8_t *data = (uint8_t *)out_tensor->dptr_;
       uint32_t data_size = getTensorSize(out_tensor)*out_tensor->byte_;
-#if !(defined(WIN32) || defined(linux))
+#if !(defined(WIN32) || defined(linux) || defined(__linux__))
 #if THINKER_USE_ARCS
 		if (((uint32_t)(out_tensor->dptr_) & 0x28000000) == 0x28000000)
 		{
@@ -1394,7 +1407,9 @@ tStatus tSubLunaList(int8_t *sq_addr, uint32_t sq_len, uint32_t total_param_size
 	}
 	luna_mtq_sq_elem_t *last_op = (luna_mtq_sq_elem_t *)sq_addr + (sq_len-1);
 	last_op->op_interrupt_enable = 1;
+#if !(defined(WIN32) || defined(linux) || defined(__linux__))
 	HAL_FlushInvalidateDCache_by_Addr(sq_addr, sq_len*sizeof(luna_mtq_sq_elem_t) + sq_len*sizeof(luna_mtq_cq_elem_t) + total_param_size);
+#endif
 	luna_mtq_sq_elem_t *cq_addr = (int8_t *)sq_addr + sq_len*sizeof(luna_mtq_sq_elem_t);
 	return(luna_scheduler_run_static(0, sq_addr, cq_addr, sq_len, sq_len, 0, 1));
 }
@@ -1461,3 +1476,5 @@ const thinkerApi *thinkerGetApi() {
 
   return &g_api;
 }
+
+#endif /* THINKER_USE_MOSS */

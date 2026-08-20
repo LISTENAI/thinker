@@ -25,6 +25,9 @@ class topN(Operator, BaseLayout):
         """Initialize topN operator with given attributes."""
         self.attrs = topNAttrs(attrs)
 
+    def layout_convert(self, op_type: str):
+        return
+
     def infer_tensor(self, dynamic_shape):
         """Infer output tensor shape based on input tensor and topN parameters."""
         inputs = self.inputs
@@ -39,10 +42,10 @@ class topN(Operator, BaseLayout):
             axis += ndims
 
         platform = self.attrs.get("platform", "venus")
-        if platform == "venus":
-            assert inputs[0].dtype == np.int8, "topN on venus only supports int8 input"
-            assert N == 1, "topN on venus only supports max_num=1"
-            assert axis == ndims - 1, "topN on venus only supports the last axis"
+        assert inputs[0].dtype == np.int8, f"topN on {platform} runtime only supports int8 input"
+        assert N == 1, f"topN on {platform} runtime only supports max_num=1"
+        assert ndims >= 1 and inputs[1].dtype == np.int64 and inputs[1].size >= 1, f"topN on {platform} requires int64 index offset"
+        assert axis == ndims - 1, f"topN on {platform} runtime only supports the last axis"
 
         assert shape[0] == 1, "Only shape[0] == 1 is supported"
         shape[axis] = N

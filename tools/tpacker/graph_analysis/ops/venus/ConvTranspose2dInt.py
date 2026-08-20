@@ -32,11 +32,11 @@ def get_ConvTranspose2dInt_workspace(
         AssertionError: If input or output memory type is not SHARE_MEM
     """
     c_in, h_in, w_in = data.shape[1:4]
-    kernel_ch, kernel_num, kernel_h, kernel_w = weight.shape[0:4]
+    kernel_h, kernel_w = kernels
     stride_w = strides[1]
 
     data_size = ALIGN8(c_in) * ((w_in + 8 * stride_w - 1) // (8 * stride_w)) * (8 * stride_w) * h_in * data.dtype.itemsize
-    weight_size = ALIGN8(kernel_num) * ALIGN2(kernel_ch) * kernel_h * kernel_w * weight.dtype.itemsize
+    weight_size = ALIGN8(c_in) * ALIGN2(out.shape[1]) * kernel_h * kernel_w * weight.dtype.itemsize
 
     assert data.mem_type == MemType.SHARE_MEM and weight.mem_type == MemType.SHARE_MEM and out.mem_type == MemType.SHARE_MEM
     assert data_size <= 65536 and weight_size <= 32768
@@ -75,6 +75,10 @@ def ConvTranspose2dInt_weight_rearrange(
     stride_h = strides[0]
     stride_w = strides[1]
 
+    assert group == 1, "Deconv does not support grouped computation"
+    assert ALIGN8(data.shape[1]) * ALIGN2(out.shape[1]) * kernel_h * kernel_w * weight.dtype.itemsize <= 32768, \
+        "Weight size of deconv exceeds limit"
+
     if data.layout == Layout.NCWH and weight.layout == Layout.NCHW:
         weight.data = weight.data.transpose(0, 1, 3, 2)
         weight.shape = weight.data.shape
@@ -93,8 +97,6 @@ def ConvTranspose2dInt_weight_rearrange(
     w_in = data.shape[3]
     data_size = ((w_in + 8 * stride_w - 1) // (8 * stride_w)) * (8 * stride_w) * ALIGN8(kernel_c) * h_in
     assert data_size * data.dtype.itemsize <= 65536, "Input size of deconv exceeds limit"
-    assert group == 1, "Deconv does not support depthwise!"
-
     num_input_align = ALIGN8(kernel_c)
     num_output_align = ALIGN2(kernel_num)
     kernel_size = num_input_align * num_output_align * kernel_h * kernel_w

@@ -26,34 +26,55 @@
  * @return Operation status
  */
 int32_t batchnormint_luna(const tTensor *X, const tTensor *W, const tTensor *Bias, tTensor *Y, tTensor *workspace) {   
+    #if THINKER_PARAM_CHECK
+    if (X == NULL || W == NULL || Bias == NULL || Y == NULL) {
+        return (T_ERR_INVALID_PARA);
+    }
+    if (X->shape_.ndim_ != 4 || Y->shape_.ndim_ != 4 ||
+                        X->dtype_ != Int8 || W->dtype_ != Int8 ||
+                        Bias->dtype_ != Int32 || Y->dtype_ != Int8) {
+        return (T_ERR_INVALID_PARA);
+    }
+    #endif
     int32_t N = X->shape_.dims_[0];  // Batch size
     int32_t C = X->shape_.dims_[1];  // Number of channels
     int32_t F = X->shape_.dims_[2] * X->shape_.dims_[3];  // Channels per feature map
     int32_t one_batch_size = F * C;  // Size of one batch
 
-#ifdef RUNTIME_PARAM_CHECK
-    /*Check the storage locations for input and output, 
-    as it is unnecessary because they have already been limited in tpacker.*/
-    if ((X->mem_.type_ != 2) && (Y->mem_.type_ != 2))
-        return T_ERR_INVALID_DATATYPE;
-    if ((X->dtype_ != Int8) || (Y->dtype_ != Int8)) {
-        return T_ERR_INVALID_DATATYPE;
+    #if THINKER_RUNTIME_CHECK
+    if (N <= 0 || C <= 0 || F <= 0 ||
+                          !equalShape(&X->shape_, &Y->shape_) || X->mem_.type_ != 2 ||
+                          Y->mem_.type_ != 2 ||
+                          getShapeSize((tShape *)&W->shape_) != (size_t)C ||
+                          getShapeSize((tShape *)&Bias->shape_) != (size_t)C ||
+                          X->dptr_ == 0 || W->dptr_ == 0 || Bias->dptr_ == 0 ||
+                          Y->dptr_ == 0) {
+        return (T_ERR_INVALID_PARA);
     }
-    int32_t workspace_size = workspace ? workspace->shape_.dims_[0] : 0; 
-    if (workspace_size < F * 4)
-        return T_ERR_NO_WORKSPACE;
-#endif
+    #endif
+    #if THINKER_RUNTIME_CHECK
+    if (workspace == NULL || workspace->dptr_ == 0 ||
+                          workspace->mem_.type_ != 2 || workspace->shape_.ndim_ != 1 ||
+                          workspace->shape_.dims_[0] < F * 4) {
+        return (T_ERR_NO_WORKSPACE);
+    }
+    #endif
 
     int8_t *p_src = (int8_t *)X->dptr_;  // Pointer to input data
     int8_t *p_dst = (int8_t *)Y->dptr_;  // Pointer to output data
     int8_t *p_weight = (int8_t *)W->dptr_;  // Pointer to scale weights
     int32_t *p_bias = (int32_t *)Bias->dptr_;  // Pointer to bias
-    int32_t *p_tmp = workspace ? (int32_t *)workspace->dptr_ : NULL;  // Pointer to temporary workspace
+    int32_t *p_tmp = (int32_t *)workspace->dptr_;  // Pointer to temporary workspace
 
     int32_t q_x = (int32_t)X->scale_;  // Input scale
     int32_t q_w = (int32_t)W->scale_;  // Weight scale
     int32_t q_o = (int32_t)Y->scale_;  // Output scale
     int32_t shift = q_x + q_w - q_o;  // Scale shift factor
+    #if THINKER_PARAM_CHECK
+    if (shift < 0 || shift > 63) {
+        return (T_ERR_INVALID_PARA);
+    }
+    #endif
 
     for (int32_t i = 0; i < N; i++) {  // Iterate over batches
         for (int32_t j = 0; j < C; j++) {  // Iterate over channels

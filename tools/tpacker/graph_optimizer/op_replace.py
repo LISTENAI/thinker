@@ -4,9 +4,14 @@ from ..xsympy import is_sympy
 from ..save_model import save_to_onnx_model
 from ..graph_analysis.ops.utils import calc_expr
 from ..graph import Graph, GraphNode, Tensor, ConstantEntry
+from ..platform_utils import normalize_platform_name
 
 
 node_list = ["Conv2dInt", "ConvTranspose2dInt"]
+
+
+def _supports_strided_concat(platform):
+    return normalize_platform_name(platform) in {"arcs", "venusA"}
 
 def check_same_pads(dst_nodes, is_stream):
     """
@@ -306,6 +311,88 @@ def stream_convert(graph: Graph, is_stream: str, is_dump: bool = False) -> Graph
         # if len(pad_axis) != 1:
         #   breakpoint()
 
+        platform = node.attrs.get('platform', graph.platform)
+        if _supports_strided_concat(platform):
+          axis = pad_axis[0]
+          history_shape = list(data_shape)
+          history_shape[axis] = pads_value[axis]
+
+          history = node.inputs[0].clone()
+          history.name = node.inputs[0].name + '_transpose_history'
+          history.tensor.shape = tuple(history_shape)
+          history.set_graph_input()
+          graph.add_entry(history)
+          graph_inputs.append(history)
+
+          scale = pow(2, node.inputs[0].tensor.scale)
+          concat = GraphNode("iqCat", node.name + '_concat')
+          concat.attrs['dim'] = axis
+          concat.attrs['scale_x_0'] = scale
+          concat.attrs['scale_x_1'] = scale
+          concat.attrs['scale_o'] = scale
+          concat.attrs['platform'] = platform
+          concat.inputs = [history, node.inputs[0]]
+          concat.outputs = node.outputs
+          add_nodes_list.append(concat)
+
+          start = np.array([-pads_value[axis]], dtype=np.int64)
+          state_start = ConstantEntry(node.name + '_transpose2_start', Tensor.from_numpy(start))
+          graph.add_entry(state_start)
+          end = np.array([65536], dtype=np.int64)
+          state_end = ConstantEntry(node.name + '_transpose2_end', Tensor.from_numpy(end))
+          graph.add_entry(state_end)
+          axes = np.array([axis], dtype=np.int64)
+          state_axes = ConstantEntry(node.name + '_transpose2_axes', Tensor.from_numpy(axes))
+          graph.add_entry(state_axes)
+
+          state = node.inputs[0].clone()
+          state.name = node.name + '_transpose2_state'
+          state.tensor.shape = tuple(history_shape)
+          graph.add_entry(state)
+          state_slice = GraphNode("Slice", node.name + '_transpose2_slice')
+          state_slice.inputs = [node.inputs[0], state_start, state_end, state_axes]
+          state_slice.outputs = [state]
+          add_nodes_list.append(state_slice)
+
+          if pads.data[pads_len + axis] != 0:
+            src_node = node.inputs[0].src_node
+            branches = src_node.outputs[0].dst_nodes if src_node is not None else []
+            iqadd_branches = [branch for branch in branches if branch.op_type == "iqAdd"]
+            if iqadd_branches:
+              branch = iqadd_branches[-1]
+              branch_start = ConstantEntry(
+                  branch.name + '_start', Tensor.from_numpy(np.array([1], dtype=np.int64)))
+              branch_end = ConstantEntry(
+                  branch.name + '_end', Tensor.from_numpy(np.array([-1], dtype=np.int64)))
+              branch_axes = ConstantEntry(
+                  branch.name + '_axes', Tensor.from_numpy(np.array([2], dtype=np.int64)))
+              graph.add_entry(branch_start)
+              graph.add_entry(branch_end)
+              graph.add_entry(branch_axes)
+              branch_state = branch.inputs[0].clone()
+              branch_state.name = node.name + '_state'
+              graph.add_entry(branch_state)
+              branch_slice = GraphNode("Slice", node.name + '_slice')
+              branch_slice.inputs = [node.outputs[0], branch_start, branch_end, branch_axes]
+              branch_slice.outputs = [branch_state]
+              add_nodes_list.append(branch_slice)
+              branch.inputs[0] = branch_state
+
+          state.set_graph_output()
+          graph_outputs.insert(-1 * num_otuput, state)
+
+          for next_node in node.outputs[0].dst_nodes:
+            if next_node.op_type == "Reshape":
+              next_node = next_node.outputs[0].dst_nodes[0]
+            if next_node.op_type == "Conv2dInt" and len(node.outputs[0].dst_nodes) == 1:
+              if next_node.attrs['dilations'] != (1, 1):
+                next_node.attrs['dilations'] = (1, 1)
+                kernel_axis = 0 if axis == 2 else 1
+                history_shape[axis] = next_node.attrs['kernel_shape'][kernel_axis] - 1
+          history.tensor.shape = tuple(history_shape)
+          del_nodes_list.append(node)
+          continue
+
         new_entry1 = node.inputs[0].clone()
         new_entry1.name = new_entry1.name + '_transpose'
         new_entry1.set_graph_normal()
@@ -510,6 +597,64 @@ def stream_convert(graph: Graph, is_stream: str, is_dump: bool = False) -> Graph
         input_shape = node.inputs[0].tensor.shape
         scale = node.attrs['scale_x']
 
+        platform = node.attrs.get('platform', graph.platform)
+        if _supports_strided_concat(platform):
+          assert len(input_shape) == 4, "ConvTranspose2dInt stream convert only supports 4D data"
+          axis = 2
+          history_shape = list(input_shape)
+          history_shape[axis] = pads[0]
+
+          history = node.inputs[0].clone()
+          history.name = node.inputs[0].name + '_transpose_history'
+          history.tensor.shape = tuple(history_shape)
+          history.set_graph_input()
+          graph.add_entry(history)
+          graph_inputs.append(history)
+
+          concat_output = node.inputs[0].clone()
+          concat_output.name = node.inputs[0].name + '_concat'
+          concat_output.set_graph_normal()
+          concat_output.tensor.shape = tuple(
+              history_shape[i] + input_shape[i] if i == axis else input_shape[i]
+              for i in range(len(input_shape)))
+          graph.add_entry(concat_output)
+          concat = GraphNode("iqCat", node.name + '_concat')
+          concat.attrs['dim'] = axis
+          concat.attrs['scale_x_0'] = scale
+          concat.attrs['scale_x_1'] = scale
+          concat.attrs['scale_o'] = scale
+          concat.attrs['platform'] = platform
+          concat.inputs = [history, node.inputs[0]]
+          concat.outputs = [concat_output]
+          add_nodes_list.append(concat)
+          node.inputs[0] = concat_output
+
+          state_start = ConstantEntry(
+              node.name + '_start', Tensor.from_numpy(np.array([-pads[0]], dtype=np.int64)))
+          state_end = ConstantEntry(
+              node.name + '_end', Tensor.from_numpy(np.array([65536], dtype=np.int64)))
+          state_axes = ConstantEntry(
+              node.name + '_axes', Tensor.from_numpy(np.array([axis], dtype=np.int64)))
+          graph.add_entry(state_start)
+          graph.add_entry(state_end)
+          graph.add_entry(state_axes)
+          state = node.inputs[0].clone()
+          state.name = node.name + '_state'
+          state.tensor.shape = tuple(history_shape)
+          graph.add_entry(state)
+          state_slice = GraphNode("Slice", node.name + '_slice')
+          state_slice.inputs = [concat_output, state_start, state_end, state_axes]
+          state_slice.outputs = [state]
+          add_nodes_list.append(state_slice)
+          state.set_graph_output()
+          graph_outputs.insert(-1 * num_otuput, state)
+
+          new_pads = list(pads)
+          new_pads[0] = kernels[0] - 1
+          new_pads[2] = kernels[0] - strides[0] + output_padding[0]
+          node.attrs['pads'] = tuple(new_pads)
+          continue
+
         # add transpose
         new_entry1 = node.inputs[0].clone()
         new_entry1.name = new_entry1.name + '_transpose'
@@ -611,21 +756,24 @@ def stream_convert(graph: Graph, is_stream: str, is_dump: bool = False) -> Graph
         node.attrs['pads'] = tuple(new_pads)
       elif node.op_type == "GRUInt":
         hidden_in = node.inputs[1]
-        assert ~np.any(hidden_in.data), "input of gru stream must have hidden state"
+        if hidden_in.data is not None:
+          assert not np.any(hidden_in.data), "input of gru stream must have zero hidden state"
         hidden_in.data = None
-        hidden_in.scale = 127.0
+        hidden_in.scale = node.inputs[0].tensor.scale
         hidden_in.set_graph_input()
         graph_inputs.append(hidden_in)
         hidden_out = node.outputs[1]
         hidden_out.set_graph_output()
         graph_outputs.insert(-num_otuput, hidden_out)
-      elif node.op_type == "LstmInt":
+      elif node.op_type == "LSTMInt":
         hidden_in = node.inputs[1]
-        assert ~np.any(hidden_in.data), "input of lstm stream must have hidden state"
+        if hidden_in.data is not None:
+          assert not np.any(hidden_in.data), "input of lstm stream must have zero hidden state"
         hidden_in.set_graph_input()
         graph_inputs.append(hidden_in)
         cell_in = node.inputs[2]
-        assert ~np.any(cell_in.data), "input of lstm stream must have cell state"
+        if cell_in.data is not None:
+          assert not np.any(cell_in.data), "input of lstm stream must have zero cell state"
         cell_in.set_graph_input()
         graph_inputs.append(cell_in)
         hidden_out = node.outputs[1]

@@ -55,8 +55,12 @@ def get_Conv2dInt_workspace(
         output_size = ou_c * split_ou_h * ou_w * out_bytes
         return input_size + output_size
 
-    is_depthwise = group == c_in and group == ou_c
-    if (group == 1 or is_depthwise) and out.mem_type != MemType.SHARE_MEM:
+    if group != 1:
+        if group == ou_c and out.mem_type != MemType.SHARE_MEM:  # Depthwise convolution
+            return min(out.nbytes, split_workspace_size())
+    elif out.mem_type != MemType.SHARE_MEM:
+        # The runtime either writes the complete output to Temp or uses Temp
+        # for an H-split input/output pair.
         return min(out.nbytes, split_workspace_size())
 
     return 0

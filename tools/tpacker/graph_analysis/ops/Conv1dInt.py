@@ -19,17 +19,16 @@ class Conv1dIntAttrs(OperatorAttrs):
     def checkparams(self) -> None:
         """Check and validate the parameters for Conv1dInt operation."""
         platform = self.attrs.get("platform", "venus")
-        if platform in {"arcs", "venusA"}:
+        assert platform in {"venus", "arcs", "mars", "venusA", "venusa"}, \
+            f"Unsupported Conv1dInt platform: {platform}"
+        quant_mode = self.attrs.get("quant_mode", self.attrs.get("platform_quant"))
+        if quant_mode == "luna_quant":
+            quant_mode = "FLOOR_ADD"
+        assert quant_mode is not None, "Missing required attribute: quant_mode"
+        self.attrs["quant_mode"] = quant_mode
+        if platform in {"arcs", "mars", "venusA", "venusa"}:
             assert "quant_mode" in self.attrs, "Missing required attribute: quant_mode"
         else:
-            if "quant_mode" in self.attrs:
-                quant_mode = self.attrs.get("quant_mode")
-                if quant_mode == "luna_quant":
-                    quant_mode = "FLOOR_ADD"
-            else:
-                quant_mode = self.attrs.get("platform_quant")
-                if quant_mode == "luna_quant":
-                    quant_mode = "FLOOR_ADD"
             self.attrs['quant_mode'] = quant_mode
 
         # Check required attributes
@@ -48,6 +47,10 @@ class Conv1dIntAttrs(OperatorAttrs):
         ]
         for attr in required_attrs:
             assert attr in self.attrs, f"Missing required attribute: {attr}"
+
+        # Conv1dIntAttrs has no serialized dilation field.
+        dilations = attr2tuple(self.attrs.get("dilations"), (1,))
+        assert dilations == (1,), "Dilations must be (1,) for Conv1dInt"
 
         # Validate kernel shape
         kernels = attr2tuple(self.attrs.get("kernel_shape"), (1,))
@@ -77,7 +80,14 @@ class Conv1dIntAttrs(OperatorAttrs):
 
         # Additional checks
         assert kernel_size >= stride, f"weight ({kernel_size}) and stride ({stride}) size of Conv1dInt do not match"
-        assert pad_left <= kernel_size and pad_right <= kernel_size, f"pad_h ({pad_left}, {pad_right}) and weight_h ({kernel_size}) size of Conv1dInt do not match"
+        assert pad_left < kernel_size and pad_right < kernel_size, f"pad ({pad_left}, {pad_right}) must be smaller than kernel ({kernel_size})"
+        group = int(self.attrs["group"])
+        assert 1 <= group <= 32767, "Conv1dInt group cannot be serialized as int16"
+        self.attrs["kernel_shape"] = kernels
+        self.attrs["pads"] = pads
+        self.attrs["strides"] = strides
+        self.attrs["dilations"] = dilations
+        self.attrs["group"] = group
 
     def serialize(self) -> bytes:
         """Serialize the attributes into bytes for the Conv1dInt operation."""
@@ -92,7 +102,7 @@ class Conv1dIntAttrs(OperatorAttrs):
 
 @register_op
 class Conv1dInt(Operator, ConvLayout):
-    def __init__(self, attrs={}):
+    def __init__(self, attrs=None):
         self.attrs = Conv1dIntAttrs(attrs)
 
     def infer_tensor(self, dynamic_shape):
@@ -105,16 +115,22 @@ class Conv1dInt(Operator, ConvLayout):
         W = inputs[1]
         assert len(X.shape) == 3, "Conv1dInt just support 3D data"
         assert len(W.shape) == 3, "Conv1dInt just support 3D weight"
+        if platform in ("arcs", "mars", "venusA", "venusa"):
+            batch = calc_expr(str(X.shape[0]), dynamic_shape) if is_sympy(X.shape[0]) else X.shape[0]
+            assert batch == 1, f"Conv1dInt on {platform} only supports batch=1"
         assert X.dtype == np.int8, "input data type of Conv1dInt must be int8"
         assert W.dtype == np.int8, "weight data type of Conv1dInt must be int8"
         if len(inputs) == 3:
             assert inputs[2].dtype == np.int32, "bias data type of Conv1dInt must be int32"
+            assert inputs[2].size == W.shape[0], "bias size must match Conv1dInt output channels"
 
         # Infer shape
         kernels = self.attrs.get("kernel_shape")
         strides = self.attrs.get("strides")
         pads = self.attrs.get("pads")
         group = self.attrs.get("group", 1)
+        x_w = calc_expr(str(X.shape[2]), dynamic_shape) if is_sympy(X.shape[2]) else X.shape[2]
+        assert x_w + pads[0] + pads[1] >= kernels[0], "Input and weight size mismatch"
         shape = calc_conv1d_output_shape(X.shape, W.shape, kernels, strides, (1, 1), pads, group)
 
         # Infer scale
@@ -144,8 +160,10 @@ class Conv1dInt(Operator, ConvLayout):
             assert X.dtype == np.int8
             assert data_bits == 8, f"data type:{X.dtype} must match data bits:{data_bits}"
             assert W.dtype == np.int8
-            assert parameter_bits in (4, 8), f"weight type:{W.dtype} must match weight bits:{parameter_bits}"            
+            assert parameter_bits in (4, 8), f"weight type:{W.dtype} must match weight bits:{parameter_bits}"
             assert output_bits in (8, 16, 32)
+            shift = X.scale + W.scale - int(temp)
+            assert 0 <= shift <= 63, "Conv1dInt on venus shift exceeds runtime limits"
             dtype = (
                 np.int8
                 if output_bits == 8
@@ -153,18 +171,26 @@ class Conv1dInt(Operator, ConvLayout):
                 if output_bits == 16
                 else np.int32
             )
-        elif platform == "arcs":
+        elif platform in ("arcs", "mars"):
+            assert X.shape[0] == 1, "Conv1dInt on arcs only supports batch=1"
             assert X.dtype == np.int8
             assert data_bits == 8, f"data type:{X.dtype} must match data bits:{data_bits}"
             assert W.dtype == np.int8
             assert parameter_bits in (4, 8), f"weight type:{W.dtype} must match weight bits:{parameter_bits}"
             assert output_bits in (8, 32)
+            shift = X.scale + W.scale - int(temp)
+            if shift < 0:
+                assert output_bits == 32 and -shift <= 30, "Conv1dInt on arcs requires safe int32 left-shift compensation"
+            else:
+                assert shift <= 63, "Conv1dInt on arcs shift exceeds Luna CNN limits"
             dtype = np.int8 if output_bits == 8 else np.int32
-        elif platform == "venusA":
-            assert X.dtype in (np.int8, np.int16, np.int32)
-            assert data_bits in (8, 16), f"data type:{X.dtype} must match data bits:{data_bits}"
-            assert W.dtype in (np.int8, np.int16)
-            assert parameter_bits in (4, 8, 16), f"weight type:{W.dtype} must match weight bits:{parameter_bits}"
+        elif platform in ("venusA", "venusa"):
+            batch = calc_expr(str(X.shape[0]), dynamic_shape) if is_sympy(X.shape[0]) else X.shape[0]
+            assert batch == 1, "Conv1dInt on venusA only supports batch=1"
+            assert X.dtype == np.int8
+            assert data_bits == 8, f"data type:{X.dtype} must match data bits:{data_bits}"
+            assert W.dtype == np.int8
+            assert parameter_bits in (4, 8), f"weight type:{W.dtype} must match weight bits:{parameter_bits}"
             assert output_bits in (8, 16, 32)
             dtype = (
                 np.int8
@@ -173,6 +199,12 @@ class Conv1dInt(Operator, ConvLayout):
                 if output_bits == 16
                 else np.int32
             )
+            shift = X.scale + W.scale - int(temp)
+            if shift < 0:
+                assert output_bits == 32 and -shift <= 30, \
+                    "Conv1dInt on venusA requires int32 output for left shift compensation"
+            else:
+                assert shift <= 63, "Conv1dInt on venusA shift exceeds Luna limits"
 
         Y = X.clone(shape=tuple(shape), scale=int(temp), dtype=dtype, bits=int(output_bits / 8))
         self.outputs = [Y]
@@ -180,8 +212,12 @@ class Conv1dInt(Operator, ConvLayout):
     def get_workspace(self) -> List[Tensor]:
         """Calculate the required workspace for the Conv1dInt operation."""
         platform = self.attrs.get("platform", "venus")
+        platform_module_name = {
+            "mars": "arcs",
+            "venusa": "venusA",
+        }.get(platform, platform)
         platform_module = __import__(
-            f"tpacker.graph_analysis.ops.{platform}", fromlist=[""]
+            f"tpacker.graph_analysis.ops.{platform_module_name}", fromlist=[""]
         )
         bias = self.inputs[2] if len(self.inputs) == 3 else None
         workspace_size = platform_module.get_Conv1dInt_workspace(
@@ -202,8 +238,12 @@ class Conv1dInt(Operator, ConvLayout):
     def pack_params(self):
         """Pack the parameters for the Conv1dInt operation."""
         platform = self.attrs.get("platform", "venus")
+        platform_module_name = {
+            "mars": "arcs",
+            "venusa": "venusA",
+        }.get(platform, platform)
         platform_module = __import__(
-            f"tpacker.graph_analysis.ops.{platform}", fromlist=[""]
+            f"tpacker.graph_analysis.ops.{platform_module_name}", fromlist=[""]
         )
         weight_bits = self.attrs["parameter_bits"]
         new_weight = platform_module.Conv1dInt_weight_rearrange(

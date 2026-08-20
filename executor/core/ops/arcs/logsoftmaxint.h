@@ -254,104 +254,88 @@ static void vec_logn_32x32_sim(int32_t *Y, const int32_t *X, int N)
 int32_t logsoftmaxint_luna(tTensor *data, tTensor *out, tTensor *Workspace, LogSoftmaxIntAttrs *attrs) {
     const int32_t LOG_Q_IN = 25;
     const int32_t LOG_Q_OUT = 25;
-    int32_t leading = 1, stride = 1;
-    int32_t i = 0;
-    int32_t axis = 1;
-    
-    // Determine axis for softmax operation
-    if (-1 == attrs->axis) {
-        axis = data->shape_.ndim_ - 1;
+    if (data == NULL || out == NULL || Workspace == NULL || attrs == NULL ||
+        data->dptr_ == 0 || out->dptr_ == 0 || Workspace->dptr_ == 0)
+        return T_ERR_INVALID_PARA;
+    int32_t leading = 1;
+    int32_t axis = attrs->axis < 0 ? ((int32_t)data->shape_.ndim_ + attrs->axis) : attrs->axis;
+
+    #if THINKER_PARAM_CHECK
+    if (axis < 0 || axis >= (int32_t)data->shape_.ndim_) {
+        return (T_ERR_INVALID_PARA);
     }
 
-    // Calculate leading dimensions and stride
-    for (; i < axis; ++i) {
+    if (axis != (int32_t)data->shape_.ndim_ - 1) {
+        return (T_ERR_INVALID_PARA);
+    }
+
+    if (data->dtype_ != Int8 || out->dtype_ != Int8) {
+        return (T_ERR_INVALID_DATATYPE);
+    }
+#endif
+
+    for (int32_t i = 0; i < axis; ++i) {
         leading *= data->shape_.dims_[i];
     }
-    for (; i < data->shape_.ndim_; ++i) {
-        stride *= data->shape_.dims_[i];
+    int32_t stride = data->shape_.dims_[axis];
+
+    #if THINKER_PARAM_CHECK
+    if (stride <= 0 || stride > 2048) {
+        return (T_ERR_INVALID_PARA);
+    }
+#endif
+    #if THINKER_RUNTIME_CHECK
+    if (Workspace == NULL || Workspace->dptr_ == 0) {
+        return (T_ERR_NO_WORKSPACE);
+    }
+#endif
+
+    size_t workspace_size = getTensorDataSize(Workspace);
+    #if THINKER_RUNTIME_CHECK
+    if (workspace_size < stride * (int32_t)sizeof(int32_t) * 2) {
+        return (T_ERR_NO_WORKSPACE);
+    }
+#endif
+
+    int32_t x_scale = (int32_t)data->scale_;
+    int32_t y_scale = (int32_t)out->scale_;
+    int32_t input_shift = LOG_Q_IN - x_scale;
+    int32_t output_shift = LOG_Q_OUT - y_scale;
+    #if THINKER_PARAM_CHECK
+    if (input_shift < 0 || input_shift > 30) {
+        return (T_ERR_INVALID_PARA);
     }
 
-    // Check memory types
-    int32_t input_is_psram = (1 == data->mem_.type_ || 3 == data->mem_.type_) ? 1 : 0;
-    int32_t output_is_psram = (1 == out->mem_.type_ || 3 == out->mem_.type_) ? 1 : 0;
+    if (output_shift < 0 || output_shift > 63) {
+        return (T_ERR_INVALID_PARA);
+    }
+#endif
 
-    // Process only int8 data type
-    if (Int8 == data->dtype_) {
-        int8_t *src = (int8_t *)(data->dptr_);
-        int8_t *dst = (int8_t *)(out->dptr_);
-        int32_t x_scale = (int32_t)data->scale_;
-        int32_t y_scale = (int32_t)out->scale_;
-        int32_t max_once_size = 1024;
+    int32_t *tmp1 = (int32_t *)(Workspace->dptr_);
+    int32_t *tmp2 = tmp1 + stride;
+    int32_t input_is_psram = (data->mem_.type_ != 2);
+    int32_t output_is_psram = (out->mem_.type_ != 2);
 
-        int32_t *tmp1 = (int32_t *)(Workspace->dptr_);
-        int32_t *tmp2 = tmp1 + max_once_size;
-
-        // Process each batch
-        for (int32_t l = 0; l < leading; ++l) {
-            int8_t *lsrc = src + l * stride;
-            int8_t *ldst = dst + l * stride;
-            int32_t i_src_size = stride;
-
-            int8_t *lsrc_tmp = lsrc;
-            int8_t *ldst_tmp = ldst;
-
-            // Process in chunks
-            while (i_src_size > max_once_size) {
-                i_src_size -= max_once_size;
-                
-                // Handle PSRAM input
-                if (input_is_psram) {
-                    THINKER_RET_CHECK(API_LIB(memcpy_i8o8)((int8_t *)tmp2, (int8_t *)lsrc_tmp, max_once_size), "luna_memcpy_i8o8");
-                    lsrc = (int8_t *)tmp2;
-                }
-                
-                // Handle PSRAM output
-                if (output_is_psram) {
-                    ldst = (int8_t *)tmp1;
-                }
-                
-                // Perform computations
-                THINKER_RET_CHECK(API_LIB(scale_i8i8o32)(lsrc, 1, tmp1, max_once_size, 0), "luna_scale_i8i8o32");  // Q4->Q25
-                THINKER_RET_CHECK(API_LIB(scale_i32i32o32)(tmp1, (1 << (LOG_Q_IN - x_scale)), tmp2, max_once_size, 0), "luna_scale_i32i32o32");  // Q4->Q25
-                THINKER_RET_CHECK(API_LIB(softmax_i32o32)((int32_t *)tmp1, (int32_t *)tmp2, max_once_size), "luna_softmax_i32o32");  // Q25->Q16.15
-                vec_logn_32x32_sim((int32_t *)tmp2, (int32_t *)tmp1, max_once_size);  // Q16.15=>Q6.25
-                THINKER_RET_CHECK(API_LIB(scale_i32i32o8)(tmp2, 1, ldst, max_once_size, (LOG_Q_OUT - y_scale)), "luna_scale_i32i32o8");
-                
-                // Copy result back if needed
-                if (output_is_psram) {
-                    opi_psram_cpy_out(ldst_tmp, tmp1, max_once_size);
-                }
-                
-                lsrc_tmp += max_once_size;
-                ldst_tmp += max_once_size;
-            }
-            
-            // Process remaining elements
-            if (input_is_psram) {
-                THINKER_RET_CHECK(API_LIB(memcpy_i8o8)((int8_t *)tmp2, (int8_t *)lsrc_tmp, i_src_size), "luna_memcpy_i8o8");
-                lsrc = (int8_t *)tmp2;
-            }
-            
-            if (output_is_psram) {
-                ldst = (int8_t *)tmp1;
-            }
-            
-            THINKER_RET_CHECK(API_LIB(scale_i8i8o32)(lsrc, 1, tmp1, i_src_size, 0), "luna_scale_i8i8o32");  // Q4->Q25
-            THINKER_RET_CHECK(API_LIB(scale_i32i32o32)(tmp1, (1 << (LOG_Q_IN - x_scale)), tmp2, i_src_size, 0), "luna_scale_i32i32o32");  // Q4->Q25
-            THINKER_RET_CHECK(API_LIB(softmax_i32o32)((int32_t *)tmp1, (int32_t *)tmp2, i_src_size), "luna_softmax_i32o32");  // Q25->Q16.15
-            vec_logn_32x32_sim((int32_t *)tmp2, (int32_t *)tmp1, i_src_size);  // Q16.15=>Q6.25
-            THINKER_RET_CHECK(API_LIB(scale_i32i32o8)(tmp2, 1, ldst, i_src_size, (LOG_Q_OUT - y_scale)), "luna_scale_i32i32o8");
-            
-            if (output_is_psram) {
-                opi_psram_cpy_out(ldst_tmp, tmp1, i_src_size);
-            }
+    for (int32_t l = 0; l < leading; ++l) {
+        int8_t *src = (int8_t *)data->dptr_ + l * stride;
+        int8_t *dst = (int8_t *)out->dptr_ + l * stride;
+        if (input_is_psram) {
+            THINKER_RET_CHECK(API_LIB(memcpy_i8o8)((int8_t *)tmp2, src, stride), "luna_memcpy_i8o8");
+            src = (int8_t *)tmp2;
         }
-    } 
-    else {
-        THINKER_LOG_FATAL("LogSoftmaxInt support int8 data type only.");
-        return T_ERR_INVALID_DATATYPE;
+
+        THINKER_RET_CHECK(API_LIB(scale_i8i8o32)(src, 1, tmp1, stride, 0), "luna_scale_i8i8o32");
+        THINKER_RET_CHECK(API_LIB(scale_i32i32o32)(tmp1, (1 << input_shift), tmp1, stride, 0), "luna_scale_i32i32o32");
+        THINKER_RET_CHECK(API_LIB(softmax_i32o32)(tmp1, tmp2, stride), "luna_softmax_i32o32");
+        vec_logn_32x32_sim(tmp1, tmp2, stride);
+
+        int8_t *dst_tmp = output_is_psram ? (int8_t *)tmp2 : dst;
+        THINKER_RET_CHECK(API_LIB(scale_i32i32o8)(tmp1, 1, dst_tmp, stride, output_shift), "luna_scale_i32i32o8");
+        if (output_is_psram) {
+            opi_psram_cpy_out(dst, dst_tmp, stride * sizeof(int8_t));
+        }
     }
-    
+
     return T_SUCCESS;
 }
 

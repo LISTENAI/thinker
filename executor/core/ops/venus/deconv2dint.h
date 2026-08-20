@@ -79,9 +79,9 @@ static void deconv2dint_luna_para_init(ConvTranspose2dIntAttrs *attrs,
     int32_t q_x = (int32_t)X->scale_;
     int32_t q_w = (int32_t)W->scale_;
     int32_t q_y = (int32_t)Y->scale_;
-    conv_attrs->positive_shift_type = ShiftType_FloorX05;
+  conv_attrs->positive_shift_type = attrs->quant_type == 0 ? ShiftType_Floor : ShiftType_FloorX05;
     conv_attrs->positive_shift_value = q_x + q_w - q_y;
-    conv_attrs->negative_shift_type = ShiftType_FloorX05;
+  conv_attrs->negative_shift_type = attrs->quant_type == 0 ? ShiftType_Floor : ShiftType_FloorX05;
     conv_attrs->negative_shift_value = conv_attrs->positive_shift_value;
     
     // Set batch number

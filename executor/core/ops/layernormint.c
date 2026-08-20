@@ -27,20 +27,63 @@
  * @return: Status code indicating success or failure
  */
 int32_t X(Forward)(tOperator *op, tTensor **tensors, int32_t num_tensor, tDMA_List *list) {
-    // Validate tensor count
-    CHECK_GE(num_tensor, (op->num_input_ + op->num_output_));
-    
-    // Get layer normalization attributes
+#if THINKER_PARAM_CHECK
+    if (op == NULL || tensors == NULL || list == NULL ||
+                        op->num_input_ != 3 || op->num_output_ != 1) {
+        return (T_ERR_INVALID_PARA);
+    }
+#endif
+    int32_t expected_tensors = op->num_input_ + op->num_output_ + 1;
+    if (list->total_ > 0) expected_tensors++;
+#if THINKER_PARAM_CHECK
+    if (num_tensor != expected_tensors) {
+        return (T_ERR_INVALID_PARA);
+    }
+#endif
+
     LayerNormIntAttrs *attrs = (LayerNormIntAttrs *)((int8_t *)op + op->attr_offset_);
-    
-    // Get input, weight, and output tensors
-    tTensor *X = ((tTensor **)tensors)[0];
-    tTensor *W = ((tTensor **)tensors)[1];
-    tTensor *Y = ((tTensor **)tensors)[op->num_input_];
-    
+    tTensor *X = tensors[0];
+    tTensor *W = tensors[1];
+    tTensor *bias = tensors[2];
+    tTensor *Y = tensors[3];
+    tTensor *workspace = tensors[4];
+#if THINKER_PARAM_CHECK
+    if (attrs == NULL || X == NULL || W == NULL || bias == NULL ||
+                        Y == NULL || workspace == NULL || X->dptr_ == 0 ||
+                        W->dptr_ == 0 || bias->dptr_ == 0 || Y->dptr_ == 0 ||
+                        workspace->dptr_ == 0 || X->shape_.ndim_ < 2 ||
+                        !equalShape(&X->shape_, &Y->shape_)) {
+        return (T_ERR_INVALID_PARA);
+    }
+
+    if (X->dtype_ != Int8 || bias->dtype_ != Int32 ||
+                        (Y->dtype_ != Int8 && Y->dtype_ != Int16 &&
+                         Y->dtype_ != Int32) || workspace->dtype_ != Int8 ||
+                        workspace->byte_ != 1) {
+        return (T_ERR_INVALID_DATATYPE);
+    }
+
+    if (getTensorSize(W) == 0 ||
+                        getTensorSize(bias) != getTensorSize(W) ||
+                        X->zero_ != 0 || W->zero_ != 0 || bias->zero_ != 0 ||
+                        Y->zero_ != 0 || !isfinite(X->scale_) ||
+                        !isfinite(W->scale_) || !isfinite(Y->scale_) ||
+                        X->scale_ != floorf(X->scale_) ||
+                        W->scale_ != floorf(W->scale_) ||
+                        Y->scale_ != floorf(Y->scale_)) {
+        return (T_ERR_INVALID_DATA);
+    }
+#endif
+#if THINKER_RUNTIME_CHECK
+    if (workspace->mem_.type_ != 2 ||
+                          workspace->shape_.ndim_ != 1 ||
+                          ((uintptr_t)workspace->dptr_ & 3U) != 0) {
+        return (T_ERR_NO_WORKSPACE);
+    }
+#endif
+
     tTensor weight_tmp = W[0];
-    tTensor *bias = NULL;
-    tTensor *workspace = NULL;
+    tTensor bias_tmp;
     
 #if THINKER_USE_VENUS || THINKER_USE_ARCS || THINKER_USE_VENUSA
     if (list->total_ != 0)
@@ -51,33 +94,24 @@ int32_t X(Forward)(tOperator *op, tTensor **tensors, int32_t num_tensor, tDMA_Li
 #endif
     
     if (list->total_ > 0) {
-        tTensor *dma_buffer = NULL;
-        if (num_tensor == op->num_input_ + op->num_output_ + 1) {
-            dma_buffer = ((tTensor **)tensors)[op->num_input_ + op->num_output_];
-            weight_tmp.dptr_ = (addr_type)dma_buffer->dptr_;
-        } else if (num_tensor == op->num_input_ + op->num_output_ + 2) {
-            workspace = ((tTensor **)tensors)[op->num_input_ + op->num_output_];
-            dma_buffer = ((tTensor **)tensors)[op->num_input_ + op->num_output_ + 1];
-            weight_tmp.dptr_ = (addr_type)dma_buffer->dptr_;
+        tTensor *dma_buffer = tensors[5];
+#if THINKER_RUNTIME_CHECK
+        if (dma_buffer == NULL || dma_buffer->dptr_ == 0) {
+            return (T_ERR_NO_WORKSPACE);
         }
-        
-        if (3 == op->num_input_) {
-            bias = ((tTensor **)tensors)[op->num_input_ - 1];
-            tTensor Bias_temp = bias[0];
-            Bias_temp.scale_ = X->scale_ + W->scale_;
-            int32_t size = getShapeSize(&(W->shape_)) * W->byte_;
-            Bias_temp.dptr_ = (addr_type)((int8_t *)weight_tmp.dptr_ + ALIGN16(size));
-        }
+#endif
+        weight_tmp.dptr_ = (addr_type)dma_buffer->dptr_;
+        weight_tmp.mem_.type_ = 2;
+        bias_tmp = bias[0];
+        bias_tmp.scale_ = X->scale_ + W->scale_;
+        size_t size = getTensorDataSize(&weight_tmp);
+        bias_tmp.dptr_ = (addr_type)((int8_t *)weight_tmp.dptr_ + ALIGN16(size));
+        bias_tmp.mem_.type_ = 2;
+        bias = &bias_tmp;
         
         THINKER_RET_CHECK(layernormalint_venus(X, &weight_tmp, bias, Y, workspace, attrs), "layernromalint_venus");
     } else {
-        if (3 == op->num_input_) {
-            bias = ((tTensor **)tensors)[op->num_input_ - 1];
-            bias->scale_ = X->scale_ + W->scale_;
-        }
-        if (num_tensor == op->num_input_ + op->num_output_ + 1) {
-            workspace = ((tTensor **)tensors)[op->num_input_ + op->num_output_];
-        }
+        bias->scale_ = X->scale_ + W->scale_;
         THINKER_RET_CHECK(layernormalint_venus(X, W, bias, Y, workspace, attrs), "layernromalint_venus");
     }
     

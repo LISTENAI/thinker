@@ -78,6 +78,11 @@ static void luna_maxpool_para_init(PoolAttrs* attrs, s_conv_struct *conv_attrs, 
  * @return int32_t Operation status
  */
 int32_t maxpool_luna(const tTensor* X, tTensor* Y, tTensor* Temp, PoolAttrs *attrs) {
+    #if THINKER_PARAM_CHECK
+    if (X->dtype_ != Int8 || Y->dtype_ != Int8) {
+        return (T_ERR_INVALID_DATATYPE);
+    }
+    #endif
     s_conv_struct pool_struct_;
     luna_maxpool_para_init(attrs, &pool_struct_, (tTensor *)X, Y);
 
@@ -99,14 +104,39 @@ int32_t maxpool_luna(const tTensor* X, tTensor* Y, tTensor* Temp, PoolAttrs *att
     int32_t input_condition = (luna_quant_ceil(in_c, 3) << 3) * in_h * (luna_quant_ceil(in_w, (3 + log2n_stride_w)) << (3 + log2n_stride_w));
     input_condition = (input_condition <= 64 * 1024) ? 1 : 0;
 
+    #if THINKER_PARAM_CHECK
+    if (!input_condition && Y->mem_.type_ != 2) {
+        return (T_ERR_INVALID_PARA);
+    }
+    #endif
+
     if (Int8 == X->dtype_) {
         if (input_condition) {  // No need to split input
             int32_t in_batch_size = in_c * in_h * in_w;
             int32_t ou_batch_size = ou_c * ou_h * ou_w * (Y->dtype_ & 0xF);
+            int32_t input_stage_size = X->mem_.type_ == 2 ? 0 : ALIGN4(in_batch_size);
+            int32_t output_stage_size = Y->mem_.type_ == 2 ? 0 : ou_batch_size;
+            #if THINKER_RUNTIME_CHECK
+            if ((input_stage_size || output_stage_size) &&
+                                  (Temp == NULL || Temp->dptr_ == 0 ||
+                                   Temp->shape_.dims_[0] < input_stage_size + output_stage_size)) {
+                return (T_ERR_NO_WORKSPACE);
+            }
+            #endif
             for (int32_t n = 0; n < batch; n++) {
                 int8_t *p_in = (int8_t *)X->dptr_ + n * in_batch_size;
                 int8_t *p_out = (int8_t *)Y->dptr_ + n * ou_batch_size;
+                if (input_stage_size) {
+                    memcpy((int8_t *)Temp->dptr_, p_in, in_batch_size);
+                    p_in = (int8_t *)Temp->dptr_;
+                }
+                if (Y->mem_.type_ != 2) {
+                    p_out = (int8_t *)Temp->dptr_ + input_stage_size;
+                }
                 THINKER_RET_CHECK(API_LIB(max_pooling)(p_in, p_out, &pool_struct_), "luna_max_pooling");
+                if (Y->mem_.type_ != 2) {
+                    memcpy((int8_t *)Y->dptr_ + n * ou_batch_size, p_out, ou_batch_size);
+                }
             }
         } else {  // Split input along height dimension
             int32_t input_limit_without_h = (luna_quant_ceil(in_c, 3) << 3) * (luna_quant_ceil(in_w, (3 + log2n_stride_w)) << (3 + log2n_stride_w));
@@ -210,6 +240,8 @@ int32_t maxpool_luna(const tTensor* X, tTensor* Y, tTensor* Temp, PoolAttrs *att
                 memcpy(p_out, p_tmp, ou_c * ou_h * ou_w);
             }
         }
+    } else {
+        return T_ERR_INVALID_DATATYPE;
     }
 
     return T_SUCCESS;

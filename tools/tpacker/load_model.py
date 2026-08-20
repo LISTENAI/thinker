@@ -22,6 +22,7 @@ except ImportError:
 
     mapping = _OnnxMapping()
 
+from .platform_utils import normalize_platform_name
 from .enum_defines import Colors, ModelConfig
 from .save_model import save_to_onnx_model
 from .graph import (ConstantEntry, EmptyEntry, GraphEntry, InputEntry, OutputEntry, Tensor, GraphNode, Graph)
@@ -110,7 +111,7 @@ def _convert_dtype(onnx_type):
         TensorProto.UINT16: np.uint16,
         TensorProto.UINT32: np.uint32,
         TensorProto.UINT64: np.uint64,
-        TensorProto.BOOL: np.bool,
+        TensorProto.BOOL: np.bool_,
     }
     return dtype_map.get(onnx_type)
 
@@ -170,7 +171,6 @@ def _convert_op_type(op_type: str) -> str:
         "QAvgPool2d": "AvgPool2dInt",
         "QMaxPool2d": "MaxPool2dInt",
         "QGRU": "GRUInt",
-        "QLSTM": "LstmInt",
         "QBmm": "BmmInt",
         "QSigmoid": "iqSigmoid",
         "QTanh": "iqTanh",
@@ -178,7 +178,7 @@ def _convert_op_type(op_type: str) -> str:
         "QAdd": "iqAdd",
         "QMul": "iqMul",
         "QSoftmax": "SoftmaxInt",
-        "QLSTM":"LSTMInt",
+        "QLSTM": "LSTMInt",
         "QGRU":"GRUInt",
         "Pad":"iqPad",
         "QGLU": "GluInt"
@@ -242,6 +242,7 @@ def _convert_from_onnx_model(graph_path: str, model_config: ModelConfig, is_dump
         #     thinker_attrs = _convert_attr2(onnx_attrs)
 
         if 'platform' in thinker_attrs:
+            thinker_attrs['platform'] = normalize_platform_name(thinker_attrs['platform'])
             if thinker_graph.platform != None:
                 assert thinker_graph.platform == thinker_attrs['platform']
             else:
@@ -285,6 +286,7 @@ def _convert_from_onnx_model(graph_path: str, model_config: ModelConfig, is_dump
 
     for node in thinker_graph.nodes.values():
         if "platform" in node.attrs:
+            node.attrs["platform"] = normalize_platform_name(node.attrs["platform"])
             assert node.attrs["platform"] == thinker_graph.platform
         else:
             node.attrs["platform"] = thinker_graph.platform
@@ -306,6 +308,13 @@ def _convert_from_onnx_model(graph_path: str, model_config: ModelConfig, is_dump
 
     if model_config.inputs or model_config.outputs:
         thinker_graph.update()
+        # Node sorting prunes everything that cannot reach the selected outputs.
+        # Refresh connectivity before dropping original inputs outside that subgraph.
+        thinker_graph._update_entries()
+        thinker_graph.inputs = [
+            entry for entry in thinker_graph.inputs
+            if entry.dst_nodes or entry in thinker_graph.outputs
+        ]
         thinker_graph._apply_dynamic_axes(model_config.dynamic_shape)
         thinker_graph.init_tensor()
         print(f"{Colors.GREEN}2.3 subgraph partition passed{Colors.RESET}")

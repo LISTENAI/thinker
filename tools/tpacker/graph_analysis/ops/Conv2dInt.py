@@ -31,6 +31,10 @@ class Conv2dIntAttrs(OperatorAttrs):
                     quant_mode = "FLOOR_ADD"
             self.attrs['quant_mode'] = quant_mode
 
+        if self.attrs["quant_mode"] not in {"FLOOR", "FLOOR_ADD"}:
+            # The Luna kernels interpret every nonzero mode as FLOOR_ADD.
+            self.attrs["quant_mode"] = "FLOOR_ADD"
+
         # Check required attributes
         required_attrs = [
             "data_bits",
@@ -85,8 +89,8 @@ class Conv2dIntAttrs(OperatorAttrs):
 
         # Additional checks
         assert (kernels[0] >= strides[0] and kernels[1] >= strides[1]), "Kernel size must be >= stride size"
-        assert (pads[0] <= kernels[0] and pads[2] <= kernels[0]), "Pad width exceeds kernel height"
-        assert (pads[1] <= kernels[1] and pads[3] <= kernels[1]), "Pad height exceeds kernel width"
+        assert (pads[0] < kernels[0] and pads[2] < kernels[0]), "Pad height must be smaller than kernel height"
+        assert (pads[1] < kernels[1] and pads[3] < kernels[1]), "Pad width must be smaller than kernel width"
 
     def serialize(self) -> bytes:
         """Serialize the attributes into bytes for the Conv2dInt operation."""
@@ -114,10 +118,13 @@ class Conv2dInt(Operator, ConvLayout):
         W = inputs[1]
         assert len(X.shape) == 4, "Input must be 4D"
         assert len(W.shape) == 4, "Weight must be 4D"
+        batch = calc_expr(str(X.shape[0]), dynamic_shape) if is_sympy(X.shape[0]) else X.shape[0]
+        assert batch == 1, "Conv2dInt only supports batch=1"
         assert X.dtype == np.int8, "Input data type must be int8"
         assert W.dtype == np.int8, "Weight data type must be int8"
         if len(inputs) == 3:
             assert inputs[2].dtype in (np.int16, np.int32), "Bias data type must be int16 or int32"
+            assert inputs[2].size == W.shape[0], "bias size must match Conv2dInt output channels"
 
         # Infer shape
         shape = calc_conv2d_output_shape(
@@ -159,13 +166,13 @@ class Conv2dInt(Operator, ConvLayout):
         assert kernels[0] == W.shape[2] and kernels[1] == W.shape[3], "Kernel size mismatch"
         if len(pads) == 4:
             assert (
-                x_w + pads[1] + pads[3] >= W.shape[3]
-                and x_h + pads[0] + pads[2] >= W.shape[2]
+                x_w + pads[1] + pads[3] >= (W.shape[3] - 1) * self.attrs["dilations"][1] + 1
+                and x_h + pads[0] + pads[2] >= (W.shape[2] - 1) * self.attrs["dilations"][0] + 1
             ), "Input and weight size mismatch"
         elif len(pads) == 2:
             assert (
-                x_w + pads[1] * 2 >= W.shape[3]
-                and x_h + pads[0] * 2 >= W.shape[2]
+                x_w + pads[1] * 2 >= (W.shape[3] - 1) * self.attrs["dilations"][1] + 1
+                and x_h + pads[0] * 2 >= (W.shape[2] - 1) * self.attrs["dilations"][0] + 1
             ), "Input and weight size mismatch"
 
         # Infer type and return output
@@ -177,39 +184,32 @@ class Conv2dInt(Operator, ConvLayout):
         if platform == "venus":
             assert X.dtype == np.int8
             assert data_bits == 8, f"data type:{X.dtype} must match data bits:{data_bits}"
-            assert W.dtype in (np.int8, np.int16)
-            if W.dtype == np.int8:
-                assert parameter_bits == 8, f"weight type:{W.dtype} must match weight bits:{parameter_bits}"
-            else:
-                assert parameter_bits == 16, f"weight type:{W.dtype} must match weight bits:{parameter_bits}"
-            assert output_bits in (8, 16, 32)
-            dtype = (
-                np.int8
-                if output_bits == 8
-                else np.int16
-                if output_bits == 16
-                else np.int32
-            )
+            assert W.dtype == np.int8
+            assert parameter_bits == 8, \
+                "Conv2dInt on venus only supports the audited int8 weight path"
+            assert output_bits == 8, "Conv2dInt on venus only supports the audited int8 output path"
+            shift = X.scale + W.scale - int(temp)
+            assert 0 <= shift <= 63, "Conv2dInt on venus shift exceeds runtime limits"
+            dtype = np.int8
         elif platform == "arcs":
+            assert X.shape[0] == 1, "Conv2dInt on arcs only supports batch=1"
             assert X.dtype == np.int8
             assert data_bits == 8, f"data type:{X.dtype} must match data bits:{data_bits}"
             assert W.dtype == np.int8
             assert parameter_bits in {4, 8}, f"weight type:{W.dtype} must match weight bits:{parameter_bits}"
             assert output_bits in (8, 32)
+            shift = X.scale + W.scale - int(temp)
+            assert 0 <= shift <= 63, "Conv2dInt on arcs shift exceeds Luna CNN limits"
             dtype = np.int8 if output_bits == 8 else np.int32
         elif platform == "venusA":
             assert X.dtype == np.int8
             assert data_bits == 8, f"data type:{X.dtype} must match data bits:{data_bits}"
-            assert W.dtype in (np.int8, np.int16)
-            assert parameter_bits in {4, 8, 16, 32}, f"weight type:{W.dtype} must match weight bits:{parameter_bits}"
-            assert output_bits in (8, 16, 32)
-            dtype = (
-                np.int8
-                if output_bits == 8
-                else np.int16
-                if output_bits == 16
-                else np.int32
-            )
+            assert W.dtype == np.int8
+            assert parameter_bits in {4, 8}, f"weight type:{W.dtype} must match weight bits:{parameter_bits}"
+            assert output_bits == 8, "Conv2dInt on venusA runtime only supports int8 output"
+            shift = X.scale + W.scale - int(temp)
+            assert 0 <= shift <= 63, "Conv2dInt on venusA shift exceeds Luna limits"
+            dtype = np.int8
         else:
             raise ValueError("Unsupported platform")
 
@@ -244,6 +244,20 @@ class Conv2dInt(Operator, ConvLayout):
         platform_module = __import__(
             f"tpacker.graph_analysis.ops.{platform}", fromlist=[""]
         )
+        if len(self.inputs) >= 3:
+            bias = self.inputs[2]
+            assert bias.dtype in (np.int16, np.int32)
+            if bias.dtype != np.int32:
+                scale_x = self.inputs[0].scale
+                scale_w = self.inputs[1].scale
+                scale_o = self.outputs[0].scale
+                scale_d = min(scale_x + scale_w, 7 + scale_o)
+                shift = scale_x + scale_w - scale_d
+                new_bias = np.zeros(bias.shape, np.int32)
+                for i in range(bias.shape[0]):
+                    new_bias[i] = bias.data[i] * (2 ** shift)
+                self.inputs[2].update(data=new_bias, dtype=np.int32)
+
         weight_bits = self.attrs["parameter_bits"]
         new_weight = platform_module.Conv2dInt_weight_rearrange(
             self.inputs[0],

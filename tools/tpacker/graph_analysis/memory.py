@@ -4,7 +4,7 @@ from typing import Dict, List
 from ..xsympy import is_sympy
 from ..graph import Tensor
 from ..graph import Graph, GraphEntry
-from ..enum_defines import DevType, MemType
+from ..enum_defines import DevType, MemType, ALIGN4, ALIGN16
 
 WORKSPACE_NAME = "workspace"
 DMA_BUFFER1_NAME = "dma_buffer1"
@@ -47,6 +47,7 @@ class MemoryPlaner(object):
             x.nbytes = x.entry.tensor.nbytes
             if is_sympy(x.nbytes):
                 x.nbytes = x.nbytes.subs()
+            x.nbytes = ALIGN4(int(x.nbytes))
 
         self.update_share_id()
         self.get_life_period()
@@ -109,7 +110,7 @@ class MemoryPlaner(object):
             #     and node.dev_type == DevType.LUNA:
                 for x in node.inputs:
                     if x.tensor.mem_type != MemType.SHARE_MEM and x.is_constant():
-                        dma_size += x.tensor.nbytes
+                        dma_size += ALIGN16(len(x.tensor.data.tobytes()))
                 if dma_size != 0:
                     # max workspace
                     if index % 2 == 0:

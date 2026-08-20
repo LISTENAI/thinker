@@ -24,17 +24,28 @@ class BmmInt(iqBinaryOperator):
         x2_shape = list(X2.shape)
 
         platform = self.attrs.get("platform", "venus")
+        assert platform in ("venus", "arcs", "mars", "venusA"), \
+            f"BmmInt is not supported on {platform}"
         if platform == "venusA":
-            assert X1.dtype == X2.dtype, "Input tensors must have the same data type"
+            assert X1.dtype == X2.dtype and X1.dtype in (np.int8, np.int16, np.int32), \
+                "BmmInt on venusA only supports matching int8/int16/int32 inputs"
+        elif platform in ("arcs", "mars"):
+            assert X1.dtype == X2.dtype and X1.dtype in (np.int8, np.int32), \
+                f"BmmInt on {platform} only supports int8/int32 inputs"
         else:
             assert X1.dtype == X2.dtype == np.int8, "Inputs must be int8"
 
         assert len(x1_shape) in {2, 3}, "Input tensors must be 2D or 3D"
+        assert len(x1_shape) == len(x2_shape), "BmmInt inputs must have the same rank"
+        if len(x1_shape) == 3:
+            batch_x1 = calc_expr(str(x1_shape[0]), dynamic_shape) if is_sympy(x1_shape[0]) else x1_shape[0]
+            batch_x2 = calc_expr(str(x2_shape[0]), dynamic_shape) if is_sympy(x2_shape[0]) else x2_shape[0]
+            assert batch_x1 == batch_x2, \
+                f"BmmInt inputs must have the same batch size, got {x1_shape} and {x2_shape}"
         
-        if is_sympy(X1.shape[-1]) and is_sympy(X2.shape[-2]):
-            assert calc_expr(str(X1.shape[-1]), dynamic_shape) == calc_expr(str(X2.shape[-2]), dynamic_shape), "Matrix dimensions must match"
-        else:
-            assert X1.shape[-1] == X2.shape[-2], "Matrix dimensions must match"
+        inner_x1 = calc_expr(str(X1.shape[-1]), dynamic_shape) if is_sympy(X1.shape[-1]) else X1.shape[-1]
+        inner_x2 = calc_expr(str(X2.shape[-2]), dynamic_shape) if is_sympy(X2.shape[-2]) else X2.shape[-2]
+        assert inner_x1 == inner_x2, "Matrix dimensions must match"
 
         # Validate and set scales
         scale_x = self.attrs.get("scale_x", 1.0)
@@ -59,10 +70,17 @@ class BmmInt(iqBinaryOperator):
         temp = math.log(scale_o, 2)
         assert abs(temp - int(temp)) < 1e-6, "Output scale must be power of 2"
         assert scale_x + scale_y - temp >= 0, "BmmInt does not support left shift"
+        assert scale_x + scale_y - temp <= 63, "BmmInt shift exceeds Luna limit"
 
         # Determine output data type
         out_bits = self.attrs.get("o_bits", 8)
-        assert out_bits in {8, 16, 32}, "Output bits must be 8, 16, or 32"
+        if platform in ("arcs", "mars"):
+            assert out_bits in {8, 32}, \
+                f"BmmInt on {platform} only supports int8 or int32 output"
+        else:
+            assert out_bits in {8, 16, 32}, "Output bits must be 8, 16, or 32"
+        if platform == "venus":
+            assert out_bits == 8, "BmmInt on venus only supports int8 output"
         dtype = np.int8 if out_bits == 8 else np.int16 if out_bits == 16 else np.int32
 
         # Create output tensor
@@ -85,6 +103,8 @@ class BmmInt(iqBinaryOperator):
         platform = self.attrs.get("platform", "venus")
         if platform == "venus":
             if int8_condition_l > 65536:
+                assert ALIGN4(1) * ALIGN8(N) <= 65536, \
+                    "BmmInt shared dimension exceeds the Venus row-split limit"
                 split_num = 2
                 while True:
                     split_M = math.ceil(M / split_num)
@@ -93,23 +113,25 @@ class BmmInt(iqBinaryOperator):
                         break
                     split_num += 1
 
-            assert int8_condition_r <= 32768, "Input2 size must not exceed 32KB"
+            if int8_condition_r > 32768:
+                assert ALIGN8(N) * ALIGN4(1) <= 32768, \
+                    "BmmInt shared dimension exceeds the Venus column-split limit"
 
             # Calculate workspace size
-            if self.inputs[0].mem_type != MemType.SHARE_MEM and self.outputs[0].mem_type != MemType.SHARE_MEM:
-                workspace_bytes = split_M * max(N, L) + split_M * L * 4
-            elif self.inputs[0].mem_type != MemType.SHARE_MEM:
-                workspace_bytes = split_M * N
-            elif self.outputs[0].mem_type != MemType.SHARE_MEM:
-                workspace_bytes = split_M * L
-
-            if self.inputs[1].mem_type != MemType.SHARE_MEM:
-                workspace_bytes += N * L
+            lhs_external = self.inputs[0].mem_type != MemType.SHARE_MEM
+            rhs_external = self.inputs[1].mem_type != MemType.SHARE_MEM
+            out_external = self.outputs[0].mem_type != MemType.SHARE_MEM
+            assert not (rhs_external and out_external and not lhs_external), \
+                "BmmInt on venus cannot stage external rhs and output with SHARE_MEM lhs"
+            workspace_bytes = rhs_external * N * L
+            workspace_bytes += lhs_external * split_M * N
+            workspace_bytes += out_external * split_M * L
         elif platform == "venusA":
             if self.outputs[0].mem_type != MemType.SHARE_MEM:
-                workspace_bytes = M * L
+                workspace_bytes = M * L * self.outputs[0].dtype.itemsize
         else:
-            assert self.outputs[0].mem_type == MemType.SHARE_MEM
+            if self.outputs[0].mem_type != MemType.SHARE_MEM:
+                workspace_bytes = M * L * self.outputs[0].dtype.itemsize
         if workspace_bytes != 0:
             return [Tensor.from_shape([workspace_bytes], np.int8, MemType.SHARE_MEM)]
 
@@ -124,9 +146,11 @@ class BmmInt(iqBinaryOperator):
         xshape = [calc_expr(str(s), dynamic_shape) if is_sympy(s) else s for s in X.shape]
         yshape = [calc_expr(str(s), dynamic_shape) if is_sympy(s) else s for s in Y.shape]
 
-        # Calculate FLOPs
-        output_dims = yshape[1:]
-        return int(np.prod(output_dims))
+        batch = xshape[0] if len(xshape) == 3 else 1
+        M = xshape[-2]
+        N = xshape[-1]
+        L = yshape[-1]
+        return int(batch * M * L * (2 * N - 1))
 
 
 __all__ = ["BmmInt"]

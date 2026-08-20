@@ -37,4 +37,13 @@ typedef enum _thinker_StatusCode_ {
         } \
     } while (0)
 
+
+#ifndef THINKER_PARAM_CHECK
+#define THINKER_PARAM_CHECK 0
+#endif
+
+#ifndef THINKER_RUNTIME_CHECK
+#define THINKER_RUNTIME_CHECK 0
+#endif
+
 #endif  // _THINKER_STATUS_H_

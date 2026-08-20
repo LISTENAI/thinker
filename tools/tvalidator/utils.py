@@ -9,6 +9,7 @@ import math
 from dataclasses import dataclass
 from contextlib import contextmanager
 import os
+import json
 
 class Colors:
     RESET = '\033[0m'
@@ -20,7 +21,7 @@ class Colors:
     MAGENTA = '\033[95m'
     CYAN = '\033[96m'
 
-TRANSPARENT_OPS = {'Reshape', 'Transpose', 'Gather', 'Squeeze', 'Unsqueeze', 'Slice', 'Split', 'MaxPool',\
+TRANSPARENT_OPS = {'Reshape', 'Transpose', 'Gather', 'Squeeze', 'Unsqueeze', 'Slice', 'Split', 'Concat', 'MaxPool',\
                     'Relu', 'Clip', 'Prelu', 'Resize'}
 
 def parse_attribute_and_name(node):
@@ -37,7 +38,8 @@ def parse_attribute_and_name(node):
             elif attr.type == onnx.AttributeProto.AttributeType.STRING:
                 node_attribute[attr.name] = attr.s.decode('utf-8')
             elif attr.type == onnx.AttributeProto.AttributeType.TENSOR:
-                node_attribute[attr.name] = list(numpy_helper.to_array(node.attribute[0].t))
+                value = numpy_helper.to_array(attr.t)
+                node_attribute[attr.name] = value.item() if value.ndim == 0 else value.tolist()
             elif attr.type == onnx.AttributeProto.AttributeType.GRAPH:
                 node_attribute[attr.name] = attr.g
             else:
@@ -72,6 +74,7 @@ class ONNXModel:
 
         self.input_info = {}
         self.inputs = specified_inputs
+        self.dynamic_values = {}
 
         self._init_quant_op_configs()
 
@@ -82,6 +85,47 @@ class ONNXModel:
     def _get_input_info(self):
         graph_inputs = self.graph_input
         symbol_dict = {}
+        rng = np.random.default_rng()
+
+        def resolve_dimension(symbol):
+            if not symbol:
+                raise ValueError("Dynamic input dimension is unnamed")
+            if symbol in symbol_dict:
+                return symbol_dict[symbol]
+            if self.dynamic_cfg is None:
+                raise ValueError(f"Missing --cfg range for dynamic dimension '{symbol}'")
+            if symbol in self.dynamic_cfg:
+                min_val, max_val, factor = self.dynamic_cfg[symbol]
+                first_valid = ((min_val + factor - 1) // factor) * factor
+                candidate_count = (max_val - first_valid) // factor + 1
+                value = first_valid + int(rng.integers(candidate_count)) * factor
+                symbol_dict[symbol] = value
+                print(
+                    f"  Symbol <{symbol}> is set to <{value}> "
+                    f"(range={min_val}:{max_val}, factor={factor})"
+                )
+                return value
+
+            for base_symbol in self.dynamic_cfg:
+                resolve_dimension(base_symbol)
+            try:
+                value = int(eval(symbol, {
+                    "__builtins__": None,
+                    "floor": math.floor,
+                    "ceil": math.ceil,
+                    "Max": max,
+                    "Min": min,
+                    **symbol_dict,
+                }))
+            except Exception as exc:
+                raise ValueError(
+                    f"Missing --cfg range for dynamic dimension '{symbol}'"
+                ) from exc
+            if value <= 0:
+                raise ValueError(f"Dynamic dimension '{symbol}' resolved to {value}")
+            symbol_dict[symbol] = value
+            print(f"  Symbol <{symbol}> is resolved to <{value}>")
+            return value
 
         for i, vi in enumerate(graph_inputs):
             name = vi.name
@@ -89,6 +133,38 @@ class ONNXModel:
             dtype = onnx.mapping.TENSOR_TYPE_TO_NP_TYPE[tensor_type.elem_type]
             if self.inputs is not None:
                 shape = list(self.inputs[i].shape)
+                expected_rank = len(tensor_type.shape.dim)
+                if len(shape) != expected_rank:
+                    raise ValueError(
+                        f"Input '{name}' rank {len(shape)} does not match model rank {expected_rank}"
+                    )
+                for dim_index, (actual, dim) in enumerate(zip(shape, tensor_type.shape.dim)):
+                    if dim.dim_value > 0:
+                        if actual != dim.dim_value:
+                            raise ValueError(
+                                f"Input '{name}' dimension {dim_index} is {actual}, expected {dim.dim_value}"
+                            )
+                        continue
+                    symbol = dim.dim_param
+                    if symbol in (self.dynamic_cfg or {}):
+                        min_val, max_val, factor = self.dynamic_cfg[symbol]
+                        if actual < min_val or actual > max_val or actual % factor != 0:
+                            raise ValueError(
+                                f"Input '{name}' dimension '{symbol}'={actual} violates "
+                                f"--cfg {min_val}:{max_val}:{factor}"
+                            )
+                        if symbol in symbol_dict and symbol_dict[symbol] != actual:
+                            raise ValueError(
+                                f"Dynamic dimension '{symbol}' has inconsistent values "
+                                f"{symbol_dict[symbol]} and {actual}"
+                            )
+                        symbol_dict[symbol] = actual
+                        continue
+                    expected = resolve_dimension(symbol)
+                    if actual != expected:
+                        raise ValueError(
+                            f"Input '{name}' dimension '{symbol}' is {actual}, expected {expected}"
+                        )
             else:
                 shape = []
                 for d in tensor_type.shape.dim:
@@ -97,24 +173,95 @@ class ONNXModel:
                     else:
                         assert self.dynamic_cfg is not None, "Dynamic symbol info must be provided!"
                         symbol = d.dim_param
-                        if symbol in symbol_dict:
-                            shape.append(symbol_dict[symbol])
-                        else:
-                            cfg = self.dynamic_cfg[symbol]
-                            if isinstance(cfg, tuple):
-                                step = cfg[2]
-                                min_val = cfg[0] / step
-                                max_val = cfg[1]/step + 1
-                            else:
-                                step = 1
-                                min_val = 1
-                                max_val = cfg + 1
-                            rng = np.random.default_rng()
-                            val = rng.integers(min_val, max_val) * step
-                            symbol_dict[symbol] = val
-                            shape.append(val)
-                            print(f"  Symbol <{symbol}> is set to <{val}>")
+                        shape.append(resolve_dimension(symbol))
             self.input_info[name] = InputInfo(dtype, shape)
+        self.dynamic_values = symbol_dict
+
+    def specialize_dynamic_reshapes(self):
+        if not self.dynamic_values:
+            return
+
+        eval_globals = {
+            "__builtins__": None,
+            "floor": math.floor,
+            "ceil": math.ceil,
+            "Max": max,
+            "Min": min,
+            **self.dynamic_values,
+        }
+        metadata = {prop.key: prop.value for prop in self.model.metadata_props}
+        dynamic_initializers = json.loads(
+            metadata.get("thinker_dynamic_initializers", "{}")
+        )
+        initializer_indices = {
+            initializer.name: index
+            for index, initializer in enumerate(self.model.graph.initializer)
+        }
+        for name, spec in dynamic_initializers.items():
+            index = initializer_indices.get(name)
+            if index is None:
+                continue
+            try:
+                values = np.asarray(
+                    [int(eval(expr, eval_globals)) for expr in spec["expressions"]],
+                    dtype=np.int64,
+                ).reshape(spec["shape"])
+            except Exception as exc:
+                raise ValueError(
+                    f"Failed to specialize dynamic initializer '{name}': {exc}"
+                ) from exc
+            replacement = numpy_helper.from_array(values, name)
+            self.model.graph.initializer[index].CopyFrom(replacement)
+            print(f"  Updated dynamic initializer <{name}> to {values.tolist()}")
+
+        value_info = {
+            value.name: value
+            for value in list(self.model.graph.value_info) + list(self.model.graph.output)
+        }
+        for node in self.model.graph.node:
+            if node.op_type != "Reshape" or len(node.input) < 2 or not node.output:
+                continue
+            shape_index = initializer_indices.get(node.input[1])
+            output_info = value_info.get(node.output[0])
+            if shape_index is None or output_info is None:
+                continue
+
+            shape = numpy_helper.to_array(self.model.graph.initializer[shape_index]).copy()
+            dims = output_info.type.tensor_type.shape.dim
+            if shape.ndim != 1 or len(shape) != len(dims):
+                continue
+
+            changed = False
+            for index, dim in enumerate(dims):
+                if shape[index] <= 0:
+                    continue
+                if dim.dim_value > 0:
+                    value = dim.dim_value
+                elif dim.dim_param:
+                    try:
+                        value = int(eval(dim.dim_param, eval_globals))
+                    except Exception as exc:
+                        raise ValueError(
+                            f"Failed to evaluate dynamic shape '{dim.dim_param}' "
+                            f"for Reshape node '{node.name}': {exc}"
+                        ) from exc
+                else:
+                    continue
+                if value <= 0:
+                    raise ValueError(
+                        f"Dynamic shape for Reshape node '{node.name}' resolved to {value}"
+                    )
+                if shape[index] != value:
+                    shape[index] = value
+                    changed = True
+
+            if changed:
+                replacement = numpy_helper.from_array(
+                    shape,
+                    self.model.graph.initializer[shape_index].name,
+                )
+                self.model.graph.initializer[shape_index].CopyFrom(replacement)
+                print(f"  Updated dynamic Reshape <{node.name}> shape to {shape.tolist()}")
 
     def get_platform(self):
         for node in self.model.graph.node:
@@ -142,11 +289,10 @@ class ONNXModel:
 
         consumer_map: Dict[str, List[Tuple[onnx.NodeProto, int]]] = {i.name: [] for i in self.graph_input}
         inits_map = {i.name: numpy_helper.to_array(i) for i in graph.initializer}
-        value_shapes = {}
-        for value in list(graph.input) + list(graph.value_info) + list(graph.output):
-            dims = value.type.tensor_type.shape.dim
-            if dims and all(dim.dim_value > 0 for dim in dims):
-                value_shapes[value.name] = [dim.dim_value for dim in dims]
+        tensor_info = {
+            value.name: value.type.tensor_type
+            for value in list(graph.input) + list(graph.value_info) + list(graph.output)
+        }
         for initializer in graph.initializer: consumer_map[initializer.name] = []
         for node in graph.node:
             for i, inp in enumerate(node.input):
@@ -155,6 +301,13 @@ class ONNXModel:
 
         inputs_dict = {}
         processed_graph_inputs = set()
+
+        def random_input(info, low=-128, high=128):
+            if np.issubdtype(info.dtype, np.integer):
+                return np.random.randint(low, high, size=info.shape, dtype=info.dtype)
+            if np.issubdtype(info.dtype, np.floating):
+                return np.random.uniform(low, high, size=info.shape).astype(info.dtype)
+            raise TypeError(f"Unsupported input dtype: {info.dtype}")
         
         print(f"  Starting forward search from graph inputs...{Colors.RESET}")
         for i, graph_input in enumerate(self.graph_input):
@@ -210,8 +363,6 @@ class ONNXModel:
                                 bound_val = math.pow(2, data_bits-1)
                                 thinker_input = np.random.randint(-bound_val, bound_val, size = self.input_info[original_source].shape, dtype=data_dtype)
                             onnxrunner_input = torch.from_numpy((thinker_input - zp_val).astype(np.float32) / scale_val).cpu()
-                            if consumer_node.op_type == "Quant":
-                                thinker_input = onnxrunner_input.numpy()
                             inputs_dict[original_source] = (onnxrunner_input, thinker_input)
                             print(f"    -> SUCCESS: quantizable input {original_source} is generated.")
 
@@ -227,21 +378,22 @@ class ONNXModel:
                                 print(f"    -> ACTION: generate normal input <{original_source}>, shape is {self.input_info[original_source].shape}.")
                                 if consumer_node.op_type == "LSTMInt" and consumer_index == 1:
                                     _, attrs = parse_attribute_and_name(consumer_node)
-                                    data_shape = value_shapes.get(consumer_node.input[0])
-                                    layout = attrs.get("layout", 0)
-                                    if data_shape is not None:
-                                        thinker_input = np.full(
-                                            self.input_info[original_source].shape,
-                                            data_shape[0 if layout == 0 else 1],
-                                            dtype=self.input_info[original_source].dtype,
-                                        )
+                                    sequence_axis = 1 if attrs.get("batch_first", 0) else 0
+                                    sequence_name = consumer_node.input[0]
+                                    if sequence_name in self.input_info:
+                                        sequence_length = self.input_info[sequence_name].shape[sequence_axis]
                                     else:
-                                        thinker_input = np.ones(
-                                            self.input_info[original_source].shape,
-                                            dtype=self.input_info[original_source].dtype,
-                                        )
+                                        sequence_dim = tensor_info[sequence_name].shape.dim[sequence_axis]
+                                        sequence_length = sequence_dim.dim_value
+                                        if sequence_length <= 0:
+                                            sequence_length = self.dynamic_values[sequence_dim.dim_param]
+                                    thinker_input = np.full(
+                                        self.input_info[original_source].shape,
+                                        sequence_length,
+                                        dtype=self.input_info[original_source].dtype,
+                                    )
                                 else:
-                                    thinker_input = np.random.randint(-128, 128, size=self.input_info[original_source].shape, dtype=self.input_info[original_source].dtype)
+                                    thinker_input = random_input(self.input_info[original_source])
                             onnxrunner_input = torch.from_numpy(thinker_input).cpu()
                             inputs_dict[original_source] = (onnxrunner_input, thinker_input)
                             print(f"    -> SUCCESS: normal input <{original_source}> generated.")
@@ -272,24 +424,18 @@ class ONNXModel:
                                 print(f"    -> Traversing through transparent op '{consumer_node.name}'...")
                                 visited_tensors.add(output_tensor)
                                 queue.append((output_tensor, original_source))
-                    else:
-                        if self.inputs is not None:
-                            thinker_input = self.inputs[i]
-                        else:
-                            thinker_input = np.random.randint(
-                                -128,
-                                128,
-                                size=self.input_info[original_source].shape,
-                                dtype=self.input_info[original_source].dtype,
-                            )
-                        onnxrunner_input = torch.from_numpy(thinker_input).cpu()
-                        inputs_dict[original_source] = (onnxrunner_input, thinker_input)
-                        print(f"    -> SUCCESS: normal input <{original_source}> generated.")
-                        processed_graph_inputs.add(original_source)
-                        input_ready = True
-                        break
                 if input_ready:
                     break
+            if not input_ready:
+                print(f"    -> ACTION: use normal input <{original_source}>, shape is {self.input_info[original_source].shape}.")
+                if self.inputs is not None:
+                    thinker_input = self.inputs[i]
+                else:
+                    thinker_input = random_input(self.input_info[original_source])
+                onnxrunner_input = torch.from_numpy(thinker_input).cpu()
+                inputs_dict[original_source] = (onnxrunner_input, thinker_input)
+                processed_graph_inputs.add(original_source)
+                print(f"    -> SUCCESS: normal input <{original_source}> generated.")
         return inputs_dict
         
     def _init_quant_op_configs(self):
@@ -357,7 +503,7 @@ class ONNXModel:
                      'scale_attr': 'scale_x', 
                      'zp_attr': 'x_zero_point'},
                     {'name': 'initial_hidden', 
-                     'locator_logic': {'type': 'conditional', 'arg': 'num_inputs', 'cases': [{'if_equal': 7, 'index': 1}, {'if_equal': 8, 'index': 2}]}, 
+                     'locator_logic': {'type': 'conditional', 'arg': 'num_inputs', 'cases': [{'if_equal': 6, 'index': 1}, {'if_equal': 7, 'index': 1}, {'if_equal': 8, 'index': 2}]},
                      'scale_attr': 'scale_h', 
                      'zp_attr': 'h_zero_point'},
                 ]
@@ -369,7 +515,7 @@ class ONNXModel:
                      'scale_attr': 'scale_x', 
                      'zp_attr': 'x_zero_point'},
                     {'name': 'initial_hidden', 
-                     'locator_logic': {'type': 'conditional', 'arg': 'num_inputs', 'cases': [{'if_equal': 7, 'index': 1}, {'if_equal': 8, 'index': 2}]}, 
+                     'locator_logic': {'type': 'conditional', 'arg': 'num_inputs', 'cases': [{'if_equal': 6, 'index': 1}, {'if_equal': 7, 'index': 1}, {'if_equal': 8, 'index': 2}]},
                      'scale_attr': 'scale_h', 
                      'zp_attr': 'h_zero_point'},
                 ]

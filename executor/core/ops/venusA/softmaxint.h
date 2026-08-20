@@ -35,8 +35,18 @@ static int32_t softmaxint_scale_i32_to_dtype(const int32_t *src, void *dst,
     int32_t scalar = 1;
     uint32_t rshift = 0;
     if (shift >= 0) {
+#if THINKER_PARAM_CHECK
+if (shift > 63) {
+    return (T_ERR_INVALID_PARA);
+}
+#endif
         rshift = (uint32_t)shift;
     } else {
+#if THINKER_PARAM_CHECK
+if ((-shift) > 30) {
+    return (T_ERR_INVALID_PARA);
+}
+#endif
         scalar = 1 << (uint32_t)(-shift);
     }
 
@@ -59,8 +69,18 @@ static int32_t softmaxint_scale_i32_to_q25(int32_t *src, int32_t size, int32_t s
     int32_t scalar = 1;
     uint32_t rshift = 0;
     if (shift >= 0) {
+#if THINKER_PARAM_CHECK
+if (shift > 30) {
+    return (T_ERR_INVALID_PARA);
+}
+#endif
         scalar = 1 << (uint32_t)shift;
     } else {
+#if THINKER_PARAM_CHECK
+if ((-shift) > 63) {
+    return (T_ERR_INVALID_PARA);
+}
+#endif
         rshift = (uint32_t)(-shift);
     }
     THINKER_RET_CHECK(API_LIB(scale_i32i32o32)(src, scalar, src, size, rshift),
@@ -110,14 +130,20 @@ int32_t softmaxint_luna(tTensor *data, tTensor *out, tTensor *Workspace, Softmax
     const int32_t SOFTMAX_Q_IN = 25;
     const int32_t SOFTMAX_Q_OUT = 15;
 
-    if (Workspace == NULL) {
+    if (Workspace == NULL || Workspace->dptr_ == 0) {
         return T_ERR_NO_WORKSPACE;
     }
 
     int32_t axis = attrs->axis < 0 ? ((int32_t)data->shape_.ndim_ + attrs->axis) : attrs->axis;
-    if (axis < 0 || axis >= (int32_t)data->shape_.ndim_) {
-        return T_ERR_INVALID_PARA;
-    }
+#if THINKER_PARAM_CHECK
+if (axis < 0 || axis >= (int32_t)data->shape_.ndim_) {
+    return (T_ERR_INVALID_PARA);
+}
+
+if (axis != (int32_t)data->shape_.ndim_ - 1) {
+    return (T_ERR_NO_IMPLEMENTED);
+}
+#endif
 
     int32_t leading = 1;
     int32_t stride = 1;
@@ -127,11 +153,16 @@ int32_t softmaxint_luna(tTensor *data, tTensor *out, tTensor *Workspace, Softmax
     for (int32_t i = axis; i < (int32_t)data->shape_.ndim_; ++i) {
         stride *= data->shape_.dims_[i];
     }
+#if THINKER_PARAM_CHECK
+if (stride <= 0 || stride > 2048) {
+    return (T_ERR_INVALID_PARA);
+}
 
-    if (softmaxint_dtype_size(data->dtype_) == 0 ||
+if (softmaxint_dtype_size(data->dtype_) == 0 ||
         softmaxint_dtype_size(out->dtype_) == 0) {
-        return T_ERR_INVALID_DATATYPE;
-    }
+    return (T_ERR_INVALID_DATATYPE);
+}
+#endif
 
     int32_t out_bytes = softmaxint_dtype_size(out->dtype_);
     int32_t workspace_size = (int32_t)getTensorSize(Workspace) * Workspace->byte_;

@@ -15,12 +15,27 @@
 #define API_LIB(api) luna_##api
 #endif
 
-tStatus slice_luna(tTensor* X, int32_t begin, int32_t end, int32_t axis, int32_t step, tTensor* Y) {
-  int32_t real_axis = (axis + X->shape_.ndim_) % X->shape_.ndim_;
-  int32_t real_begin;
-  int32_t x_shape = X->shape_.dims_[real_axis];
+static int32_t slice_copy_bytes(void *dst, const void *src, uint32_t size,
+                                bool dst_psram, bool src_psram) {
+  if (size == 0 || dst == src) return T_SUCCESS;
+  if (src_psram) {
+    return API_LIB(psrammemcpy_i8o8)((int8_t *)dst, (int8_t *)src, size);
+  }
+  if (dst_psram) {
+    opi_psram_cpy_out(dst, (void *)src, size);
+    return T_SUCCESS;
+  }
+  return API_LIB(memcpy_i8o8)((int8_t *)dst, (int8_t *)src, size);
+}
 
-  real_begin = (begin + x_shape >= 0) ? (begin + X->shape_.dims_[real_axis]) % X->shape_.dims_[real_axis] : 0;
+tStatus slice_luna(tTensor* X, int32_t begin, int32_t end, int32_t axis, int32_t step, tTensor* Y) {
+  #if THINKER_PARAM_CHECK
+  if (X == NULL || Y == NULL || step != 1) {
+      return (T_ERR_INVALID_PARA);
+  }
+#endif
+  int32_t real_axis = axis;
+  int32_t real_begin = begin;
 
   // If the first axis, Implement memcpy directly,
   // Otherwise use the "leading, mid, trailing" architecture.
@@ -34,16 +49,10 @@ tStatus slice_luna(tTensor* X, int32_t begin, int32_t end, int32_t axis, int32_t
       for (size_t i = 0; i < Y->shape_.ndim_; i++) {
         output_size *= Y->shape_.dims_[i];
       }
-     if (2 == Y->mem_.type_) {
-       if (2 == X->mem_.type_)
-    	   THINKER_RET_CHECK(API_LIB(memcpy_i8o8)((int8_t*)Y->dptr_, (int8_t*)X->dptr_ + start * X->byte_, output_size * Y->byte_), "luna_memcpy_i8o8");
-       else
-    	   THINKER_RET_CHECK(API_LIB(psrammemcpy_i8o8)((int8_t*)Y->dptr_, (int8_t*)X->dptr_ + start * X->byte_, output_size * Y->byte_), "luna_psrammemcpy_i8o8");
-     }
-     else{
-    	opi_psram_cpy_out((int8_t*)Y->dptr_, (int8_t*)X->dptr_ + start * X->byte_, output_size * Y->byte_);
-     }
-//    opi_psram_cpy_in((int8_t*)Y->dptr_, (int8_t*)X->dptr_ + start * X->byte_, output_size * Y->byte_);
+     return slice_copy_bytes((int8_t *)Y->dptr_,
+                             (int8_t *)X->dptr_ + start * X->byte_,
+                             output_size * Y->byte_,
+                             Y->mem_.type_ == 1, X->mem_.type_ == 1);
   } 
   else {
     int32_t leading = 1, trailing = 1;
@@ -62,17 +71,10 @@ tStatus slice_luna(tTensor* X, int32_t begin, int32_t end, int32_t axis, int32_t
     for (int32_t l = 0; l < leading; l++) {
       int32_t i_lmt_this = l * i_mt + offset;
       int32_t o_lmt_this = l * o_mt;
-      if (2 != Y->mem_.type_) {
-        opi_psram_cpy_out((int8_t*)Y->dptr_ + o_lmt_this* Y->byte_, (int8_t*)X->dptr_ + i_lmt_this * X->byte_, o_mt * Y->byte_);
-      } 
-      else {
-        if (2 == X->mem_.type_) {
-          THINKER_RET_CHECK(API_LIB(memcpy_i8o8)((int8_t*)Y->dptr_ + o_lmt_this* Y->byte_, (int8_t*)X->dptr_ + i_lmt_this * X->byte_, o_mt * Y->byte_), "luna_memcpy_i8o8");
-        } 
-        else {
-          THINKER_RET_CHECK(API_LIB(psrammemcpy_i8o8)((int8_t*)Y->dptr_ + o_lmt_this* Y->byte_, (int8_t*)X->dptr_ + i_lmt_this * X->byte_, o_mt * Y->byte_), "luna_psrammemcpy_i8o8");
-        }
-      }
+      THINKER_RET_CHECK(slice_copy_bytes(
+          (int8_t *)Y->dptr_ + o_lmt_this * Y->byte_,
+          (int8_t *)X->dptr_ + i_lmt_this * X->byte_, o_mt * Y->byte_,
+          Y->mem_.type_ == 1, X->mem_.type_ == 1), "slice_copy_bytes");
     }
   }
 

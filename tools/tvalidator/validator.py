@@ -13,7 +13,11 @@ import shutil
 import argparse
 import re
 import torch
-from onnx import numpy_helper
+
+def _cmake_bool(value) -> str:
+    if isinstance(value, str):
+        return "ON" if value.lower() in ("1", "on", "true", "yes") else "OFF"
+    return "ON" if value else "OFF"
 
 def _remove_if_exists(path: Path):
         if path.exists():
@@ -54,26 +58,6 @@ class Validator:
         self.linger_dir = Path(linger_dir)
         self.thinker_dir = Path(thinker_dir)
         self.tensor_shapes = tensor_shapes
-        self.tensor_dtypes = {
-            value.name.replace("/", "_"): value.type.tensor_type.elem_type
-            for value in list(self.model.graph.value_info) + list(self.model.graph.output)
-        }
-        bits_to_dtype = {
-            8: onnx.TensorProto.INT8,
-            16: onnx.TensorProto.INT16,
-            32: onnx.TensorProto.INT32,
-        }
-        for node in self.model.graph.node:
-            output_bits = next(
-                (onnx.helper.get_attribute_value(attr)
-                 for attr in node.attribute if attr.name == "o_bits"),
-                None,
-            )
-            if output_bits in bits_to_dtype:
-                for output in node.output:
-                    name = output.replace("/", "_")
-                    if self.tensor_dtypes.get(name, onnx.TensorProto.UNDEFINED) == onnx.TensorProto.UNDEFINED:
-                        self.tensor_dtypes[name] = bits_to_dtype[output_bits]
 
     @staticmethod
     def create_prefix_map(directory: Path) -> Dict[str, Path]:
@@ -110,54 +94,50 @@ class Validator:
             pass
     
     @staticmethod
-    def load_values(file_path: Path) -> np.ndarray:
-        with open(file_path, 'r', encoding='utf-8') as file:
-            return np.asarray([float(line.strip()) for line in file if line.strip()], dtype=np.float64)
-
-    @staticmethod
-    def trim_dynamic_padding(values: np.ndarray, file_path: Path, true_shape,
-                             channel_blocks=None) -> np.ndarray:
-        if true_shape is None or len(true_shape) != 3:
-            return values
-
-        shape_text = file_path.stem.split('##', 1)[-1]
-        dump_shape = tuple(int(dim) for dim in re.findall(r'\d+', shape_text))
-        if len(dump_shape) != 3 or dump_shape == tuple(true_shape):
-            return values
-
-        batch, max_time, channels = dump_shape
-        _, valid_time, true_channels = true_shape
-        if channels != true_channels or values.size != batch * max_time * channels:
-            return values
-        if channel_blocks:
-            blocks = []
-            offset = 0
-            for block_channels in channel_blocks:
-                block_size = batch * max_time * block_channels
-                block = values[offset:offset + block_size].reshape(batch, max_time, block_channels)
-                blocks.append(block[:, :valid_time, :])
-                offset += block_size
-            return np.concatenate(blocks, axis=2).reshape(-1)
-        return values.reshape(batch, max_time, channels)[:, :valid_time, :].reshape(-1)
-
-    @classmethod
-    def compare_file_contents(cls, file1: Path, file2: Path, linger_scale: float = 1.0,
-                              true_shape=None, channel_blocks=None, atol: float = 1e-6) -> bool:
+    def compare_file_contents(file1: Path, file2: Path) -> bool:
         try:
-            values1 = cls.load_values(file1) / linger_scale
-            values2 = cls.trim_dynamic_padding(
-                cls.load_values(file2), file2, true_shape, channel_blocks
-            )
-            if values1.size != values2.size:
-                return False
-            return np.allclose(values1, values2, rtol=0, atol=atol)
+            with open(file1, 'r', encoding='utf-8') as f1, open(file2, 'r', encoding='utf-8') as f2:
+                # Read all lines, strip whitespace, and filter out empty lines.
+                # Convert to a set to make the comparison order-agnostic.
+                content1 = [line.strip() for line in f1 if line.strip()]
+                content2 = [line.strip() for line in f2 if line.strip()]
+                return content1 == content2
         except IOError as e:
             print(f"Error reading file: {e}", file=sys.stderr)
             return False
-        
+
     def compare(self):
         """Compare files between two dump directories."""
         print(f"  -> Starting comparison between '{self.linger_dir}' and '{self.thinker_dir}'")
+
+        dequant_scales = {}
+        argmax_outputs = set()
+        high_precision_scales = {}
+        high_precision_tensors = {}
+        for node in self.model.graph.node:
+            attrs = {attr.name: onnx.helper.get_attribute_value(attr) for attr in node.attribute}
+            if node.op_type == "Dequant":
+                if node.output and "scale_o" in attrs:
+                    dequant_scales[node.output[0].replace("/", "_")] = float(attrs["scale_o"])
+            elif node.op_type == "ArgMax" and node.output:
+                argmax_outputs.add(node.output[0].replace("/", "_"))
+            elif node.output and attrs.get("o_bits", 0) >= 16 and "scale_o" in attrs:
+                scale_o = attrs["scale_o"]
+                if isinstance(scale_o, (list, tuple)):
+                    scale_o = scale_o[0]
+                scale_o = float(scale_o)
+                if scale_o >= 2**20:
+                    scale_info = (
+                        scale_o / 2**20,
+                        int(attrs["o_bits"]),
+                    )
+                    high_precision_tensors[node.output[0]] = scale_info
+                    high_precision_scales[node.output[0].replace("/", "_")] = scale_info
+            elif node.op_type == "Transpose" and node.input and node.input[0] in high_precision_tensors:
+                scale_info = high_precision_tensors[node.input[0]]
+                for output in node.output:
+                    high_precision_tensors[output] = scale_info
+                    high_precision_scales[output.replace("/", "_")] = scale_info
 
         # Build prefix maps
         dir1_map = self.create_prefix_map(self.linger_dir)
@@ -170,64 +150,6 @@ class Validator:
         identical_files: List[tuple] = []
         different_files: List[tuple] = []
 
-        dequant_scales = {}
-        dynamic_concat_blocks = {}
-        for node in self.model.graph.node:
-            if node.op_type == "Dequant":
-                scale = next((attr.f for attr in node.attribute if attr.name == "scale_o"), 1.0)
-                for output in node.output:
-                    dequant_scales[output.replace("/", "_")] = scale
-            elif node.op_type == "iqCat":
-                input_shapes = [self.tensor_shapes.get(name.replace("/", "_")) for name in node.input]
-                if all(shape is not None and len(shape) == 3 for shape in input_shapes):
-                    for output in node.output:
-                        dynamic_concat_blocks[output.replace("/", "_")] = [shape[-1] for shape in input_shapes]
-                else:
-                    for output in node.output:
-                        output_name = output.replace("/", "_")
-                        output_shape = self.tensor_shapes.get(output_name)
-                        if output_shape is not None and len(output_shape) == 3 and len(node.input) > 1:
-                            channels = output_shape[-1]
-                            if channels % len(node.input) == 0:
-                                dynamic_concat_blocks[output_name] = [channels // len(node.input)] * len(node.input)
-
-        integer_atol = {name: 1.0 for name, dtype in self.tensor_dtypes.items()
-                        if dtype in {
-                            onnx.TensorProto.INT8, onnx.TensorProto.INT16,
-                            onnx.TensorProto.INT32, onnx.TensorProto.INT64,
-                            onnx.TensorProto.UINT8, onnx.TensorProto.UINT16,
-                            onnx.TensorProto.UINT32, onnx.TensorProto.UINT64,
-                        }}
-        initializers = {item.name: numpy_helper.to_array(item) for item in self.model.graph.initializer}
-        for node in self.model.graph.node:
-            input_names = [name.replace("/", "_") for name in node.input]
-            output_names = [name.replace("/", "_") for name in node.output]
-            propagated_atol = max((integer_atol.get(name, 0.0) for name in input_names), default=0.0)
-
-            if node.op_type == "LinearInt" and input_names[0] in dir1_map and input_names[0] in dir2_map:
-                weight = initializers.get(node.input[1])
-                if weight is not None:
-                    linger_input = self.load_values(dir1_map[input_names[0]])
-                    thinker_input = self.load_values(dir2_map[input_names[0]])
-                    input_width = weight.shape[-1]
-                    if linger_input.size == thinker_input.size and linger_input.size % input_width == 0:
-                        delta = (linger_input - thinker_input).reshape(-1, input_width).astype(np.int64)
-                        attrs = {attr.name: onnx.helper.get_attribute_value(attr) for attr in node.attribute}
-                        shift = int(round(
-                            np.log2(attrs["scale_x"])
-                            + np.log2(attrs["scale_w"])
-                            - np.log2(attrs["scale_o"])
-                        ))
-                        if shift >= 0:
-                            propagated_atol = max(
-                                propagated_atol,
-                                float(np.ceil(np.max(np.abs(delta @ weight.astype(np.int64).T)) / (2 ** shift)) + 1),
-                            )
-
-            for output_name in output_names:
-                if output_name in integer_atol:
-                    integer_atol[output_name] = max(integer_atol[output_name], propagated_atol)
-
         if not common_prefixes:
             print("\n ❗ No corresponding files found to compare.")
             return
@@ -236,22 +158,30 @@ class Validator:
         for prefix in sorted(list(common_prefixes)):
             file1 = dir1_map[prefix]
             file2 = dir2_map[prefix]
-            elem_type = self.tensor_dtypes.get(prefix)
-            atol = integer_atol.get(prefix, 1.0) if elem_type in {
-                onnx.TensorProto.INT8, onnx.TensorProto.INT16,
-                onnx.TensorProto.INT32, onnx.TensorProto.INT64,
-                onnx.TensorProto.UINT8, onnx.TensorProto.UINT16,
-                onnx.TensorProto.UINT32, onnx.TensorProto.UINT64,
-            } else 1e-6
 
-            if self.compare_file_contents(
-                file1,
-                file2,
-                dequant_scales.get(prefix, 1.0),
-                self.tensor_shapes.get(prefix),
-                dynamic_concat_blocks.get(prefix),
-                atol,
-            ):
+            if prefix in dequant_scales:
+                linger_data = np.loadtxt(file1, dtype=np.float64)
+                thinker_data = np.loadtxt(file2, dtype=np.float64)
+                identical = np.array_equal(linger_data, np.rint(thinker_data * dequant_scales[prefix]))
+            elif prefix in argmax_outputs:
+                linger_data = np.atleast_1d(np.loadtxt(file1, dtype=np.int64))
+                thinker_data = np.atleast_1d(np.loadtxt(file2, dtype=np.int64))
+                if thinker_data.size == linger_data.size * 2:
+                    thinker_data = thinker_data[linger_data.size:]
+                identical = np.array_equal(linger_data, thinker_data)
+            elif prefix in high_precision_scales:
+                scale, bits = high_precision_scales[prefix]
+                linger_data = np.atleast_1d(np.loadtxt(file1, dtype=np.int64))
+                thinker_data = np.atleast_1d(np.loadtxt(file2, dtype=np.int64))
+                linger_data = np.rint(linger_data * scale)
+                linger_data = np.clip(linger_data, -(2 ** (bits - 1)), 2 ** (bits - 1) - 1)
+                # Fixed-point implementations can differ by one final LSB
+                # after the last requantization/rounding step.
+                identical = np.all(np.abs(linger_data - thinker_data) <= 1)
+            else:
+                identical = self.compare_file_contents(file1, file2)
+
+            if identical:
                 identical_files.append((file1.name, file2.name))
             else:
                 different_files.append((file1.name, file2.name))
@@ -293,11 +223,13 @@ class Validator:
             else:
                 print(f"  -> Shape: {true_shape}")
 
-            data1 = self.load_values(first_f1) / dequant_scales.get(prefix, 1.0)
-            data2 = self.trim_dynamic_padding(
-                self.load_values(first_f2), first_f2, true_shape,
-                dynamic_concat_blocks.get(prefix),
-            )
+            def load_tensor_txt(fp: Path):
+                with open(fp, "r", encoding="utf-8") as f:
+                    data = [int(x.strip()) for x in f if x.strip() != ""]
+                return data
+
+            data1 = load_tensor_txt(first_f1)
+            data2 = load_tensor_txt(first_f2)
 
             total_elems = len(data1)
 
@@ -371,7 +303,7 @@ class Validator:
 
 class ThinkerValidator:
     def __init__(self,onnx_path: str, model_resource_path:str=None, lib_path: str=None, inputs: List[np.ndarray]=None, 
-                 dynamic_cfg: Dict = None):
+                 dynamic_cfg: Dict = None, param_check: bool = True, runtime_check: bool = True):
         """
         Initializes the ThinkerValidator.
 
@@ -385,6 +317,7 @@ class ThinkerValidator:
         """
         self.lib_path = lib_path
         self.onnx_path = onnx_path
+        self.reference_onnx_path = onnx_path
         self.onnx_name = Path(onnx_path).stem
 
         self.workspace_dir = Path.cwd() / "workspace" / self.onnx_name
@@ -394,6 +327,8 @@ class ThinkerValidator:
         self.model_resource_path = model_resource_path
         self.platform = None
         self.dynamic_shape = False
+        self.param_check = param_check
+        self.runtime_check = runtime_check
         if dynamic_cfg is not None:
             self.dynamic_shape = True
             self.dynamic_cfg = dynamic_cfg
@@ -439,7 +374,8 @@ class ThinkerValidator:
         return linger_input, thinker_input
 
     def run_linger_inference(self, input_data):
-        onnx_runner = OnnxRunner(self.onnx_path, True)
+        (Path.cwd() / "data" / "onnxrunner_int").mkdir(parents=True, exist_ok=True)
+        onnx_runner = OnnxRunner(self.reference_onnx_path, True)
         self.tensor_shapes = onnx_runner.get_tensor_info()
         res = onnx_runner.run(input_data)
 
@@ -458,7 +394,9 @@ class ThinkerValidator:
                 "-DTHINKER_RESOUCR_CRC_CHECK=OFF",
                 "-DTHINKER_USE_MTQ=OFF",
                 "-DTHINKER_USE_NNBLAS=OFF",
-                "-DTHINKER_TARGET_CHECK=OFF"
+                "-DTHINKER_TARGET_CHECK=OFF",
+                f"-DTHINKER_PARAM_CHECK={_cmake_bool(self.param_check)}",
+                f"-DTHINKER_RUNTIME_CHECK={_cmake_bool(self.runtime_check)}"
             ]
 
             platform_map = {
@@ -475,10 +413,10 @@ class ThinkerValidator:
             subprocess.run(cmake_cmd, check=True)
             subprocess.run(["make", "-j16"], check=True)
 
-    def run_thinker_inference(self, input_data):
+    def run_thinker_inference(self, input_data, reference_input_data):
         if self.lib_path is None:
             self._build_thinker()
-            self.lib_path = "bin/libthinker.so"
+            self.lib_path = "executor/bin/libthinker.so"
 
         print("  ⚙️ -> ThinkerRunner start init.")
         thinker_runner = ThinkerRunner(self.lib_path,  self.platform, self.dynamic_shape)
@@ -493,7 +431,7 @@ class ThinkerValidator:
             sys.exit(1)
 
         print("  🚀 -> ThinkerRunner start run.")
-        thinker_runner.run(input_data)
+        thinker_runner.run(input_data, reference_input_data)
         print("  ✅ -> ThinkerRunner run successfuly.")
 
         thinker_runner.finalize()
@@ -501,6 +439,11 @@ class ThinkerValidator:
     def validate(self):
         print(f"1️⃣ {Colors.BLUE} Starting generate inputs for linger and thinker.{Colors.RESET}")
         linger_input, thinker_input = self._generate_input()
+        if self.dynamic_shape:
+            self.onnx_model.specialize_dynamic_reshapes()
+            reference_path = self.workspace_dir / "dynamic_reference.onnx"
+            onnx.save(self.onnx_model.model, reference_path)
+            self.reference_onnx_path = str(reference_path)
         print(f"✅{Colors.GREEN} All inputs have been generated successfuly.{Colors.RESET}")
         
         print(f"2️⃣ {Colors.BLUE} Linger onnxrunner inference start.{Colors.RESET}")
@@ -508,7 +451,7 @@ class ThinkerValidator:
         print(f"✅{Colors.GREEN} Linger onnxrunner inference succeed.{Colors.RESET}")
 
         print(f"3️⃣ {Colors.BLUE} Thinker inference start.{Colors.RESET}")
-        self.run_thinker_inference(thinker_input)
+        self.run_thinker_inference(thinker_input, linger_input)
         print(f"✅{Colors.GREEN} ThinkerRunner inference succeed.{Colors.RESET}")
 
         cwd = Path.cwd()
@@ -566,6 +509,21 @@ def parse_dynamic_cfg(cfg_input) -> Dict:
                 f"Invalid value for --cfg '{item}', only integer values separated by ':' are supported"
             )
 
+        if len(values) != 3:
+            raise ValueError(
+                f"Invalid value for --cfg '{item}', expected min:max:factor"
+            )
+        min_value, max_value, factor = values
+        if min_value <= 0 or max_value < min_value or factor <= 0:
+            raise ValueError(
+                f"Invalid value for --cfg '{item}', require 0 < min <= max and factor > 0"
+            )
+        first_valid = ((min_value + factor - 1) // factor) * factor
+        if first_valid > max_value:
+            raise ValueError(
+                f"Invalid value for --cfg '{item}', no factor-aligned value exists in the range"
+            )
+
         cfg[key] = values
 
     return cfg
@@ -578,6 +536,8 @@ def main():
     parser.add_argument('-l', '--lib_path', type=str, required=False, help='Thinker dynamic library. Required when executed outside the project root directory.')
     parser.add_argument('-i', '--input_path', nargs='+', type=str, required=False, help='One or more input paths. Required when input is specified manually.')
     parser.add_argument('--cfg', type=str, default=None, help='Dynamic config in key=value format')
+    parser.add_argument('--param_check', '--thinker_param_check', '--THINKER_PARAM_CHECK', dest='param_check', type=str, default='ON', choices=['ON', 'OFF', 'on', 'off', '1', '0', 'true', 'false', 'TRUE', 'FALSE'], help='Enable THINKER_PARAM_CHECK when building Thinker (default: ON).')
+    parser.add_argument('--runtime_check', '--thinker_runtime_check', '--THINKER_RUNTIME_CHECK', dest='runtime_check', type=str, default='ON', choices=['ON', 'OFF', 'on', 'off', '1', '0', 'true', 'false', 'TRUE', 'FALSE'], help='Enable THINKER_RUNTIME_CHECK when building Thinker (default: ON).')
     
     args = parser.parse_args()
 
@@ -596,7 +556,9 @@ def main():
         model_resource_path=args.res_path,
         lib_path=args.lib_path,
         inputs=inputs,
-        dynamic_cfg=dynamic_cfg
+        dynamic_cfg=dynamic_cfg,
+        param_check=_cmake_bool(args.param_check) == "ON",
+        runtime_check=_cmake_bool(args.runtime_check) == "ON"
     )
     validator.validate()
 

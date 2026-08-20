@@ -4,6 +4,7 @@
 #include <math.h>
 #include "c_api/thinker_define.h"
 #include "core/operator_attrs.h"
+#include "luna/opi_psram_cpy.h"
 #include "hifi/NatureDSP_Signal.h"
 #ifdef THINKER_USE_NNBLAS
 #include "nnblas/nnblas_op.h"
@@ -183,8 +184,41 @@ static const int16_t calc_sqrt_reciprocal(const int64_t data, int32_t q_x, int32
  */
 int32_t layernormalint_venus(const tTensor *X, const tTensor *W, const tTensor *Bias, tTensor *Y, tTensor *workspace, LayerNormIntAttrs *attrs) 
 {
+  #if THINKER_PARAM_CHECK
+  if (X == NULL || W == NULL || Bias == NULL || Y == NULL || attrs == NULL ||
+                      X->dptr_ == 0 || W->dptr_ == 0 || Bias->dptr_ == 0 || Y->dptr_ == 0) {
+      return (T_ERR_INVALID_PARA);
+  }
+  if (X->dtype_ != Int8 || (W->dtype_ != Int8 && W->dtype_ != Int16) ||
+                       Bias->dtype_ != Int32 || Y->dtype_ != Int8) {
+      return (T_ERR_INVALID_DATATYPE);
+  }
+  #endif
   int32_t n_dims = X->shape_.ndim_;
+  #if THINKER_PARAM_CHECK
+  if (n_dims < 3 || Y->shape_.ndim_ != n_dims ||
+                      !equalShape(&X->shape_, &Y->shape_)) {
+      return (T_ERR_INVALID_DATA);
+  }
+  #endif
   int32_t size = getTensorSize(W);
+  #if THINKER_PARAM_CHECK
+  if (size <= 0 || getTensorSize(Bias) != size) {
+      return (T_ERR_INVALID_DATA);
+  }
+  if (size > 133144 || X->scale_ < 0 || X->scale_ > 15 ||
+                      15 + W->scale_ - Y->scale_ < 0 ||
+                      15 + W->scale_ - Y->scale_ > 63) {
+      return (T_ERR_INVALID_PARA);
+  }
+  #endif
+  for (int32_t i = 0; i < n_dims - 3; ++i) {
+    #if THINKER_PARAM_CHECK
+    if (X->shape_.dims_[i] != 1) {
+        return (T_ERR_INVALID_DATA);
+    }
+    #endif
+  }
   int32_t leading = 1;
   int32_t T = 1;
   if (size == X->shape_.dims_[n_dims - 1]) {
@@ -195,16 +229,53 @@ int32_t layernormalint_venus(const tTensor *X, const tTensor *W, const tTensor *
     T = X->shape_.dims_[n_dims - 1] * X->shape_.dims_[n_dims - 2];
     leading = X->shape_.dims_[n_dims - 3];
   }
+  else {
+    #if THINKER_PARAM_CHECK
+    if (1) {
+        return (T_ERR_INVALID_DATA);
+    }
+    #endif
+  }
 
   int32_t input_size = leading * T;
+  int32_t input_stage_bytes = X->mem_.type_ == 2 ? 0 : ALIGN4(T * X->byte_);
+  int32_t output_stage_bytes = Y->mem_.type_ == 2 ? 0 : ALIGN4(T * Y->byte_);
+  int32_t weight_stage_bytes = W->mem_.type_ == 2 ? 0 : ALIGN4(T * W->byte_);
+  int32_t bias_stage_bytes = Bias->mem_.type_ == 2 ? 0 : ALIGN4(T * Bias->byte_);
+  size_t workspace_size = workspace ? getTensorDataSize(workspace) : 0;
+  int32_t required_workspace = input_stage_bytes + output_stage_bytes +
+                               weight_stage_bytes + bias_stage_bytes + 8 + T * 8;
+  #if THINKER_RUNTIME_CHECK
+  if (workspace == NULL || workspace->dptr_ == 0 ||
+                        workspace->shape_.ndim_ == 0 ||
+                        workspace_size < required_workspace) {
+      return (T_ERR_NO_WORKSPACE);
+  }
+  #endif
 
     // float eps = attrs->eps;
 	const float eps = 0.00001;
 
-	int32_t *p_beta = (int32_t *)Bias->dptr_;
+  int8_t *workspace_ptr = (int8_t *)workspace->dptr_;
   int8_t *p_src = (int8_t *)X->dptr_;
   int8_t *p_dst = (int8_t *)Y->dptr_;
-  int8_t *p_tmp = (int8_t *)workspace->dptr_;
+  int8_t *input_stage = input_stage_bytes != 0 ? workspace_ptr : NULL;
+  workspace_ptr += input_stage_bytes;
+  int8_t *output_stage = output_stage_bytes != 0 ? workspace_ptr : NULL;
+  workspace_ptr += output_stage_bytes;
+  void *p_gamma = (void *)W->dptr_;
+  if (weight_stage_bytes != 0) {
+    memcpy(workspace_ptr, p_gamma, T * W->byte_);
+    p_gamma = workspace_ptr;
+    workspace_ptr += weight_stage_bytes;
+  }
+  int32_t *p_beta = (int32_t *)Bias->dptr_;
+  if (bias_stage_bytes != 0) {
+    memcpy(workspace_ptr, p_beta, T * Bias->byte_);
+    p_beta = (int32_t *)workspace_ptr;
+    workspace_ptr += bias_stage_bytes;
+  }
+  int8_t *p_tmp = workspace_ptr;
 
   int32_t q_normal = 15;
 	int32_t q_x = (int32_t)X->scale_;
@@ -226,13 +297,18 @@ int32_t layernormalint_venus(const tTensor *X, const tTensor *W, const tTensor *
 	for (int i = 0; i < leading; i++) {
 		int8_t *p_src_once = p_src + i * T;
 		int8_t *p_dst_once = p_dst + i * T;
+    if (input_stage != NULL) {
+      memcpy(input_stage, p_src_once, T * X->byte_);
+      p_src_once = input_stage;
+    }
+    if (output_stage != NULL) p_dst_once = output_stage;
 		THINKER_RET_CHECK(API_LIB(vector_sum_q7_int32)(p_src_once, sum_x, T, 0), "luna_vector_sum_q7_int32");
 		THINKER_RET_CHECK(API_LIB(mul_q7_int32)(p_src_once, p_src_once, p_src2, T, 0), "luna_mul_q7_int32");
 		THINKER_RET_CHECK(API_LIB(vector_sum_q31_int32)(p_src2, sum_x2, T, 0), "luna_vector_sum_q31_int32");
 
 		int32_t sum_x_val = *sum_x;
 		int32_t sum_x2_val = *sum_x2;
-		int64_t denominator = (int64_t)(T * sum_x2_val) - (int64_t)(sum_x_val * sum_x_val);
+		int64_t denominator = (int64_t)T * sum_x2_val - (int64_t)sum_x_val * sum_x_val;
 		denominator = denominator + q_eps;
 		int32_t label_shift = 0;
     int32_t *p_weight = p_src2;
@@ -242,12 +318,15 @@ int32_t layernormalint_venus(const tTensor *X, const tTensor *W, const tTensor *
 		THINKER_RET_CHECK(API_LIB(offset_q31_int32)(p_numerator, (0 - sum_x_val), p_numerator, T, 0), "luna_offset_q31_int32");
 		THINKER_RET_CHECK(API_LIB(scale_q31_int32)(p_numerator, denominator, (int32_t *)p_y1, T, label_shift), "luna_scale_q31_int32");
 		if (W->dtype_ == Int8){
-      THINKER_RET_CHECK(API_LIB(scale_q7_int32)((int8_t *)W->dptr_, 1, p_weight, T, 0), "luna_scale_q7_int32");
+      THINKER_RET_CHECK(API_LIB(scale_q7_int32)((int8_t *)p_gamma, 1, p_weight, T, 0), "luna_scale_q7_int32");
     }else if (W->dtype_ == Int16){
-      THINKER_RET_CHECK(API_LIB(scale_q15_int32)((int16_t *)W->dptr_, 1, p_weight, T, 0), "luna_scale_q15_int32");
+      THINKER_RET_CHECK(API_LIB(scale_q15_int32)((int16_t *)p_gamma, 1, p_weight, T, 0), "luna_scale_q15_int32");
     }
     THINKER_RET_CHECK(API_LIB(mul_q31_int32)(p_y1, p_weight, p_y2, T, 0), "luna_mul_q15_int32");
 		THINKER_RET_CHECK(API_LIB(add_q31_int8)(p_y2, p_beta, p_dst_once, T, shift), "luna_add_q31_int8");
+		if (output_stage != NULL) {
+      opi_psram_cpy_out(p_dst + i * T, output_stage, T * Y->byte_);
+    }
 	}
 
 	return T_SUCCESS;

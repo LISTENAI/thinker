@@ -98,6 +98,19 @@ static int32_t luna_ceil(int32_t x, int32_t shift) {
  * @return Status code indicating success or failure
  */
 int32_t linearint_luna(tTensor *input, tTensor *weight, tTensor *bias, LinearIntAttrs *attrs, tTensor *workspace, tTensor *output) {
+    #if THINKER_PARAM_CHECK
+    if (input == NULL || weight == NULL || attrs == NULL ||
+                        output == NULL || input->dptr_ == 0 || weight->dptr_ == 0 ||
+                        output->dptr_ == 0 || attrs->transB != 1 ||
+                        input->dtype_ != Int8 ||
+                        (weight->dtype_ != Int4 && weight->dtype_ != Int8 &&
+                         weight->dtype_ != Int32) ||
+                        (output->dtype_ != Int8 && output->dtype_ != Int32) ||
+                        (weight->dtype_ == Int32 && output->dtype_ != Int32) ||
+                        (bias != NULL && (bias->dptr_ == 0 || bias->dtype_ != Int32))) {
+        return (T_ERR_INVALID_DATATYPE);
+    }
+#endif
     tShape new_shape;
     
     // Handle different input dimensions
@@ -105,12 +118,12 @@ int32_t linearint_luna(tTensor *input, tTensor *weight, tTensor *bias, LinearInt
         new_shape.ndim_ = 2;
         new_shape.dims_[1] = input->shape_.dims_[0];
         new_shape.dims_[0] = 1;
-    } else if (input->shape_.ndim_ == 3) {
-        new_shape.ndim_ = 2;
-        new_shape.dims_[0] = input->shape_.dims_[0] * input->shape_.dims_[1];
-        new_shape.dims_[1] = input->shape_.dims_[2];
     } else {
-        new_shape = input->shape_;
+        new_shape.ndim_ = 2;
+        new_shape.dims_[0] = 1;
+        for (int32_t i = 0; i < input->shape_.ndim_ - 1; ++i)
+            new_shape.dims_[0] *= input->shape_.dims_[i];
+        new_shape.dims_[1] = input->shape_.dims_[input->shape_.ndim_ - 1];
     }
 
     // Check memory types
@@ -118,8 +131,10 @@ int32_t linearint_luna(tTensor *input, tTensor *weight, tTensor *bias, LinearInt
     int32_t ou_is_psram = (2 != output->mem_.type_) ? 1 : 0;
 
     // Validate input data type
+    #ifdef RUNTIME_PARAM_CHECK
     if (Int8 != input->dtype_)
         return T_ERR_INVALID_DATATYPE;
+    #endif
 
     // Get dimensions
     int32_t ou_idx = (output->dtype_ & 0xF) >> 1;
@@ -128,28 +143,47 @@ int32_t linearint_luna(tTensor *input, tTensor *weight, tTensor *bias, LinearInt
     int32_t N = new_shape.dims_[n_dim - 1];
     int32_t L = weight->shape_.dims_[0];
     
+    #ifdef RUNTIME_PARAM_CHECK
     if (weight->shape_.dims_[n_dim - 1] != new_shape.dims_[n_dim - 1])
         return T_ERR_INVALID_DATATYPE;
+    #endif
 
     // Get pointers and scales
     int8_t *src = (int8_t *)input->dptr_;
     int8_t *p_weight = (int8_t *)weight->dptr_;
     int32_t *p_bias = bias ? (int32_t *)bias->dptr_ : NULL;
     int8_t *dst = (int8_t *)output->dptr_;
-    int32_t workspace_size = (NULL != workspace) ? workspace->shape_.dims_[0] : 0;
+    size_t workspace_size = workspace ? getTensorDataSize(workspace) : 0;
 
     int32_t q_i = (int32_t)input->scale_;
     int32_t q_w = (int32_t)weight->scale_;
     int32_t q_o = (int32_t)output->scale_;
     int32_t shift = q_i + q_w - q_o;
+    #if THINKER_PARAM_CHECK
+    if (shift > 63 || (output->dtype_ == Int8 && shift < 0) ||
+                        (output->dtype_ == Int32 && shift < -30)) {
+        return (T_ERR_INVALID_PARA);
+    }
+#endif
     
+    #ifdef RUNTIME_PARAM_CHECK
     if ((shift < 0) & (Int8 == output->dtype_)) {
         return T_ERR_INVALID_DATATYPE;
     }
+    #endif
 
     // Temporary buffer allocation
 
     int32_t input_size = getShapeSize(&(input->shape_));
+    size_t required_workspace = (size_t)input_size *
+                                (weight->dtype_ == Int32 ? 4 : 1) +
+                                getTensorDataSize(output);
+    #if THINKER_RUNTIME_CHECK
+    if (workspace == NULL || workspace->dptr_ == 0 ||
+                          workspace_size < required_workspace) {
+        return (T_ERR_NO_WORKSPACE);
+    }
+#endif
     int8_t *p_tmp = (NULL != workspace) ? (int8_t *)workspace->dptr_ : NULL;
     
     // Handle PSRAM input case
@@ -187,7 +221,7 @@ int32_t linearint_luna(tTensor *input, tTensor *weight, tTensor *bias, LinearInt
         if (ou_is_psram) {
             transpose2dInt8(dst, (int8_t *)output->dptr_, L, M);
 #if !(defined(WIN32) || defined(linux))
-            HAL_FlushDCache_by_Addr((uint32_t *)(output->dptr_), M*L);
+            thinker_psram_write_complete((void *)output->dptr_, M * L);
 #endif
         } 
         else {
@@ -199,7 +233,7 @@ int32_t linearint_luna(tTensor *input, tTensor *weight, tTensor *bias, LinearInt
         if (ou_is_psram) {
             transpose2dInt8(dst, (int8_t *)output->dptr_, L, M);
 #if !(defined(WIN32) || defined(linux))
-            HAL_FlushDCache_by_Addr((uint32_t *)(output->dptr_), M*L);
+            thinker_psram_write_complete((void *)output->dptr_, M * L);
 #endif
         } 
         else {
@@ -218,7 +252,7 @@ int32_t linearint_luna(tTensor *input, tTensor *weight, tTensor *bias, LinearInt
         if (ou_is_psram) {
             transpose2dInt32((int32_t *)dst, (int32_t *)output->dptr_, L, M);
 #if !(defined(WIN32) || defined(linux))
-            HAL_FlushDCache_by_Addr((uint32_t *)(output->dptr_), M*L*4);
+            thinker_psram_write_complete((void *)output->dptr_, M * L * 4);
 #endif
         } 
         else {
@@ -236,7 +270,7 @@ int32_t linearint_luna(tTensor *input, tTensor *weight, tTensor *bias, LinearInt
         if (ou_is_psram) {
             transpose2dInt32((int32_t *)dst, (int32_t *)output->dptr_, L, M);
 #if !(defined(WIN32) || defined(linux))
-            HAL_FlushDCache_by_Addr((uint32_t *)(output->dptr_), M*L*4);
+            thinker_psram_write_complete((void *)output->dptr_, M * L * 4);
 #endif
         } else {
             THINKER_RET_CHECK(API_LIB(split_mat_trans_i32o32)((int32_t *)dst, (int32_t *)output->dptr_, L, M), "luna_split_mat_trans_i32o32");

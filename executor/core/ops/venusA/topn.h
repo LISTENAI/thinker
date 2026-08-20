@@ -29,20 +29,40 @@ int32_t topn_luna(tTensor *X, tTensor *Index, tTensor *Y, tTensor *work_space, t
   int32_t axis = attrs->dim;
   int32_t n = attrs->max_num;
   int32_t n_dims = X->shape_.ndim_;
-  int32_t once_size = axis == -1 ? X->shape_.dims_[n_dims - 1] : X->shape_.dims_[axis];
+  if (axis < 0) axis += n_dims;
+  if (X->dtype_ != Int8 || Index->dtype_ != Int64 || Y->dtype_ != Int32 || n_dims == 0 ||
+      axis != n_dims - 1 || n != 1 || X->shape_.dims_[0] != 1 || Y->shape_.ndim_ != n_dims ||
+      Y->shape_.dims_[0] != 2 || Y->shape_.dims_[n_dims - 1] != 1 ||
+      getTensorSize(Index) < 1 || work_space == NULL || work_space->dptr_ == 0 ||
+      work_space->shape_.dims_[0] < 16) return T_ERR_INVALID_PARA;
+  for (int32_t dim = 1; dim < n_dims - 1; ++dim) {
+    if (Y->shape_.dims_[dim] != X->shape_.dims_[dim]) return T_ERR_INVALID_PARA;
+  }
+  int32_t once_size = X->shape_.dims_[axis];
   
   int32_t leading = 1;
   int32_t *p_tmp = (int32_t *)work_space->dptr_;
   int64_t idx_offset = *(int64_t *)Index->dptr_;
 
+#if THINKER_PARAM_CHECK
+if (X->dtype_ != Int8 || Y->dtype_ != Int32) {
+    return (T_ERR_INVALID_DATATYPE);
+}
+
+if (n != 1 || !(-1 == axis || (n_dims - 1) == axis)) {
+    return (T_ERR_INVALID_PARA);
+}
+#endif
+
   // Calculate leading dimension for batch processing
-  if (-1 == axis || (n_dims - 1) == axis)
+  if ((n_dims - 1) == axis)
   {
     for (int i = 0; i < (n_dims - 1); i++)
     {
       leading *= X->shape_.dims_[i];
     }
   } 
+  if (getTensorSize(Y) != (size_t)leading * 2) return T_ERR_INVALID_PARA;
 
   // Handle top-1 case only (as per switch statement)
   switch (n) {
@@ -60,7 +80,16 @@ int32_t topn_luna(tTensor *X, tTensor *Index, tTensor *Y, tTensor *work_space, t
     }
     break;
     default:
+#if THINKER_PARAM_CHECK
+if (1) {
+    return (T_ERR_INVALID_PARA);
+}
+#endif
       break;
+  }
+
+  if (Y->mem_.type_ == 1) {
+    thinker_psram_write_complete((void *)Y->dptr_, getTensorDataSize(Y));
   }
 
   return T_SUCCESS;

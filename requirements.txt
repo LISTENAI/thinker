@@ -1,9 +1,9 @@
-torch==2.0.0
-torchaudio==2.0.1
-torchvision==0.15.1
+torch==2.5.1+cu121
+torchaudio==2.5.1+cu121
+torchvision==0.20.1+cu121
 onnx==1.13.1
-protobuf==3.20.3
-numpy==1.23.5
-PyYAML==6.0.3
-cffi==1.15.1
-packaging==25.0
+protobuf
+numpy
+PyYAML
+cffi
+packaging

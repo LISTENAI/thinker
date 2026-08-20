@@ -2,6 +2,7 @@
 #define __OP__ iqMul
 #include "core/operator_attrs.h"
 #include "core/operator_register.h"
+#include "core/comm/utils.h"
 #include "thinker_status.h"
 
 #ifdef THINKER_USE_VENUS
@@ -26,14 +27,62 @@
  * @return: Status code indicating success or failure
  */
 int32_t X(Forward)(tOperator *op, tTensor **tensors, int32_t num_tensor, tDMA_List *list) {
-    // Validate tensor count
-    CHECK_GE(num_tensor, (op->num_input_ + op->num_output_));
-    
-    // Get binary operation attributes
+    (void)list;
+#if THINKER_PARAM_CHECK
+    if (op == NULL || tensors == NULL || op->num_input_ != 2 ||
+                        op->num_output_ != 1 || (num_tensor != 3 && num_tensor != 4)) {
+        return (T_ERR_INVALID_PARA);
+    }
+#endif
     iqBinaryAttrs *attrs = (iqBinaryAttrs *)((int8_t *)op + op->attr_offset_);
-    
-    // Get workspace tensor
-    tTensor *workspace = num_tensor > (op->num_input_ + op->num_output_) ? ((tTensor **)tensors)[num_tensor - 1] : NULL;
+    tTensor *lhs = tensors[0];
+    tTensor *rhs = tensors[1];
+    tTensor *output = tensors[2];
+    tTensor *workspace = num_tensor == 4 ? tensors[3] : NULL;
+#if THINKER_PARAM_CHECK
+    if (lhs == NULL || rhs == NULL || output == NULL ||
+                        lhs->dptr_ == 0 || rhs->dptr_ == 0 || output->dptr_ == 0) {
+        return (T_ERR_INVALID_PARA);
+    }
+
+    if (!equalShape(&lhs->shape_, &output->shape_)) {
+        return (T_ERR_INVALID_DATA);
+    }
+#endif
+    int32_t scalar = rhs->shape_.ndim_ == 0;
+    int32_t broadcast = lhs->shape_.ndim_ == 4 && rhs->shape_.ndim_ == 4 &&
+                        lhs->shape_.dims_[1] == rhs->shape_.dims_[1] &&
+                        rhs->shape_.dims_[2] == 1 && rhs->shape_.dims_[3] == 1 &&
+                        (rhs->shape_.dims_[0] == 1 ||
+                         rhs->shape_.dims_[0] == lhs->shape_.dims_[0]);
+#if THINKER_PARAM_CHECK
+    if (!scalar && !broadcast &&
+                        !equalShape(&lhs->shape_, &rhs->shape_)) {
+        return (T_ERR_INVALID_DATA);
+    }
+
+    if (lhs->zero_ != 0 || rhs->zero_ != 0 || output->zero_ != 0 ||
+                        !isfinite(lhs->scale_) || !isfinite(rhs->scale_) ||
+                        !isfinite(output->scale_) || floorf(lhs->scale_) != lhs->scale_ ||
+                        floorf(rhs->scale_) != rhs->scale_ ||
+                        floorf(output->scale_) != output->scale_) {
+        return (T_ERR_INVALID_PARA);
+    }
+
+    if ((lhs->mem_.type_ != 1 && lhs->mem_.type_ != 2) ||
+                        (!scalar && rhs->mem_.type_ != 1 && rhs->mem_.type_ != 2) ||
+                        (output->mem_.type_ != 1 && output->mem_.type_ != 2)) {
+        return (T_ERR_NO_SUPPORT_OP);
+    }
+#endif
+#if THINKER_RUNTIME_CHECK
+    if (workspace != NULL &&
+                          (workspace->dptr_ == 0 || workspace->mem_.type_ != 2 ||
+                           workspace->dtype_ != Int8 || workspace->byte_ != 1 ||
+                           ((uintptr_t)workspace->dptr_ & 3U) != 0)) {
+        return (T_ERR_NO_WORKSPACE);
+    }
+#endif
     
 #if THINKER_USE_VENUS || THINKER_USE_ARCS || THINKER_USE_VENUSA
 #if THINKER_PROFILE
@@ -41,7 +90,7 @@ int32_t X(Forward)(tOperator *op, tTensor **tensors, int32_t num_tensor, tDMA_Li
 #endif
 
     // Call hardware-specific multiplication implementation
-    THINKER_RET_CHECK(iqmul_luna(tensors[0], tensors[1], tensors[op->num_input_], workspace, attrs), "iqmul_luna");
+    THINKER_RET_CHECK(iqmul_luna(lhs, rhs, output, workspace, attrs), "iqmul_luna");
 
 #if THINKER_PROFILE
     uint64_t finish_t = tick_count();

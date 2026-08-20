@@ -29,31 +29,66 @@ int32_t logsoftmaxint_luna(tTensor *data, tTensor *out, tTensor *Workspace, LogS
     const int32_t LOG_Q_IN = 25;   // Input quantization factor
     const int32_t LOG_Q_OUT = 25;  // Output quantization factor
 
-    int32_t leading = 1, stride = 1;
-    int32_t i = 0;
-    int32_t axis = 1;
-
-    // Adjust axis if it's set to -1
-    if (-1 == attrs->axis) {
-        axis = data->shape_.ndim_ - 1;
+    #if THINKER_PARAM_CHECK
+    if (data == NULL || out == NULL || Workspace == NULL || attrs == NULL ||
+                        data->dptr_ == 0 || out->dptr_ == 0 || Workspace->dptr_ == 0) {
+        return (T_ERR_INVALID_PARA);
     }
+    #endif
+    int32_t leading = 1, stride = 1;
+    int32_t axis = attrs->axis < 0 ? data->shape_.ndim_ + attrs->axis : attrs->axis;
+
+    #if THINKER_PARAM_CHECK
+    if (axis < 0 || axis >= data->shape_.ndim_ ||
+                        axis != data->shape_.ndim_ - 1) {
+        return (T_ERR_INVALID_PARA);
+    }
+    if (data->dtype_ != Int8 || out->dtype_ != Int8) {
+        return (T_ERR_INVALID_DATATYPE);
+    }
+    if (data->mem_.type_ != 2 || out->mem_.type_ != 2) {
+        return (T_ERR_INVALID_PLATFROM);
+    }
+    #endif
 
     // Calculate leading dimensions and stride
-    for (; i < axis; ++i) {
+    for (int32_t i = 0; i < axis; ++i) {
         leading *= data->shape_.dims_[i];
     }
-    for (; i < data->shape_.ndim_; ++i) {
+    for (int32_t i = axis; i < data->shape_.ndim_; ++i) {
         stride *= data->shape_.dims_[i];
     }
+    #if THINKER_PARAM_CHECK
+    if (stride <= 0 || stride > 2048) {
+        return (T_ERR_INVALID_PARA);
+    }
+    #endif
+    #if THINKER_RUNTIME_CHECK
+    if (Workspace == NULL || Workspace->dptr_ == 0) {
+        return (T_ERR_NO_WORKSPACE);
+    }
+    #endif
+    size_t workspace_size = getTensorDataSize(Workspace);
+    #if THINKER_RUNTIME_CHECK
+    if (workspace_size < stride * (int32_t)sizeof(int32_t) * 2) {
+        return (T_ERR_NO_WORKSPACE);
+    }
+    #endif
 
-    if (Int8 == data->dtype_) {
+    int32_t input_shift = LOG_Q_IN - (int32_t)data->scale_;
+    int32_t output_shift = LOG_Q_OUT - (int32_t)out->scale_;
+    #if THINKER_PARAM_CHECK
+    if (input_shift < 0 || input_shift > 30 ||
+                        output_shift < 0 || output_shift > 63) {
+        return (T_ERR_INVALID_PARA);
+    }
+    #endif
+
+    {
         int8_t *src = (int8_t *)(data->dptr_);
         int8_t *dst = (int8_t *)(out->dptr_);
         int32_t *tmp1 = (int32_t *)(Workspace->dptr_);
         int32_t *tmp2 = tmp1 + stride;
-        int32_t x_scale = (int32_t)data->scale_;
-        int32_t y_scale = (int32_t)out->scale_;
-
         // Process each leading dimension
         for (int32_t l = 0; l < leading; ++l) {
             int8_t *lsrc = src + l * stride;
@@ -62,18 +97,14 @@ int32_t logsoftmaxint_luna(tTensor *data, tTensor *out, tTensor *Workspace, LogS
             // Scale input to Q25 format
             THINKER_RET_CHECK(API_LIB(scale_q7_int32)(lsrc, 1, tmp1, stride, 0), "luna_scale_q7_int32");
             // Apply quantization factor and scale to Q25
-            THINKER_RET_CHECK(API_LIB(scale_q31_int32)(tmp1, (1 << (LOG_Q_IN - x_scale)), tmp2, stride, 0), "luna_scale_q31_int32");
+            THINKER_RET_CHECK(API_LIB(scale_q31_int32)(tmp1, (1 << input_shift), tmp2, stride, 0), "luna_scale_q31_int32");
             // Compute Softmax in Q25 format
             vec_softmax32x32((int32_t *)tmp1, (int32_t *)tmp2, stride);
             // Compute natural logarithm in Q25 format
             vec_logn_32x32((int32_t *)tmp2, (int32_t *)tmp1, stride);
             // Scale output to Q8 format
-            THINKER_RET_CHECK(API_LIB(scale_q31_int8)(tmp2, 1, ldst, stride, (LOG_Q_OUT - y_scale)), "luna_scale_q31_int8");
+            THINKER_RET_CHECK(API_LIB(scale_q31_int8)(tmp2, 1, ldst, stride, output_shift), "luna_scale_q31_int8");
         }
-    } 
-    else {
-        THINKER_LOG_FATAL("LogSoftmaxInt support int8 data type only.");
-        return T_ERR_INVALID_DATATYPE;
     }
 
     return T_SUCCESS;

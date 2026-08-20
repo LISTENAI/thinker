@@ -50,6 +50,11 @@ static int32_t requant_i32_inplace(int32_t *data, int32_t size, int32_t src_q, i
     }
     uint32_t left_shift = shift > 0 ? (uint32_t)shift : 0U;
     uint32_t right_shift = shift > 0 ? 0U : (uint32_t)(-shift);
+    #if THINKER_PARAM_CHECK
+    if (left_shift > 30 || right_shift > 63) {
+        return (T_ERR_INVALID_PARA);
+    }
+#endif
     uint32_t multiplier = left_shift == 0 ? 1U : (1UL << left_shift);
     return API_LIB(scale_i32i32o32)(data, multiplier, data, size, right_shift);
 }
@@ -184,9 +189,51 @@ static int32_t gru_luna_inner(gru_param_t *params, int32_t t, int8_t *p_input, i
  */
 int32_t gruint_luna(tTensor *input, tTensor *history_h, tTensor *i2h_w, tTensor *h2h_w, tTensor *i2h_bias, tTensor *h2h_bias,
                     tTensor *output, tTensor *hidden_o, GRUIntAttrs *params, tTensor *workspace) {
-    if (input->dtype_ != Int8) {
-        return T_ERR_INVALID_DATATYPE;
+    #if THINKER_PARAM_CHECK
+    if (input == NULL || history_h == NULL || i2h_w == NULL ||
+                        h2h_w == NULL || i2h_bias == NULL || h2h_bias == NULL ||
+                        output == NULL || hidden_o == NULL || params == NULL) {
+        return (T_ERR_INVALID_PARA);
     }
+
+    if (input->dtype_ != Int8 || i2h_w->dtype_ != Int8 ||
+                        h2h_w->dtype_ != Int8 || i2h_bias->dtype_ != Int32 ||
+                        h2h_bias->dtype_ != Int32 || output->dtype_ != Int8 ||
+                        hidden_o->dtype_ != Int8) {
+        return (T_ERR_INVALID_DATATYPE);
+    }
+
+    if (params->layout != 0 || params->direction > 1) {
+        return (T_ERR_INVALID_PARA);
+    }
+
+    if (input->shape_.dims_[1] != 1) {
+        return (T_ERR_NO_IMPLEMENTED);
+    }
+#endif
+    #if THINKER_RUNTIME_CHECK
+    if (input->dptr_ == 0 || i2h_w->dptr_ == 0 ||
+                          h2h_w->dptr_ == 0 || i2h_bias->dptr_ == 0 ||
+                          h2h_bias->dptr_ == 0 || output->dptr_ == 0 ||
+                          hidden_o->dptr_ == 0 || input->mem_.type_ != 2 ||
+                          i2h_w->mem_.type_ != 2 || h2h_w->mem_.type_ != 2 ||
+                          i2h_bias->mem_.type_ != 2 || h2h_bias->mem_.type_ != 2 ||
+                          output->mem_.type_ != 2 || hidden_o->mem_.type_ != 2 ||
+                          (history_h->shape_.ndim_ != 0 &&
+                           (history_h->dptr_ == 0 || history_h->mem_.type_ != 2))) {
+        return (T_ERR_NO_SUPPORT_OP);
+    }
+#endif
+    size_t scratch_bytes = (size_t)params->hidden_size * 28;
+    #if THINKER_RUNTIME_CHECK
+    if (workspace == NULL || workspace->dptr_ == 0 ||
+                          workspace->mem_.type_ != 2 || workspace->dtype_ != Int8 ||
+                          workspace->byte_ != 1 ||
+                          ((uintptr_t)workspace->dptr_ & 3U) != 0 ||
+                          getTensorDataSize(workspace) < scratch_bytes) {
+        return (T_ERR_NO_WORKSPACE);
+    }
+#endif
 
     int32_t seq_len = 0, batch_size = 0;
     if (params->layout == 0) {
@@ -233,9 +280,6 @@ int32_t gruint_luna(tTensor *input, tTensor *history_h, tTensor *i2h_w, tTensor 
         p_tmp = p_input + data_size;
         tmp_size = workspace->shape_.dims_[0] - data_size;
 
-        if (history_h->shape_.ndim_ != 0) {
-            THINKER_RET_CHECK(API_LIB(mat_trans_i8o8)((int8_t *)history_h->dptr_, (int8_t *)history_h->dptr_, batch_size, params->hidden_size), "luna_mat_trans_i8o8");
-        }
     } else {
         p_tmp = (int8_t *)workspace->dptr_;
         tmp_size = workspace->shape_.dims_[0];
@@ -246,7 +290,10 @@ int32_t gruint_luna(tTensor *input, tTensor *history_h, tTensor *i2h_w, tTensor 
     if (history_h->shape_.ndim_ == 0) {
         THINKER_RET_CHECK(luna_memset_i8o8(gru_param.p_h_in, 0, gru_param.hidden_size * gru_param.batch_size * hidden_o->byte_), "luna_memset_i8o8");
     } else {
-        gru_param.p_h_in = (void *)history_h->dptr_;
+        THINKER_RET_CHECK(API_LIB(memcpy_i8o8)((int8_t *)gru_param.p_h_in,
+                          (int8_t *)history_h->dptr_,
+                          params->hidden_size * batch_size),
+                          "luna_memcpy_i8o8");
     }
     if (go_forward == 1) {
         for (t = 0; t < seq_len; t++) {

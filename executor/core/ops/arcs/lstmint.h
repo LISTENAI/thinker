@@ -311,11 +311,15 @@ static int32_t luna_lstm_q7_int8_inner2(luna_lstm_param_t *params, int32_t t, in
 int32_t lstmint_luna2(const tTensor *data, const tTensor *history_h, const tTensor *history_c, const tTensor *i2h_weight,
                      const tTensor *h2h_weight, const tTensor *i2h_bias, const tTensor *h2h_bias, const tTensor *mask,
                      const tTensor *out, const tTensor *hidden_o, const tTensor *cell_o, const LstmIntAttrs *params,
-                     const tTensor *workspace, tDMA_List *list) {
+                      const tTensor *workspace, tDMA_List *list) {
   // gru default num_directions forward
+  if (workspace == NULL || workspace->dptr_ == 0 || workspace->mem_.type_ != 2 ||
+      ((uintptr_t)workspace->dptr_ & 3U) != 0) return T_ERR_NO_WORKSPACE;
+  #if THINKER_PARAM_CHECK
   if (data->dtype_ != Int8) {
-    return T_ERR_INVALID_DATATYPE;
+      return (T_ERR_INVALID_DATATYPE);
   }
+#endif
   int32_t seq_len = 0, batch_size = 0;
   if (params->layout == 0) {
     // T B D
@@ -364,6 +368,7 @@ int32_t lstmint_luna2(const tTensor *data, const tTensor *history_h, const tTens
   int8_t *p_tmp = (NULL != workspace) ? (int8_t *)workspace->dptr_ : NULL;
   int32_t workspace_size = (NULL != workspace) ? workspace->shape_.dims_[0] : 0;
   int32_t used_size = 0;
+  if (workspace_size < p_lstm_param.hidden_size * 32) return T_ERR_NO_WORKSPACE;
 
  if(history_c != NULL)
  {
@@ -398,21 +403,27 @@ int32_t lstmint_luna2(const tTensor *data, const tTensor *history_h, const tTens
 int32_t lstmint_luna(const tTensor *data, const tTensor *history_h, const tTensor *history_c, const tTensor *i2h_weight,
                      const tTensor *h2h_weight, const tTensor *i2h_bias, const tTensor *h2h_bias, const tTensor *mask,
                      const tTensor *out, const tTensor *hidden_o, const tTensor *cell_o, const LstmIntAttrs *params,
-                     const tTensor *workspace) {
+                      const tTensor *workspace) {
   // gru default num_directions forward
-  if (data->dtype_ != Int8) {
-    return T_ERR_INVALID_DATATYPE;
+  #if THINKER_RUNTIME_CHECK
+  if (workspace == NULL || workspace->dptr_ == 0 || workspace->mem_.type_ != 2) {
+      return (T_ERR_NO_WORKSPACE);
   }
+
+  if (data->dtype_ != Int8) {
+      return (T_ERR_INVALID_DATATYPE);
+  }
+#endif
   int32_t seq_len = 0, batch_size = 0;
   if (params->layout == 0) {
     // T B D
-    seq_len     = data->shape_.dims_[1];
-    batch_size  = data->shape_.dims_[2];
+    seq_len     = data->shape_.dims_[0];
+    batch_size  = data->shape_.dims_[1];
   }
   else {
     // B T D
-    seq_len     = data->shape_.dims_[2];
-    batch_size  = data->shape_.dims_[1];
+    seq_len     = data->shape_.dims_[1];
+    batch_size  = data->shape_.dims_[0];
   }
   if (mask)
   {
@@ -451,6 +462,11 @@ int32_t lstmint_luna(const tTensor *data, const tTensor *history_h, const tTenso
   int8_t *p_tmp             = (NULL != workspace) ? (int8_t *)workspace->dptr_ : NULL;
   int32_t workspace_size    = (NULL != workspace) ? workspace->shape_.dims_[0] : 0;
   int32_t used_size         = 0;
+  #if THINKER_RUNTIME_CHECK
+  if (workspace_size < p_lstm_param.hidden_size * 32) {
+      return (T_ERR_NO_WORKSPACE);
+  }
+#endif
 
  if(history_c != NULL)
  {

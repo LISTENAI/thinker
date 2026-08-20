@@ -1,150 +1,198 @@
 # Thinker 仿真平台编译指南
 
-本文档介绍如何在 x86_64 Linux 环境下编译 Thinker 仿真平台，并说明常用编译参数及典型使用方式。
+本文档介绍如何使用仓库中的编译脚本构建 Thinker x86 仿真平台，并说明平台切换、检查开关和 MOSS 模型资源编译方式。
 
 > 说明
 >
-> - 当前章节构建的是 x86/Linux 下的目标平台仿真版本，用于验证资源打包结果、推理流程和结果一致性。
-> - 仿真平台并不直接生成芯片固件镜像。
-> - Thinker 上层执行代码在仿真平台与真实目标平台之间保持通用；迁移到芯片工程时，通常只需要替换目标平台对应的底层 `luna` 库和固件/BSP 库。
+> - x86 仿真版本用于验证资源打包结果、推理流程和结果一致性，不直接生成芯片固件镜像。
+> - Thinker 上层执行代码在仿真平台与真实目标平台之间保持通用。迁移到芯片工程时，通常只需替换目标平台对应的底层 `luna` 库和固件/BSP 库。
 
 ## 1. 编译前准备
 
-建议先完成开发环境搭建，再进行源码编译：
+- Linux：x86_64 Linux、CMake 3.20.1 及以上版本。
+- 环境搭建：参考 [thinker_environment.md](./thinker_environment.md)。
+- 执行目录：除非特别说明，命令均在 Thinker 仓库根目录执行。
 
-- 操作系统：x86_64 Linux
-- 编译工具：建议使用 CMake 3.20.1 及以上版本、GCC 4.8.5 及以上版本
-- Python 环境：建议参考 `./thinker_environment.md` 中的本地环境或 Docker 环境说明
-- 当前目录：在 Thinker 仓库根目录执行编译命令
+## 2. Linux 快速编译
 
-## 2. 快速编译
-
-仓库中已提供默认编译脚本，可直接在根目录运行：
+执行默认脚本：
 
 ```bash
 sh scripts/x86_linux.sh
 ```
 
-默认脚本会：
+脚本默认执行以下操作：
 
-- 创建并进入 `build` 目录
-- 使用 CMake 生成工程
-- 编译仿真平台所需的运行库和示例程序
+- 删除并重新创建根目录下的 `build` 构建目录。
+- 使用 `Debug` 构建类型和 16 个并行任务。
+- 构建 `VENUSA` 平台的 x86 仿真版本。
+- 生成动态库，并开启中间结果 dump。
+- 开启目标平台资源匹配检查，关闭资源 CRC、参数和运行时检查。
+- 关闭 MOSS 模型适配。
+- 使用 `cmake -S <仓库根目录> -B <构建目录>` 配置工程，再通过 `cmake --build` 编译。
 
-编译完成后，产物默认输出到根目录 `bin` 下。
+编译产物输出到仓库根目录的 `bin` 目录。
 
-## 3. 手动编译示例
+## 3. 脚本配置
 
-如需调整平台、构建类型或调试开关，可手动执行 CMake：
+Linux 脚本通过环境变量调整配置，无需直接修改脚本。
+
+| 环境变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `BUILD_DIR` | `<仓库根目录>/build` | CMake 构建目录；脚本执行时会先删除该目录 |
+| `BUILD_TYPE` | `Debug` | 构建类型，常用值为 `Debug` 或 `Release` |
+| `BUILD_JOBS` | `16` | 并行编译任务数 |
+| `THINKER_TARGET_PLATFORM` | `VENUSA` | 仿真目标平台，可选 `VENUS`、`ARCS`、`VENUSA`，大小写不敏感 |
+| `THINKER_PARAM_CHECK` | `OFF` | 是否启用算子输入、属性、数据类型等参数检查 |
+| `THINKER_RUNTIME_CHECK` | `OFF` | 是否启用地址、空间大小和运行状态等运行时检查 |
+| `THINKER_USE_MOSS` | `OFF` | 是否启用 MOSS 顶层模型适配 |
+| `MOSS_RES_DIR` | `<仓库根目录>/moss_res` | MOSS 生成资源的根目录 |
+| `MOSS_MODELS` | `anyreid;face_keypoint` | MOSS 模型名列表，模型之间使用分号分隔 |
+| `THINKER_MOSS_HOST_SOURCES` | 根据 `MOSS_RES_DIR` 和 `MOSS_MODELS` 生成 | MOSS `host.c` 文件列表，使用分号分隔 |
+| `THINKER_MOSS_MODEL_GETTERS` | 根据 `MOSS_MODELS` 生成 | MOSS 模型 getter 符号列表，使用分号分隔 |
+| `THINKER_MOSS_MODEL_NAMES` | 根据 `MOSS_MODELS` 生成 | 注册到 Thinker 的模型名列表，使用分号分隔 |
+
+常用示例：
 
 ```bash
-mkdir -p build
-cd build
-cmake -DCMAKE_BUILD_TYPE=Debug \
+# 编译 ARCS Release 仿真版本，并按本机 CPU 数设置并行任务数
+BUILD_TYPE=Release \
+BUILD_JOBS="$(nproc)" \
+THINKER_TARGET_PLATFORM=ARCS \
+sh scripts/x86_linux.sh
+```
+
+```bash
+# 启用参数检查和运行时检查
+THINKER_PARAM_CHECK=ON \
+THINKER_RUNTIME_CHECK=ON \
+sh scripts/x86_linux.sh
+```
+
+```bash
+# 使用独立构建目录，避免覆盖默认 build 目录
+BUILD_DIR="$PWD/build-venus" \
+THINKER_TARGET_PLATFORM=VENUS \
+sh scripts/x86_linux.sh
+```
+
+## 4. MOSS 模型编译
+
+启用 MOSS 后，脚本会把每个模型对应的生成代码编译进 `libthinker.so`，并链接目标平台目录下的 `libmossruntime.so` 和 `libnnblaslinux.a`。脚本会同时设置 `THINKER_USE_NNBLAS=OFF`，避免普通 Thinker NNBLAS 链接路径与 MOSS 依赖冲突。
+
+### 4.1 默认目录约定
+
+假设配置如下：
+
+```bash
+MOSS_RES_DIR="$PWD/moss_res"
+MOSS_MODELS="anyreid;face_keypoint"
+```
+
+脚本会生成以下 CMake 参数：
+
+```text
+THINKER_MOSS_HOST_SOURCES=<仓库根目录>/moss_res/anyreid/anyreid_host.c;<仓库根目录>/moss_res/face_keypoint/face_keypoint_host.c
+THINKER_MOSS_MODEL_GETTERS=mGetModel_anyreid;mGetModel_face_keypoint
+THINKER_MOSS_MODEL_NAMES=anyreid;face_keypoint
+```
+
+因此，每个模型默认需要满足以下约定：
+
+- 生成代码路径为 `<MOSS_RES_DIR>/<模型名>/<模型名>_host.c`。
+- 生成代码导出的 getter 符号为 `mGetModel_<模型名>`。
+- `host.c`、getter 和模型名三个列表的元素数量及顺序必须一致。
+
+### 4.2 按模型名编译
+
+```bash
+THINKER_USE_MOSS=ON \
+MOSS_RES_DIR="$PWD/moss_res" \
+MOSS_MODELS="anyreid;face_keypoint" \
+sh scripts/x86_linux.sh
+```
+
+### 4.3 显式指定生成资源
+
+如果文件名或 getter 符号不符合默认约定，可直接覆盖三个列表：
+
+```bash
+THINKER_USE_MOSS=ON \
+THINKER_MOSS_HOST_SOURCES="$PWD/generated/model_a_host.c;$PWD/generated/model_b_host.c" \
+THINKER_MOSS_MODEL_GETTERS="mGetModelA;mGetModelB" \
+THINKER_MOSS_MODEL_NAMES="model_a;model_b" \
+sh scripts/x86_linux.sh
+```
+
+> Shell 中的分号必须放在引号内，否则会被解释为命令分隔符。
+
+## 5. 等价的手动编译
+
+不启用 MOSS 时，默认脚本等价于以下命令：
+
+```bash
+rm -rf build
+cmake -S . -B build \
+  -DCMAKE_BUILD_TYPE=Debug \
   -DTHINKER_SHARED_LIB=ON \
   -DTHINKER_PROFILE=OFF \
   -DTHINKER_RESULT_DUMP=ON \
   -DTHINKER_RESULT_CRC_PRINT=OFF \
   -DTHINKER_RESOUCR_CRC_CHECK=OFF \
-  -DTHINKER_TARGET_PLATFORM=ARCS \
+  -DTHINKER_TARGET_PLATFORM=VENUSA \
   -DTHINKER_TARGET_CHECK=ON \
-  -DTHINKER_USE_NNBLAS=OFF \
-  ..
-make -j$(nproc)
+  -DTHINKER_PARAM_CHECK=OFF \
+  -DTHINKER_RUNTIME_CHECK=OFF \
+  -DTHINKER_USE_MOSS=OFF
+cmake --build build -j 16
 ```
 
-如果需要切换目标平台，只需修改 `DTHINKER_TARGET_PLATFORM` 的取值即可。
+推荐优先使用脚本及环境变量，以便后续脚本参数变更时保持一致。
 
-## 4. 常用编译参数
+## 6. CMake 编译参数
 
-### 4.1 基本参数
+| 参数 | 脚本设置值 | 说明 |
+| --- | --- | --- |
+| `CMAKE_BUILD_TYPE` | `Debug` | 构建类型；可通过 `BUILD_TYPE` 覆盖 |
+| `THINKER_SHARED_LIB` | `ON` | `ON` 生成动态库，`OFF` 生成静态库 |
+| `THINKER_PROFILE` | `OFF` | 是否开启逐层性能统计 |
+| `THINKER_RESULT_DUMP` | `ON` | 是否输出中间层结果；适合 x86 仿真调试 |
+| `THINKER_RESULT_CRC_PRINT` | `OFF` | 是否打印中间层结果 CRC |
+| `THINKER_RESOUCR_CRC_CHECK` | `OFF` | 是否校验模型资源 CRC；参数名沿用工程现有拼写 |
+| `THINKER_TARGET_PLATFORM` | `VENUSA` | 目标平台，可选 `VENUS`、`ARCS`、`VENUSA` |
+| `THINKER_TARGET_CHECK` | `ON` | 是否检查模型资源与目标平台是否匹配 |
+| `THINKER_PARAM_CHECK` | `OFF` | 是否启用参数检查；由同名环境变量控制 |
+| `THINKER_RUNTIME_CHECK` | `OFF` | 是否启用运行时检查；由同名环境变量控制 |
+| `THINKER_USE_MOSS` | `OFF` | 是否启用 MOSS 模型适配 |
 
-| 参数 | 类型 | 默认值 | 说明 |
-| --- | --- | --- | --- |
-| `CMAKE_BUILD_TYPE` | 字符串 | `Debug` | 构建类型，可选 `Debug` 或 `Release` |
+`THINKER_TARGET_PLATFORM` 一次只能选择一个平台。建议保持 `THINKER_TARGET_CHECK=ON`，以便尽早发现模型资源与仿真平台不匹配的问题。
 
-说明：
+## 7. Windows 工程生成
 
-- `Debug` 适合开发与问题定位。
-- `Release` 适合性能测试与正式交付验证。
+Windows 下可在仓库根目录运行：
 
-### 4.2 平台与资源校验参数
-
-| 参数 | 类型 | 默认值 | 说明 |
-| --- | --- | --- | --- |
-| `DTHINKER_TARGET_PLATFORM` | 字符串 | `VENUS` | 选择目标平台，可选 `VENUS`、`ARCS`、`VENUSA` |
-| `DTHINKER_TARGET_CHECK` | 布尔值 | `ON` | 是否启用平台资源匹配检查，开启后会校验资源文件与目标平台是否一致 |
-
-说明：
-
-- `DTHINKER_TARGET_PLATFORM` 在一次编译中只能选择一个目标平台。
-- 推荐保留 `DTHINKER_TARGET_CHECK=ON`，以便尽早发现资源与平台不匹配的问题。
-
-### 4.3 功能开关参数
-
-| 参数 | 类型 | 默认值 | 说明 |
-| --- | --- | --- | --- |
-| `THINKER_SHARED_LIB` | 布尔值 | `ON` | `ON` 生成动态库，`OFF` 生成静态库 |
-| `THINKER_PROFILE` | 布尔值 | `OFF` | 是否开启性能统计相关能力 |
-| `THINKER_RESULT_DUMP` | 布尔值 | `OFF` | 是否导出中间结果，便于调试数值问题 |
-| `DTHINKER_RESULT_CRC_PRINT` | 布尔值 | `OFF` | 是否打印中间结果 CRC，用于一致性对比 |
-| `DTHINKER_RESOUCR_CRC_CHECK` | 布尔值 | `ON` | 是否校验资源文件 CRC |
-
-说明：
-
-- `THINKER_RESULT_DUMP` 更适合 x86/Linux 仿真环境使用，因为该功能依赖文件系统输出。
-- 在真实芯片平台上，通常更推荐通过 `DTHINKER_RESULT_CRC_PRINT` 比对中间结果一致性。
-
-## 5. 常见编译场景
-
-### 5.1 切换仿真目标平台
-
-例如，将脚本中的：
-
-```bash
--DTHINKER_TARGET_PLATFORM=ARCS
+```bat
+scripts\x86_win.bat
 ```
 
-替换为：
+该脚本会删除并重建 `build_win`，然后使用 `Visual Studio 14 2015 Win64` 生成 `Debug`、`VENUS` 平台工程。脚本仅执行 CMake 工程生成，不调用 Visual Studio 编译；生成完成后需在 `build_win` 中打开工程或使用 Visual Studio 构建工具继续编译。
 
-```bash
--DTHINKER_TARGET_PLATFORM=VENUS
-```
+当前 Windows 脚本采用固定参数，不支持 Linux 脚本中的环境变量和 MOSS 资源列表配置。
 
-或：
+## 8. 编译输出
 
-```bash
--DTHINKER_TARGET_PLATFORM=VENUSA
-```
+默认产物位于仓库根目录的 `bin` 下，主要包括：
 
-即可切换为对应平台的仿真版本。
+- `bin/libthinker.so`：Linux Thinker 动态库。
+- `bin/test_thinker`：基础推理示例。
+- `bin/test_dynamic`：动态 shape 示例。
 
-### 5.2 切换为 Release 构建
+若将 `THINKER_SHARED_LIB` 改为 `OFF`，库产物为静态库。Windows 下的文件名和配置子目录由 Visual Studio 生成器决定。
 
-```bash
--DCMAKE_BUILD_TYPE=Release
-```
+## 9. 注意事项
 
-适用于性能验证或发布前测试。
-
-### 5.3 开启中间结果一致性检查
-
-```bash
--DTHINKER_RESULT_CRC_PRINT=ON
-```
-
-适用于仿真平台与芯片平台的结果对比。
-
-## 6. 编译输出
-
-默认情况下，编译产物位于根目录 `bin` 下，常见文件包括：
-
-- `bin/libthinker.so`：Thinker 动态库
-- `bin/test_thinker`：基础示例程序
-- `bin/test_dynamic`：动态 shape 示例程序
-
-## 7. 注意事项
-
-- 仿真平台当前主要在 x86_64 Linux 环境下完成验证测试。
-- 默认脚本使用 `make -j16`，如本机核心数较少，可按需调整并行编译数。
-- 如果修改了编译选项或目标平台，建议先清理 `build` 目录后再重新编译，避免缓存配置干扰结果。
+- Linux 脚本每次都会递归删除 `BUILD_DIR`，请勿将其设置为需要保留的目录。
+- 切换平台时，必须确保 `executor/libs/<平台>/linux64` 下存在对应的仿真依赖库。
+- MOSS 模式要求目标平台库目录中存在 `libmossruntime.so` 和 `libnnblaslinux.a`，缺失时 CMake 会终止配置。
+- `THINKER_RESULT_DUMP` 依赖文件系统输出，主要用于 x86 仿真环境；芯片侧结果对比通常使用 `THINKER_RESULT_CRC_PRINT`。
+- 参数检查和运行时检查有助于定位资源或算子调用问题，但可能增加运行开销，性能测试时可保持关闭。

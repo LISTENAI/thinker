@@ -16,6 +16,7 @@
 #include "core/operator_attrs.h"
 #include "hifi/NatureDSP_Signal_math.h"
 #include "hifi/NatureDSP_Signal_vector.h"
+#include "thinker_status.h"
 
 /**
  * @brief Compute LogSoftmax for a tensor
@@ -25,16 +26,30 @@
  * @return int32_t Operation status
  */
 int32_t logsoftmax_luna(tTensor *data, tTensor *out, LogSoftmaxAttrs *attrs) {
-    // Check if input and output tensors have the same data type
-    CHECK_EQ(data->dtype_, out->dtype_);
+    #if THINKER_PARAM_CHECK
+    if (data == NULL || out == NULL || attrs == NULL ||
+                        data->dptr_ == 0 || out->dptr_ == 0) {
+        return (T_ERR_INVALID_PARA);
+    }
+    if (data->dtype_ != Float32 || out->dtype_ != Float32) {
+        return (T_ERR_INVALID_DATATYPE);
+    }
+    if (data->shape_.ndim_ == 0 ||
+                        !equalShape(&data->shape_, &out->shape_)) {
+        return (T_ERR_INVALID_DATA);
+    }
+    #endif
 
     // Adjust negative axis to positive
-    if (attrs->axis < 0) {
-        attrs->axis += data->shape_.ndim_;
-    }
+    int32_t axis = attrs->axis < 0 ? attrs->axis + data->shape_.ndim_ : attrs->axis;
 
     // Ensure axis is within valid range
-    CHECK_LT(attrs->axis, data->shape_.ndim_);
+    #if THINKER_PARAM_CHECK
+    if (axis < 0 || axis >= data->shape_.ndim_ ||
+                        axis != data->shape_.ndim_ - 1) {
+        return (T_ERR_INVALID_PARA);
+    }
+    #endif
 
     // Calculate leading dimensions and stride
     int leading = 1;
@@ -42,7 +57,7 @@ int32_t logsoftmax_luna(tTensor *data, tTensor *out, LogSoftmaxAttrs *attrs) {
     int i = 0;
 
     // Compute leading dimensions up to the specified axis
-    for (; i < attrs->axis; ++i) {
+    for (; i < axis; ++i) {
         leading *= data->shape_.dims_[i];
     }
 
@@ -65,10 +80,9 @@ int32_t logsoftmax_luna(tTensor *data, tTensor *out, LogSoftmaxAttrs *attrs) {
             vec_softmaxf(ldst, lsrc, stride);
 
             // Compute natural logarithm
-            vec_lognf(lsrc, ldst, stride);
-
-            // Copy results back to output
-            memcpy(ldst, lsrc, stride * sizeof(float));
+            for (int i = 0; i < stride; ++i) {
+                ldst[i] = logf(ldst[i]);
+            }
         }
     } else {
         // Log error for unsupported data types

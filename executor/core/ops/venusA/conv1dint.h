@@ -99,21 +99,43 @@ static void conv1dint_para_init(Conv1dIntAttrs *attrs, conv_struct_t *conv_attrs
  */
 int32_t conv1dint_luna(tTensor *X, tTensor *W, tTensor *Bias, tTensor *Y, tTensor *Temp, Conv1dIntAttrs *attrs) {   
     (void)Temp;
-    if (X == NULL || W == NULL || Y == NULL || attrs == NULL) {
-        return T_ERR_INVALID_PARA;
-    }
-    if (X->dtype_ != Int8) {
-        return T_ERR_INVALID_DATATYPE;
-    }
-    if (W->dtype_ != Int4 && W->dtype_ != Int8) {
-        return T_ERR_INVALID_DATATYPE;
-    }
-    if (Y->dtype_ != Int8 && Y->dtype_ != Int16 && Y->dtype_ != Int32) {
-        return T_ERR_INVALID_DATATYPE;
-    }
-    if (Bias != NULL && Bias->dtype_ != Int32) {
-        return T_ERR_INVALID_DATATYPE;
-    }
+#if THINKER_PARAM_CHECK
+if (X == NULL || W == NULL || Y == NULL || attrs == NULL) {
+    return (T_ERR_INVALID_PARA);
+}
+
+if (X->dtype_ != Int8) {
+    return (T_ERR_INVALID_DATATYPE);
+}
+
+if (W->dtype_ != Int4 && W->dtype_ != Int8) {
+    return (T_ERR_INVALID_DATATYPE);
+}
+
+if (Y->dtype_ != Int8 && Y->dtype_ != Int16 && Y->dtype_ != Int32) {
+    return (T_ERR_INVALID_DATATYPE);
+}
+#endif
+  #if THINKER_RUNTIME_CHECK
+  if (Y->mem_.type_ != 2 || X->shape_.dims_[0] != 1 ||
+                        Y->shape_.dims_[0] != 1) {
+      return (T_ERR_INVALID_PARA);
+  }
+
+  if (Bias != NULL && Bias->dtype_ != Int32) {
+      return (T_ERR_INVALID_DATATYPE);
+  }
+#endif
+  #if THINKER_RUNTIME_CHECK
+  if (X->dptr_ == 0 || W->dptr_ == 0 || Y->dptr_ == 0 ||
+                        X->dptr_ == Y->dptr_ ||
+                        (Bias != NULL &&
+                         (Bias->dptr_ == 0 ||
+                          getTensorSize(Bias) !=
+                              (size_t)Y->shape_.dims_[1]))) {
+      return (T_ERR_INVALID_PARA);
+  }
+#endif
 
     // Data pointers
     int8_t *src = (int8_t *)(X->dptr_);
@@ -130,9 +152,15 @@ int32_t conv1dint_luna(tTensor *X, tTensor *W, tTensor *Bias, tTensor *Y, tTenso
     int32_t q_w = (int32_t)W->scale_;
     int32_t q_y = (int32_t)Y->scale_;
     int32_t shift = (q_x + q_w - q_y < 0) ? (q_y - q_x - q_w) : 0;
-    if (shift != 0 && Y->dtype_ != Int32) {
-        return T_ERR_INVALID_PARA;
-    }
+#if THINKER_PARAM_CHECK
+if (shift != 0 && Y->dtype_ != Int32) {
+    return (T_ERR_INVALID_PARA);
+}
+
+if (shift > 30) {
+    return (T_ERR_INVALID_PARA);
+}
+#endif
     
     // Dimension parameters
     uint32_t input_c = conv_attrs.input_c;
@@ -141,13 +169,27 @@ int32_t conv1dint_luna(tTensor *X, tTensor *W, tTensor *Bias, tTensor *Y, tTenso
     int32_t kernel = attrs->kernel;
     
     // Check kernel size
+    #if THINKER_PARAM_CHECK
     if (kernel <= 0 || kernel > 12) {
-        THINKER_LOG_FATAL("conv1d does not support kernel size > 12");
-        return T_ERR_INVALID_PARA;
+        return (T_ERR_INVALID_PARA);
     }
-    if (attrs->stride == 0 || group <= 0) {
-        return T_ERR_INVALID_PARA;
+
+    if (attrs->stride != 1 && attrs->stride != 2 && attrs->stride != 4) {
+        return (T_ERR_INVALID_PARA);
     }
+
+    if (attrs->pad[0] >= kernel || attrs->pad[1] >= kernel) {
+        return (T_ERR_INVALID_PARA);
+    }
+
+    if (X->shape_.dims_[2] + attrs->pad[0] + attrs->pad[1] < kernel) {
+        return (T_ERR_INVALID_PARA);
+    }
+
+    if (group <= 0) {
+        return (T_ERR_INVALID_PARA);
+    }
+#endif
     
     // Process based on group configuration
     if (group == 1) {
@@ -209,8 +251,11 @@ int32_t conv1dint_luna(tTensor *X, tTensor *W, tTensor *Bias, tTensor *Y, tTenso
             }
         }
     } else {
-        THINKER_LOG_FATAL("Unsupported group configuration for conv1d");
-        return T_ERR_INVALID_PARA;
+        #if THINKER_PARAM_CHECK
+        if (1) {
+            return (T_ERR_INVALID_PARA);
+        }
+#endif
     }
     
     return T_SUCCESS;

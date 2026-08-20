@@ -27,16 +27,55 @@
  * @return: Status code indicating success or failure
  */
 int32_t X(Forward)(tOperator *op, tTensor **tensors, int32_t num_tensor, tDMA_List *list) {
-    // Validate tensor count
-    CHECK_GE(num_tensor, (op->num_input_ + op->num_output_));
-    
-    // Get variance attributes
+    (void)list;
+#if THINKER_PARAM_CHECK
+    if (op == NULL || tensors == NULL || op->num_input_ != 1 ||
+                        op->num_output_ != 1 || num_tensor != 3) {
+        return (T_ERR_INVALID_PARA);
+    }
+#endif
     iqvarAttrs *attrs = (iqvarAttrs *)((int8_t *)op + op->attr_offset_);
-    
-    // Get input, output, and workspace tensors
-    tTensor *X = ((tTensor **)tensors)[0];
-    tTensor *workspace = ((tTensor **)tensors)[num_tensor - 1];
-    tTensor *Y = ((tTensor **)tensors)[op->num_input_];
+    tTensor *X = tensors[0];
+    tTensor *Y = tensors[1];
+    tTensor *workspace = tensors[2];
+#if THINKER_PARAM_CHECK
+    if (X == NULL || Y == NULL || workspace == NULL ||
+                        X->dptr_ == 0 || Y->dptr_ == 0 || workspace->dptr_ == 0 ||
+                        X->shape_.ndim_ < 3 || Y->shape_.ndim_ != X->shape_.ndim_) {
+        return (T_ERR_INVALID_PARA);
+    }
+
+    if (X->dtype_ != Int8 || Y->dtype_ != Int8 ||
+                        workspace->dtype_ != Int8 || workspace->byte_ != 1) {
+        return (T_ERR_INVALID_DATATYPE);
+    }
+#endif
+    int32_t axis = attrs->dims < 0 ? attrs->dims + X->shape_.ndim_ : attrs->dims;
+#if THINKER_PARAM_CHECK
+    if ((axis != X->shape_.ndim_ - 1 && axis != X->shape_.ndim_ - 2) ||
+                        X->shape_.dims_[axis] <= 0) {
+        return (T_ERR_INVALID_PARA);
+    }
+
+    for (int32_t i = 0; i < X->shape_.ndim_; ++i) {
+        if (Y->shape_.dims_[i] !=
+                            (i == axis ? 1 : X->shape_.dims_[i])) {
+            return (T_ERR_INVALID_DATA);
+        }
+    }
+
+    if (X->zero_ != 0 || Y->zero_ != 0 ||
+                        !isfinite(X->scale_) || !isfinite(Y->scale_) ||
+                        X->scale_ != floorf(X->scale_) || Y->scale_ != floorf(Y->scale_)) {
+        return (T_ERR_INVALID_DATA);
+    }
+
+    if (X->mem_.type_ != 2 || Y->mem_.type_ != 2 ||
+                        workspace->mem_.type_ != 2 || workspace->shape_.ndim_ != 1 ||
+                        ((uintptr_t)workspace->dptr_ & 3U) != 0) {
+        return (T_ERR_NO_SUPPORT_OP);
+    }
+#endif
     
 #if THINKER_USE_VENUS || THINKER_USE_ARCS || THINKER_USE_VENUSA
 #if THINKER_PROFILE

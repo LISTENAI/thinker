@@ -42,7 +42,9 @@ static void luna_maxpool_para_init(PoolAttrs* attrs, conv_struct_t *conv_attrs, 
     conv_attrs->padding_w_right = attrs->pad[3]; // Right padding
     conv_attrs->dilation_h = 1;               // Dilation height
     conv_attrs->dilation_w = 1;               // Dilation width
-    conv_attrs->data_mem_type = X->mem_.type_; // Memory type
+    uint8_t data_mem_type = (X->mem_.type_ & 0x0F) + 1;
+    data_mem_type = (data_mem_type == 3) ? 0 : data_mem_type;
+    conv_attrs->data_mem_type = (data_mem_type << 4) | 0; // Memory type
     conv_attrs->ou_bits = Y->byte_ * 8;       // Output bits
     conv_attrs->weight_bits = 8;              // Weight bits
     conv_attrs->out_padding_h = 0;            // Output padding height
@@ -65,10 +67,20 @@ static void luna_maxpool_para_init(PoolAttrs* attrs, conv_struct_t *conv_attrs, 
  * @return Execution status
  */
 int32_t maxpool_luna(const tTensor* X, tTensor* Y, tTensor* Temp, PoolAttrs *attrs) {
-    // Check if input data type is Int8
-    if (Int8 != X->dtype_) {
-        return T_ERR_INVALID_DATATYPE;
-    }
+#if THINKER_PARAM_CHECK
+if (Int8 != X->dtype_) {
+    return (T_ERR_INVALID_DATATYPE);
+}
+
+if (attrs->layout != 0) {
+    return (T_ERR_INVALID_PARA);
+}
+
+if (attrs->kernel[0] < 1 || attrs->kernel[1] < 1 ||
+                    attrs->kernel[0] > 7 || attrs->kernel[1] > 7) {
+    return (T_ERR_INVALID_PARA);
+}
+#endif
 
     // Initialize pooling parameters
     conv_struct_t pool_struct_;
@@ -88,6 +100,16 @@ int32_t maxpool_luna(const tTensor* X, tTensor* Y, tTensor* Temp, PoolAttrs *att
     int32_t in_space = in_h * in_w * X->byte_;
     int32_t out_space = ou_h * ou_w * Y->byte_;
     int32_t out_size = out_space * ou_c;
+    int32_t log2n_stride_w = pool_struct_.stride_w >> 1;
+    int32_t h_eff = in_h + (pool_struct_.padding_h_up != 0 ? 1 : 0);
+    int32_t align_w_unit = 1 << (3 + log2n_stride_w);
+    int32_t align_w = ((in_w + align_w_unit - 1) & ~(align_w_unit - 1));
+    int32_t data_size_align = ALIGN4(in_c) * h_eff * align_w;
+#if THINKER_PARAM_CHECK
+if (Y->mem_.type_ == 2 && data_size_align > DW_IN_CONDITION) {
+    return (T_ERR_INVALID_PARA);
+}
+#endif
 
     // Calculate batch sizes
     int32_t in_batch_size = in_c * in_h * in_w;
@@ -109,6 +131,21 @@ int32_t maxpool_luna(const tTensor* X, tTensor* Y, tTensor* Temp, PoolAttrs *att
         int32_t max_ch_per_run = workspace_size / out_space;
         if (max_ch_per_run == 0) {
             return T_ERR_NO_WORKSPACE;
+        }
+        int32_t max_ch_by_input = 0;
+        for (int32_t c = max_ch_per_run; c > 0; --c) {
+            if (ALIGN4(c) * h_eff * align_w <= DW_IN_CONDITION) {
+                max_ch_by_input = c;
+                break;
+            }
+        }
+#if THINKER_PARAM_CHECK
+if (max_ch_by_input == 0) {
+    return (T_ERR_INVALID_PARA);
+}
+#endif
+        if (max_ch_per_run > max_ch_by_input) {
+            max_ch_per_run = max_ch_by_input;
         }
 
         // Process each batch and channel

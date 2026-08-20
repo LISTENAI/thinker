@@ -5,11 +5,17 @@
 
 #include "thinker_status.h"
 
-#define CHECK_BINARY_OP(op, x, y)                                            \
-  if (!((x)op(y))) {                                                         \
-    printf("%s:%d | %s failed.\n", __FILE__, __LINE__, (#x " " #op " " #y)); \
-    abort();                                                                 \
-  }
+#if THINKER_PARAM_CHECK
+#define CHECK_BINARY_OP(op, x, y)                                              \
+  do {                                                                         \
+    if (!((x)op(y))) {                                                         \
+      printf("%s:%d | %s failed.\n", __FILE__, __LINE__, (#x " " #op " " #y)); \
+      abort();                                                                 \
+    }                                                                          \
+  } while (0)
+#else
+#define CHECK_BINARY_OP(op, x, y) ((void)0)
+#endif
 
 #define CHECK_LT(x, y) CHECK_BINARY_OP(<, x, y)
 #define CHECK_GT(x, y) CHECK_BINARY_OP(>, x, y)

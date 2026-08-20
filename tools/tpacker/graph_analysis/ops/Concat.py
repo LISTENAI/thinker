@@ -34,10 +34,12 @@ class Concat(Operator):
         ndims = len(shape)
         assert -ndims <= axis < ndims, "Axis out of bounds"
         axis = axis + ndims if axis < 0 else axis
+        self.attrs["axis"] = axis
 
         for i in range(1, num_inputs):
             current_input = inputs[i]
             assert len(current_input.shape) == ndims, "All inputs must have the same number of dimensions"
+            assert current_input.dtype == inputs[0].dtype, "All inputs must have the same data type"
             
             for dim in range(ndims):
                 if dim != axis:

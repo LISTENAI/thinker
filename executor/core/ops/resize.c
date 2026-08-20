@@ -734,6 +734,10 @@ static int32_t Resize_cubic_float(float *input, float *output, float *scale,
 
 int32_t X(Forward)(tOperator *op, tTensor **tensors, int32_t num_tensor, tDMA_List *list) 
 {
+#if !THINKER_USE_VENUS
+  return T_ERR_NO_SUPPORT_OP;
+#endif
+
   assert(num_tensor == (op->num_input_ + op->num_output_));
   tTensor *X = ((tTensor **)tensors)[0];
   tTensor *S = ((tTensor **)tensors)[kScales];

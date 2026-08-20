@@ -32,6 +32,7 @@ def get_Conv1dInt_workspace(
         AssertionError: If input memory type is not SHARE_MEM
     """
     assert data.mem_type == MemType.SHARE_MEM, "input of conv1d must be in share-memory"
+    assert out.mem_type == MemType.SHARE_MEM, "output of conv1d must be in share-memory"
     return 0
 
 

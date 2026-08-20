@@ -19,43 +19,28 @@
  * @param Y Output tensor
  * @return int32_t Operation status
  */
-int32_t iqtanh(tTensor *X, tTensor *Y) {   
-    // Quantization parameters
+int32_t iqtanh(tTensor *X, tTensor *Y) {
     const int32_t Q_INPUT = 27;
     const int32_t Q_OUTPUT = 7;
-    int32_t x_q = X->scale_;
-    int32_t y_q = Y->scale_;
-    
-    // Pointers to tensor data
+
+#if THINKER_PARAM_CHECK
+if (X->dtype_ != Int32 || Y->dtype_ != Int8) {
+    return (T_ERR_INVALID_DATATYPE);
+}
+
+if (X->mem_.type_ != 2 || Y->mem_.type_ != 2) {
+    return (T_ERR_INVALID_DATATYPE);
+}
+
+if (X->scale_ != Q_INPUT || Y->scale_ != Q_OUTPUT) {
+    return (T_ERR_INVALID_PARA);
+}
+#endif
+
     int32_t *src = (int32_t *)X->dptr_;
+    int8_t *dst = (int8_t *)Y->dptr_;
     uint32_t size = getTensorSize(X);
-    
-    // Adjust input data to match quantization requirements
-    if (x_q != Q_INPUT) {
-        THINKER_RET_CHECK(API_LIB(scale_i32i32o32)(src, 1, src, size, x_q - Q_INPUT), "luna_scale_i32i32o32");
-    }
-    
-    // Apply tanh activation based on output data type
-    switch (Y->dtype_) {
-        case Int8: {
-            int8_t *dst = (int8_t *)Y->dptr_;
-            THINKER_RET_CHECK(API_LIB(tanh_i32o8)(src, dst, size), "luna_tanh_i32o8");
-            break;
-        }
-        case Int16: {
-            int16_t *dst = (int16_t *)Y->dptr_;
-            THINKER_RET_CHECK(API_LIB(tanh_i32o16)(src, dst, size), "luna_tanh_i32o16");
-            break;
-        }
-        case Int32: {
-            int32_t *dst = (int32_t *)Y->dptr_;
-            THINKER_RET_CHECK(API_LIB(tanh_i32o32)(src, dst, size), "luna_tanh_i32o32");
-            break;
-        }
-        default:
-            return T_ERR_INVALID_DATATYPE;
-    }
-    
+    THINKER_RET_CHECK(API_LIB(tanh_i32o8)(src, dst, size), "luna_tanh_i32o8");
     return T_SUCCESS;
 }
 

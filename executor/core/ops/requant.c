@@ -2,6 +2,10 @@
 
 #undef __OP__
 #define __OP__ Requant
+#include <math.h>
+#include "core/comm/thinker_log.h"
+#include "core/comm/utils.h"
+#include "core/operator_attrs.h"
 #include "core/operator_register.h"
 #include "thinker_status.h"
 
@@ -26,10 +30,31 @@
  * @return int32_t Execution status
  */
 int32_t X(Forward)(tOperator *op, tTensor **tensors, int32_t num_tensor, tDMA_List *list) {
-    CHECK_EQ(num_tensor, (op->num_input_ + op->num_output_));  // Validate tensor count
-    
+#if THINKER_PARAM_CHECK
+    if (op == NULL || tensors == NULL || op->num_input_ != 1 ||
+                        op->num_output_ != 1 || num_tensor != 2) {
+        return (T_ERR_INVALID_PARA);
+    }
+#endif
+    RequantAttrs *attrs = (RequantAttrs *)((int8_t *)op + op->attr_offset_);
+    tTensor *X = tensors[0];
+    tTensor *Y = tensors[1];
+#if THINKER_PARAM_CHECK
+    if (X == NULL || Y == NULL || X->dptr_ == 0 || Y->dptr_ == 0 ||
+                        !equalShape(&X->shape_, &Y->shape_)) {
+        return (T_ERR_INVALID_DATA);
+    }
+
+    if (attrs->data_bits != 8 || attrs->o_bits != Y->byte_ * 8 ||
+                        X->byte_ != 1 || attrs->quant_type != 1 ||
+                        !isfinite(X->scale_) || !isfinite(Y->scale_) ||
+                        floorf(X->scale_) != X->scale_ || floorf(Y->scale_) != Y->scale_) {
+        return (T_ERR_INVALID_PARA);
+    }
+#endif
+
 #if THINKER_USE_VENUS || THINKER_USE_ARCS || THINKER_USE_VENUSA
-    THINKER_RET_CHECK(requant_luna(tensors[0], tensors[op->num_input_]), "requant_luna");  // Execute Requant operation
+    THINKER_RET_CHECK(requant_luna(X, Y), "requant_luna");
 #endif
 
     return T_SUCCESS;

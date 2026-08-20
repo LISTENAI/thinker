@@ -1,7 +1,7 @@
 import math
 import numpy as np
 
-from ..utils import AutoPad, CeilMode
+from ..utils import AutoPad, CeilMode, combine4bit_8bit
 from ....enum_defines import Layout, MemType, ALIGN2, ALIGN4, ALIGN8, ALIGN16
 
 
@@ -29,9 +29,20 @@ def get_ConvTranspose2dInt_workspace(
         int: Workspace size
         
     Raises:
-        AssertionError: If input or output memory type is not SHARE_MEM
+        AssertionError: If output memory type is not SHARE_MEM
     """
-    assert data.mem_type == MemType.SHARE_MEM and out.mem_type == MemType.SHARE_MEM
+    stride_h, stride_w = strides
+    c_in, h_in, w_in = data.shape[1:4]
+    kernel_h, kernel_w = kernels
+    kernel_c = weight.shape[0]
+    kernel_num = weight.shape[1]
+
+    align_w = ((w_in + 4 * stride_w - 1) // (4 * stride_w)) * (4 * stride_w)
+    input_size = ALIGN8(c_in) * align_w * h_in
+    weight_size = ALIGN2(kernel_num) * ALIGN8(kernel_c) * kernel_h * kernel_w
+    assert input_size <= 16384, "input size of arcs deconv must be <= 16KB"
+    assert weight_size <= 8192, "weight size of arcs deconv must be <= 8KB"
+    assert out.mem_type == MemType.SHARE_MEM, "output of arcs deconv must be in share-memory"
     return 0
 
 
@@ -70,7 +81,7 @@ def ConvTranspose2dInt_weight_rearrange(
     if data.layout == Layout.NCWH and weight.layout == Layout.NCHW:
         new_weight.data = weight.data.transpose(0, 1, 3, 2)
         new_weight.shape = new_weight.data.shape
-        new_weight.dtype = Layout.NCWH
+        new_weight.layout = Layout.NCWH
 
     if new_weight.layout in (Layout.NHWC8, Layout.NWHC8):
         return new_weight
@@ -84,7 +95,11 @@ def ConvTranspose2dInt_weight_rearrange(
 
         h_in = data.shape[2]
         w_in = data.shape[3]
-        data_size = ALIGN8(kernel_c) * ((w_in + 8 * stride_w - 1) // (8 * stride_w)) * (8 * stride_w) * h_in
+        align_w = ((w_in + 4 * stride_w - 1) // (4 * stride_w)) * (4 * stride_w)
+        input_size = ALIGN8(kernel_c) * align_w * h_in
+        weight_size = ALIGN2(kernel_num) * ALIGN8(kernel_c) * kernel_h * kernel_w
+        assert input_size <= 16384, "input size of arcs deconv must be <= 16KB"
+        assert weight_size <= 8192, "weight size of arcs deconv must be <= 8KB"
         assert group == 1, "deconv does not support depthwise!"
 
         num_input_align = ALIGN8(kernel_c)
@@ -109,7 +124,7 @@ def ConvTranspose2dInt_weight_rearrange(
         new_weight_transpose = new_weight_transpose.transpose(0, 1, 2, 4, 3, 5)
 
         new_weight = weight.clone()
-        new_weight.data = new_weight_transpose
+        new_weight.data = combine4bit_8bit(new_weight_transpose) if weight_bits == 4 else new_weight_transpose
         new_weight.shape = new_weight_transpose.shape
         new_weight.bits = np.float32(weight_bits / 8.0)
 

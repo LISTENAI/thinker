@@ -191,10 +191,11 @@ static int32_t calc_pointwise_luna(int32_t w_dtype, int32_t y_dtype, int8_t *inp
   int32_t k_n = ou_c;
   int32_t k_c = in_c;
 
-  if (in_h != ou_h || in_w != ou_w)
-  {
-    return T_ERR_INVALID_PARA;
+  #if THINKER_PARAM_CHECK
+  if (in_h != ou_h || in_w != ou_w) {
+      return (T_ERR_INVALID_PARA);
   }
+  #endif
 
   // img2col, Y = W * X
   const int32_t left_limit = 64 * 1024;
@@ -244,14 +245,20 @@ static int32_t calc_pointwise_luna(int32_t w_dtype, int32_t y_dtype, int8_t *inp
       }
       if (is_bias) {
         int32_t *p_tmp = (int32_t *)work_space + M * L;
-        THINKER_RET_CHECK(API_LIB(mat_trans_q31)((int32_t*)work_space, (int32_t*)p_tmp, M, L), "mat_trans_q31");
+        if (M == 1 || L == 1)
+          THINKER_RET_CHECK(API_LIB(memcpy)(p_tmp, work_space, M * L * sizeof(int32_t)), "luna_memcpy");
+        else
+          THINKER_RET_CHECK(API_LIB(mat_trans_q31)((int32_t*)work_space, (int32_t*)p_tmp, M, L), "mat_trans_q31");
         for (int32_t i = 0; i < L; i++)  // add bias
         {
           int32_t *tsrc1 = (int32_t *)p_tmp + i * M;
           int8_t *tdst = (int8_t *)work_space + i * M;
           THINKER_RET_CHECK(API_LIB(add_q31_int8)(tsrc1, bias, tdst, M, shift), "add_q31_int8");
         }
-        THINKER_RET_CHECK(API_LIB(mat_trans_q7)((int8_t*)work_space, (int8_t*)output, L, M), "mat_trans_q7");
+        if (L == 1 || M == 1)
+          THINKER_RET_CHECK(API_LIB(memcpy)(output, work_space, L * M), "luna_memcpy");
+        else
+          THINKER_RET_CHECK(API_LIB(mat_trans_q7)((int8_t*)work_space, (int8_t*)output, L, M), "mat_trans_q7");
       }
       if (is_relu) {
         THINKER_RET_CHECK(API_LIB(relu_q7_int8)((int8_t *)output, (int8_t *)output, M * L, 0), "relu_q7_int8");
@@ -329,7 +336,10 @@ static int32_t conv2dint_i16w16o8(int16_t *input, int16_t *weight, int32_t *bias
 
 	THINKER_RET_CHECK(luna_mat_mul_q15_int32((int16_t *)temp, (int16_t *)weight, (int32_t *)conv_out, cstep_size, channel_col, c_out, 0), "luna_mat_mul_q15_int32");
   // dumpInt32("conv0_transpose.txt", conv_out, cstep_size, c_out);
-	THINKER_RET_CHECK(luna_mat_trans_q31((int32_t *)conv_out, (int32_t *)conv_out, cstep_size, c_out), "luna_mat_trans_q31");
+  if (cstep_size == 1 || c_out == 1)
+    THINKER_RET_CHECK(luna_memcpy(conv_out, conv_out, cstep_size * c_out * sizeof(int32_t)), "luna_memcpy");
+  else
+    THINKER_RET_CHECK(luna_mat_trans_q31((int32_t *)conv_out, (int32_t *)conv_out, cstep_size, c_out), "luna_mat_trans_q31");
   // dumpInt32("conv0.txt", conv_out, c_out, cstep_size);
 
 	for (i = 0; i < c_out; ++i)
@@ -383,9 +393,9 @@ static void conv2dint_venus_para_init(Conv2dIntAttrs *attrs,
   int32_t q_x = (int32_t)X->scale_;
   int32_t q_w = (int32_t)W->scale_;
   int32_t q_y = (int32_t)Y->scale_;
-  conv_attrs->positive_shift_type = ShiftType_FloorX05;
+   conv_attrs->positive_shift_type = attrs->quant_type == 0 ? ShiftType_Floor : ShiftType_FloorX05;
   conv_attrs->positive_shift_value = q_x + q_w - q_y;
-  conv_attrs->negative_shift_type = ShiftType_FloorX05;
+   conv_attrs->negative_shift_type = attrs->quant_type == 0 ? ShiftType_Floor : ShiftType_FloorX05;
   conv_attrs->negative_shift_value = conv_attrs->positive_shift_value;
   conv_attrs->batch_num = attrs->group;
 }
@@ -427,9 +437,11 @@ int32_t conv2dint_luna(tTensor *X, tTensor *W, tTensor *Bias, tTensor *Y,
   int32_t kernel_condition = (luna_quant_ceil(in_c, 3) << 3) * k_h * k_w *
                              (luna_quant_ceil(ou_c, 1) << 1);
 
+  #if THINKER_PARAM_CHECK
   if (!ou_c || !ou_h || !ou_w) {
-    return T_ERR_INVALID_PARA;
+      return (T_ERR_INVALID_PARA);
   }
+  #endif
 
   if ((X->dtype_ == Int8) & (W->dtype_ == Int8)) {
     kernel_condition = (kernel_condition <= 32 * 1024) ? 1 : 0;
@@ -444,9 +456,11 @@ int32_t conv2dint_luna(tTensor *X, tTensor *W, tTensor *Bias, tTensor *Y,
       if (dilation_h > 1)
       {
         // dump_int8("input.txt", p_src, in_c, in_h, in_w);
-        if (~input_condition){
-          return T_ERR_INVALID_PARA;
+        #if THINKER_PARAM_CHECK
+        if (!input_condition) {
+            return (T_ERR_INVALID_PARA);
         }
+        #endif
         // chw2hcw(p_src, p_in, in_c, in_h, in_w);
         API_LIB(mat_trans_inv_q7)(p_src, p_in, in_c, in_h, in_w, in_w);
         int32_t cw_in = in_c * in_w;
@@ -472,22 +486,23 @@ int32_t conv2dint_luna(tTensor *X, tTensor *W, tTensor *Bias, tTensor *Y,
 
             if (attrs->group == conv_attrs.input_c &&
                         attrs->group == conv_attrs.output_c) {  // depthwise
-                kernel_condition = (luna_quant_ceil(in_c, 4) << 4) * k_h * k_w;
-                kernel_condition = (kernel_condition <= 32 * 1024) ? 1 : 0;
-
-              if(split_input_condition && kernel_condition){
-                THINKER_RET_CHECK(calc_depthwise_luna(W->dtype_, Y->dtype_, p_in_tmp, p_weight, p_bias,
-                                      (void *)p_in_tmp, &conv_attrs), "calc_depthwise_luna");
+              #if THINKER_PARAM_CHECK
+              if (1) {
+                  return (T_ERR_INVALID_PARA);
               }
-              else{
-                  printf("do not support yet!\n");
-                  return T_ERR_INVALID_PARA;
-                }
+              #endif
             }
             else{
               if(split_input_condition && kernel_condition){
                 THINKER_RET_CHECK(calc_conv_luna(W->dtype_, Y->dtype_, p_in_tmp, p_weight, p_bias,
                                   (void *)p_in_tmp, &conv_attrs), "calc_conv_luna");
+              }
+              else {
+                #if THINKER_PARAM_CHECK
+                if (1) {
+                    return (T_ERR_INVALID_PARA);
+                }
+                #endif
               }
               THINKER_RET_CHECK(API_LIB(mat_trans_inv_q7)(p_in_tmp, p_in_tmp, ou_c, split_ou_h, ou_w, ou_w), "luna_mat_trans_inv_q7");
               for(int32_t j = 0; j < split_ou_h; j++){
@@ -503,7 +518,11 @@ int32_t conv2dint_luna(tTensor *X, tTensor *W, tTensor *Bias, tTensor *Y,
       else
       {
         printf("do not support this type!\n");
-        return T_ERR_INVALID_PARA;
+        #if THINKER_PARAM_CHECK
+        if (1) {
+            return (T_ERR_INVALID_PARA);
+        }
+        #endif
       }
     }
   
@@ -549,6 +568,11 @@ int32_t conv2dint_luna(tTensor *X, tTensor *W, tTensor *Bias, tTensor *Y,
         int32_t c_in_align_8 = (((in_c + 7) >> 3) << 3);
         int32_t c_out_max = (32768 / (c_in_align_8 * k_h * k_w)) &
                             0xFFFFFFFE;  // max kernel size is 32KB
+        #if THINKER_PARAM_CHECK
+        if (c_out_max <= 0) {
+            return (T_ERR_INVALID_PARA);
+        }
+        #endif
         int32_t split_num = (ou_c + c_out_max - 1) / c_out_max;
         int32_t tmp_ou_c = ((ou_c + 2 * split_num - 1) / split_num) & 0xFFFFFFFE;
         int32_t step_data_out = tmp_ou_c * ou_h * ou_w * (0xF & Y->dtype_);
@@ -606,6 +630,13 @@ int32_t conv2dint_luna(tTensor *X, tTensor *W, tTensor *Bias, tTensor *Y,
               break;
             }
           }
+          #if THINKER_PARAM_CHECK
+          if ((split_num > in_h) || (split_num > ou_h) ||
+                              (tmp_in_h * input_limit_without_h > 65536) ||
+                              ((ou_h % split_num) != 0)) {
+              return (T_ERR_INVALID_PARA);
+          }
+          #endif
           int32_t cal_var0 = 0;
           while (padding_hd) {
             cal_var0 = in_h + padding_hu + padding_hd - k_h + s_h;
@@ -700,6 +731,13 @@ int32_t conv2dint_luna(tTensor *X, tTensor *W, tTensor *Bias, tTensor *Y,
           }
         }
       }
+      else {
+        #if THINKER_PARAM_CHECK
+        if (1) {
+            return (T_ERR_INVALID_PARA);
+        }
+        #endif
+      }
     } 
     else if (attrs->group == conv_attrs.input_c &&
               attrs->group == conv_attrs.output_c) {  // depthwise
@@ -745,6 +783,13 @@ int32_t conv2dint_luna(tTensor *X, tTensor *W, tTensor *Bias, tTensor *Y,
             break;
           }
         }
+        #if THINKER_PARAM_CHECK
+        if ((split_num > in_h) || (split_num > ou_h) ||
+                            (tmp_in_h * input_limit_without_h > 65536) ||
+                            ((ou_h % split_num) != 0)) {
+            return (T_ERR_INVALID_PARA);
+        }
+        #endif
         int32_t cal_var0 = 0;
         while (padding_hd) {
           cal_var0 = in_h + padding_hu + padding_hd - k_h + s_h;
@@ -842,6 +887,13 @@ int32_t conv2dint_luna(tTensor *X, tTensor *W, tTensor *Bias, tTensor *Y,
           }
         }
       }
+      else {
+        #if THINKER_PARAM_CHECK
+        if (1) {
+            return (T_ERR_INVALID_PARA);
+        }
+        #endif
+      }
     } 
     else {  // group conv
       in_c = in_c / group_num;
@@ -849,7 +901,8 @@ int32_t conv2dint_luna(tTensor *X, tTensor *W, tTensor *Bias, tTensor *Y,
       k_n = k_n / group_num;
       input_condition =
           (luna_quant_ceil(in_c, 3) << 3) * in_h *
-          (luna_quant_ceil(in_w, (3 + log2n_stride_w) << (3 + log2n_stride_w)));
+          (luna_quant_ceil(in_w, (3 + log2n_stride_w))
+           << (3 + log2n_stride_w));
       kernel_condition = (luna_quant_ceil(in_c, 3) << 3) * k_h * k_w *
                         (luna_quant_ceil(ou_c, 1) << 1);
       kernel_condition = (kernel_condition <= 32 * 1024) ? 1 : 0;
@@ -895,6 +948,13 @@ int32_t conv2dint_luna(tTensor *X, tTensor *W, tTensor *Bias, tTensor *Y,
             break;
           }
         }
+        #if THINKER_PARAM_CHECK
+        if ((split_num > in_h) || (split_num > ou_h) ||
+                            (tmp_in_h * input_limit_without_h > 65536) ||
+                            ((ou_h % split_num) != 0)) {
+            return (T_ERR_INVALID_PARA);
+        }
+        #endif
         int32_t cal_var0 = 0;
         while (padding_hd) {
           cal_var0 = in_h + padding_hu + padding_hd - k_h + s_h;
@@ -983,16 +1043,25 @@ int32_t conv2dint_luna(tTensor *X, tTensor *W, tTensor *Bias, tTensor *Y,
 
             int32_t one_channel_ou_offset = ou_w * tmp_ou_h * (0xF & Y->dtype_);
             for (j = 0; j < ou_c; j++) {
-              int32_t i_offset = j * one_channel_ou_offset;
-              int32_t o_offset = j * ou_w * ou_h;
+              int32_t o_offset = j * ou_w * ou_h * (0xF & Y->dtype_);
               for (i = 0; i < split_num; i++) {
-                memcpy(p_tmp + i * one_channel_ou_offset, p_out_group + i * ou_addr_offset,
+                int32_t i_offset = i * ou_addr_offset + j * one_channel_ou_offset;
+                memcpy(p_tmp + o_offset + i * one_channel_ou_offset,
+                      p_out_group + i_offset,
                       one_channel_ou_offset);
               }
             }
-            memcpy(p_out_group, p_tmp, ou_c * ou_h * ou_w);
+            memcpy(p_out_group, p_tmp,
+                   ou_c * ou_h * ou_w * (0xF & Y->dtype_));
           }
         }
+      }
+      else {
+        #if THINKER_PARAM_CHECK
+        if (1) {
+            return (T_ERR_INVALID_PARA);
+        }
+        #endif
       }
     }
   }
@@ -1002,10 +1071,14 @@ int32_t conv2dint_luna(tTensor *X, tTensor *W, tTensor *Bias, tTensor *Y,
     input_condition = input_condition * 2;
     kernel_condition = (kernel_condition <= 32 * 1024) ? 1 : 0;
     input_condition = (input_condition <= 64 * 1024) ? 1 : 0;
-    if ((dilation_h != 1) & (dilation_w != 1) & (1 != attrs->group) & (!(input_condition && kernel_condition))) {
-      return T_ERR_INVALID_PARA;
+    #if THINKER_PARAM_CHECK
+    if ((dilation_h != 1) || (dilation_w != 1) ||
+                        (1 != attrs->group) ||
+                        (!(input_condition && kernel_condition))) {
+        return (T_ERR_INVALID_PARA);
     }
-    else {
+    #endif
+    {
       int32_t in_batch_size = in_c * in_h * in_w;
       int32_t ou_batch_size = ou_c * ou_h * ou_w;
       for (n = 0; n < batch; n++) {
@@ -1021,7 +1094,11 @@ int32_t conv2dint_luna(tTensor *X, tTensor *W, tTensor *Bias, tTensor *Y,
   }
   else
   {
-    return T_ERR_INVALID_PARA;
+    #if THINKER_PARAM_CHECK
+    if (1) {
+        return (T_ERR_INVALID_PARA);
+    }
+    #endif
   }
   return T_SUCCESS;
 }

@@ -5,6 +5,9 @@ from .base import Operator, OperatorAttrs, register_op
 class ResizeAttrs(OperatorAttrs):
     def checkparams(self) -> None:
         """Check and set default parameters for Resize operation"""
+        platform = self.attrs.get("platform", "venus")
+        assert platform == "venus", "Resize is only supported on venus platform"
+
         # Set default values for parameters
         self.attrs["cubic_coeff_a"] = self.attrs.get("cubic_coeff_a", -0.75)
         self.attrs["coordinate_transformation_mode"] = self.attrs.get("coordinate_transformation_mode", "half_pixel")

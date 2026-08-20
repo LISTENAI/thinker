@@ -14,7 +14,8 @@
 #endif
 
 static int32_t iqmul_workspace_bytes(tTensor *Temp) {
-    return Temp ? (int32_t)Temp->shape_.dims_[0] : 0;
+    size_t bytes = Temp ? getTensorDataSize(Temp) : 0;
+    return bytes > INT32_MAX ? INT32_MAX : (int32_t)bytes;
 }
 
 static int32_t iqmul_workspace_need(int32_t cur_size, int32_t input_bytes,
@@ -516,18 +517,31 @@ int32_t calc_vec_mul_luna_b2b2_broadcast_h1w1(tTensor *lhs, tTensor *rhs, tTenso
  * @return int32_t Operation status
  */
 int32_t iqmul_luna(tTensor *lhs, tTensor *rhs, tTensor *Y, tTensor *Temp, iqBinaryAttrs *attrs) {
+    #if THINKER_PARAM_CHECK
+    if (lhs == NULL || rhs == NULL || Y == NULL || attrs == NULL ||
+                        lhs->dptr_ == 0 || rhs->dptr_ == 0 || Y->dptr_ == 0) {
+        return (T_ERR_INVALID_PARA);
+    }
+#endif
     int32_t x1_q = (int32_t)lhs->scale_;
     int32_t x2_q = (int32_t)rhs->scale_;
     int32_t y_q = (int32_t)Y->scale_;
     int32_t shift = x1_q + x2_q - y_q;
     size_t size = getTensorSize(lhs);
 
-    if (shift < 0) {
-        return T_ERR_INVALID_PARA;
-    }
+#if THINKER_PARAM_CHECK
+if (shift < 0 || shift > 63) {
+    return (T_ERR_INVALID_PARA);
+}
 
-    if (lhs->dtype_ != rhs->dtype_)
-        return T_ERR_INVALID_DATATYPE;
+if (lhs->dtype_ != rhs->dtype_) {
+    return (T_ERR_INVALID_DATATYPE);
+}
+
+    if (!equalShape(&lhs->shape_, &Y->shape_)) {
+        return (T_ERR_INVALID_DATA);
+    }
+#endif
 
     if (lhs->shape_.ndim_ == 4 && rhs->shape_.ndim_ == 4 &&
         lhs->shape_.dims_[1] == rhs->shape_.dims_[1] &&
@@ -553,9 +567,11 @@ int32_t iqmul_luna(tTensor *lhs, tTensor *rhs, tTensor *Y, tTensor *Temp, iqBina
         }
     } 
     else {
-        if (!equalShape(&lhs->shape_, &rhs->shape_)) {
-            return T_ERR_INVALID_DATATYPE;
-        }
+#if THINKER_PARAM_CHECK
+if (!equalShape(&lhs->shape_, &rhs->shape_)) {
+    return (T_ERR_INVALID_DATATYPE);
+}
+#endif
         if (rhs->dtype_ == Int8) {
             THINKER_RET_CHECK(iqmul_vec_i8(lhs, rhs, Y, Temp, size, shift), "iqmul_vec_i8");
         } 

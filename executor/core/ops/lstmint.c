@@ -17,6 +17,12 @@
 #include "./venusA/lstmint.h"
 #endif
 
+#ifdef THINKER_USE_VENUS
+static int32_t lstm_aligned_tensor_bytes(tTensor *tensor) {
+    return ALIGN16(getShapeSize(&(tensor->shape_)) * tensor->byte_);
+}
+#endif
+
 /**
  * Forward pass implementation for Integer Quantized LSTM operator
  * Performs LSTM (Long Short-Term Memory) computation on input tensor
@@ -77,19 +83,32 @@ int32_t X(Forward)(tOperator *op, tTensor **tensors, int32_t num_tensor, tDMA_Li
 
 #if THINKER_USE_VENUS
     if (list->total_ > 0) {
+        CHECK_GE(num_tensor, (op->num_input_ + op->num_output_ + 2));
         workspace = tensors[op->num_input_ + op->num_output_];
         tTensor *dma_temp = ((tTensor **)tensors)[op->num_input_ + op->num_output_ + 1];
+        int32_t dma_bytes = lstm_aligned_tensor_bytes(i2h_w) + lstm_aligned_tensor_bytes(h2h_w) +
+                            lstm_aligned_tensor_bytes(i2h_bias) + lstm_aligned_tensor_bytes(h2h_bias);
+#if THINKER_RUNTIME_CHECK
+        if (dma_temp->mem_.type_ != 2 ||
+                              getTensorSize(dma_temp) * dma_temp->byte_ < dma_bytes) {
+            return (T_ERR_NO_WORKSPACE);
+        }
+#endif
         tTensor i2h_w_temp = i2h_w[0];
         i2h_w_temp.dptr_ = (addr_type)((int8_t *)dma_temp->dptr_);
-        
+        i2h_w_temp.mem_.type_ = 2;
+
         tTensor h2h_w_temp = h2h_w[0];
-        h2h_w_temp.dptr_ = (addr_type)((int8_t *)i2h_w_temp.dptr_ + getShapeSize(&(i2h_w_temp.shape_)) * i2h_w_temp.byte_);
+        h2h_w_temp.dptr_ = (addr_type)((int8_t *)i2h_w_temp.dptr_ + lstm_aligned_tensor_bytes(&i2h_w_temp));
+        h2h_w_temp.mem_.type_ = 2;
 
         tTensor i2h_bias_temp = i2h_bias[0];
-        i2h_bias_temp.dptr_ = (addr_type)((int8_t *)h2h_w_temp.dptr_ + getShapeSize(&(h2h_w_temp.shape_)) * h2h_w_temp.byte_);
+        i2h_bias_temp.dptr_ = (addr_type)((int8_t *)h2h_w_temp.dptr_ + lstm_aligned_tensor_bytes(&h2h_w_temp));
+        i2h_bias_temp.mem_.type_ = 2;
 
         tTensor h2h_bias_temp = h2h_bias[0];
-        h2h_bias_temp.dptr_ = (addr_type)((int8_t *)i2h_bias_temp.dptr_ + getShapeSize(&(i2h_bias_temp.shape_)) * i2h_bias_temp.byte_);
+        h2h_bias_temp.dptr_ = (addr_type)((int8_t *)i2h_bias_temp.dptr_ + lstm_aligned_tensor_bytes(&i2h_bias_temp));
+        h2h_bias_temp.mem_.type_ = 2;
         
         THINKER_RET_CHECK(lstmint_luna(input, t_hidden_in, t_cell_in, &i2h_w_temp, &h2h_w_temp,
                         &i2h_bias_temp, &h2h_bias_temp, t_seq, output, hidden_o, hidden_c, attr, workspace), "lstmint_luna");
@@ -126,11 +145,11 @@ int32_t X(Forward)(tOperator *op, tTensor **tensors, int32_t num_tensor, tDMA_Li
                                t_seq, output, hidden_o, hidden_c, attr, workspace, list), "lstmint_luna");
         }
     } else {
-        if (num_tensor > op->num_input_ + op->num_output_) {
-            workspace = tensors[op->num_input_ + op->num_output_];
-        }
-        THINKER_RET_CHECK(lstmint_luna(input, t_hidden_in, t_cell_in, i2h_w, h2h_w, i2h_bias, h2h_bias,
-                          t_seq, output, hidden_o, hidden_c, attr, workspace), "lstmint_luna");
+    if (num_tensor > op->num_input_ + op->num_output_) {
+        workspace = tensors[op->num_input_ + op->num_output_];
+    }
+    THINKER_RET_CHECK(lstmint_luna(input, t_hidden_in, t_cell_in, i2h_w, h2h_w, i2h_bias, h2h_bias,
+                      t_seq, output, hidden_o, hidden_c, attr, workspace), "lstmint_luna");
     }
 #elif THINKER_USE_VENUSA
     if (list->total_ > 0) {

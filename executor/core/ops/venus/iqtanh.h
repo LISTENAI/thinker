@@ -22,18 +22,24 @@
 int32_t iqtanh(tTensor *X, tTensor *Y) {
     // Quantization parameters
     const int32_t Q_INPUT = 11;
-    const int32_t Q_OUTPUT = 15;
+    const int32_t Q_OUTPUT = 7;
 
     // Get tensor pointers and size
     int16_t *src = (int16_t *)X->dptr_;
     int8_t *dst = (int8_t *)Y->dptr_;
     uint32_t size = getTensorSize(X);
 
-    // Check if input quantization matches expected
-    if (X->scale_ != Q_INPUT) {
-        // Scale input to match Q_INPUT quantization
-        THINKER_RET_CHECK(API_LIB(scale_q15_int16)(src, 1, src, size, X->scale_ - Q_INPUT), "luna_scale_q15_int16");
+    #if THINKER_PARAM_CHECK
+    if (X->dtype_ != Int16 || Y->dtype_ != Int8) {
+        return (T_ERR_INVALID_DATATYPE);
     }
+    if (X->scale_ != Q_INPUT || Y->scale_ != Q_OUTPUT) {
+        return (T_ERR_INVALID_PARA);
+    }
+    if (X->mem_.type_ != 2 || Y->mem_.type_ != 2) {
+        return (T_ERR_NO_SUPPORT_OP);
+    }
+    #endif
 
     // Compute tanh and store result
     THINKER_RET_CHECK(API_LIB(tanh_int8)(src, dst, size), "luna_tanh_int8");

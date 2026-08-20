@@ -1,5 +1,6 @@
 from ...graph import *
-from ...enum_defines import Layout
+import numpy as np
+from ...enum_defines import Layout, MemType
 from ...resource_packer._type._ctype import tffi
 from .base import Operator, OperatorAttrs, register_op
 
@@ -26,8 +27,12 @@ class Split(Operator):
         inputs = self.inputs
         assert len(inputs) == 1, "Split expects exactly one input"
         X = inputs[0]
+        assert X.dtype.itemsize > 0 and float(X.bits) >= 1, \
+            "Split only supports byte-addressable data types"
         axis = self.attrs["axis"]
-        assert axis < len(X.shape), "axis out of bounds"
+        assert -len(X.shape) <= axis < len(X.shape), "axis out of bounds"
+        axis = axis + len(X.shape) if axis < 0 else axis
+        self.attrs["axis"] = axis
 
         # Set default split based on dims
         if self.attrs.get("split", None) == None:
@@ -45,6 +50,11 @@ class Split(Operator):
             self.attrs['dims']= dims
 
         split = self.attrs["split"]
+        assert 0 < self.attrs["dims"] <= 8, "Split supports between one and eight outputs"
+        assert len(split) == self.attrs["dims"] and \
+            all(isinstance(item, (int, np.integer)) and item > 0 for item in split), \
+            "Split sizes must be positive integers"
+        assert sum(split) == X.shape[axis], "Split sizes must sum to the input axis"
         outputs = []
 
         for idx in split:

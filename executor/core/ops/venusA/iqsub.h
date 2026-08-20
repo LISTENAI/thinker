@@ -22,10 +22,12 @@
  * @return int32_t Operation status
  */
 int32_t iqsub_luna(tTensor *X1, tTensor *X2, tTensor *Temp, tTensor *Y) {
-    // Check if input tensors have the same shape and data type
-    if (!equalShape(&X1->shape_, &X2->shape_) || X1->dtype_ != X2->dtype_) {
-        return T_ERR_INVALID_DATATYPE;
-    }
+#if THINKER_PARAM_CHECK
+if (!equalShape(&X1->shape_, &X2->shape_) || X1->dtype_ != X2->dtype_ ||
+        X1->dtype_ != Y->dtype_ || X1->dtype_ != Int8) {
+    return (T_ERR_INVALID_DATATYPE);
+}
+#endif
 
     // Quantization scales
     int32_t x1_q = (int32_t)X1->scale_;
@@ -40,9 +42,27 @@ int32_t iqsub_luna(tTensor *X1, tTensor *X2, tTensor *Temp, tTensor *Y) {
     // Total data size
     size_t size = getTensorSize(X1);
 
-    // Check if quantization scales are valid
-    if (x1_q < y_q || x2_q < y_q) {
-        return T_ERR_INVALID_PARA;
+#if THINKER_PARAM_CHECK
+if (x1_q < y_q || x2_q < y_q || (x1_q - y_q) > 63 || (x2_q - y_q) > 63) {
+    return (T_ERR_INVALID_PARA);
+}
+#endif
+
+    int32_t x1_need_workspace = x1InPSram || (x1_q != y_q);
+    int32_t x2_need_workspace = x2InPSram || (x2_q != y_q);
+    int32_t required_workspace = 0;
+    if (x1_need_workspace) {
+        required_workspace += ALIGN4(size);
+    }
+    if (x2_need_workspace) {
+        required_workspace += ALIGN4(size);
+    }
+    if (yInPSram && required_workspace < (int32_t)size) {
+        required_workspace = ALIGN4(size);
+    }
+    if (required_workspace > 0 &&
+        (Temp == NULL || Temp->shape_.dims_[0] < required_workspace)) {
+        return T_ERR_NO_WORKSPACE;
     }
 
     // Pointers to tensor data
@@ -65,19 +85,19 @@ int32_t iqsub_luna(tTensor *X1, tTensor *X2, tTensor *Temp, tTensor *Y) {
     }
 
     if (x2InPSram) {
-        src2 = (int8_t *)Temp->dptr_ + ((x1InPSram || x1_q != y_q) ? size : 0);
+        src2 = (int8_t *)Temp->dptr_ + ((x1InPSram || x1_q != y_q) ? ALIGN4(size) : 0);
         THINKER_RET_CHECK(API_LIB(memcpy_i8o8)(src2, (int8_t *)X2->dptr_, size * sizeof(int8_t)), "luna_memcpy_i8o8");
     }
     if (x2_q != y_q) {
-        THINKER_RET_CHECK(API_LIB(scale_i8i8o8)(src2, 1, (int8_t *)(Temp->dptr_ + ((x1InPSram || x1_q != y_q) ? size : 0)), size, shift2), "luna_scale_i8i8o8");
-        src2 = (int8_t *)Temp->dptr_ + ((x1InPSram || x1_q != y_q) ? size : 0);
+        THINKER_RET_CHECK(API_LIB(scale_i8i8o8)(src2, 1, (int8_t *)((uint8_t *)Temp->dptr_ + ((x1InPSram || x1_q != y_q) ? ALIGN4(size) : 0)), size, shift2), "luna_scale_i8i8o8");
+        src2 = (int8_t *)Temp->dptr_ + ((x1InPSram || x1_q != y_q) ? ALIGN4(size) : 0);
     }
 
     // Perform subtraction
     if (yInPSram) {
         dst = (int8_t *)Temp->dptr_;
     }
-    THINKER_RET_CHECK(API_LIB(sub_i8i8o8)(dst, src2, dst, size, 0), "luna_sub_i8i8o8");
+    THINKER_RET_CHECK(API_LIB(sub_i8i8o8)(src1, src2, dst, size, 0), "luna_sub_i8i8o8");
 
     // Copy result to PSram if necessary
     if (yInPSram) {

@@ -1,5 +1,6 @@
 #undef __OP__
 #define __OP__ iqSigmoid
+#include "core/comm/utils.h"
 #include "core/operator_register.h"
 #include "thinker_status.h"
 
@@ -25,13 +26,47 @@
  * @return: Status code indicating success or failure
  */
 int32_t X(Forward)(tOperator *op, tTensor **tensors, int32_t num_tensor, tDMA_List *list) {
-    // Validate tensor count
-    CHECK_GE(num_tensor, (op->num_input_ + op->num_output_));
+    (void)list;
+#if THINKER_PARAM_CHECK
+    if (op == NULL || tensors == NULL || op->num_input_ != 1 ||
+                        op->num_output_ != 1 || (num_tensor != 2 && num_tensor != 3)) {
+        return (T_ERR_INVALID_PARA);
+    }
+#endif
 
-    // Get input, output, and workspace tensors
     tTensor *X = tensors[0];
     tTensor *Y = tensors[1];
-    tTensor *workspace = (num_tensor > (op->num_input_ + op->num_output_)) ? tensors[op->num_input_ + op->num_output_] : NULL;
+    tTensor *workspace = num_tensor == 3 ? tensors[2] : NULL;
+#if THINKER_PARAM_CHECK
+    if (X == NULL || Y == NULL || X->dptr_ == 0 || Y->dptr_ == 0 ||
+                        X->shape_.ndim_ == 0 || !equalShape(&X->shape_, &Y->shape_)) {
+        return (T_ERR_INVALID_PARA);
+    }
+
+    if (Y->dtype_ != Int8) {
+        return (T_ERR_INVALID_DATATYPE);
+    }
+
+    if (X->zero_ != 0 || Y->zero_ != 0 ||
+                        !isfinite(X->scale_) || !isfinite(Y->scale_) ||
+                        X->scale_ != floorf(X->scale_) || Y->scale_ != 7) {
+        return (T_ERR_INVALID_DATA);
+    }
+
+    if ((X->mem_.type_ != 1 && X->mem_.type_ != 2) ||
+                        (Y->mem_.type_ != 1 && Y->mem_.type_ != 2)) {
+        return (T_ERR_NO_SUPPORT_OP);
+    }
+#endif
+#if THINKER_RUNTIME_CHECK
+    if (workspace != NULL &&
+                          (workspace->dptr_ == 0 || workspace->mem_.type_ != 2 ||
+                           workspace->dtype_ != Int8 || workspace->byte_ != 1 ||
+                           workspace->shape_.ndim_ != 1 ||
+                           ((uintptr_t)workspace->dptr_ & 3U) != 0)) {
+        return (T_ERR_NO_WORKSPACE);
+    }
+#endif
 
 #if THINKER_USE_VENUS || THINKER_USE_ARCS || THINKER_USE_VENUSA
 #if THINKER_PROFILE

@@ -204,6 +204,7 @@ def op_split(ori_graph: Graph, set_out_dev: bool = False, is_dump: bool = False,
                 new_node.inputs = []
                 new_node.attrs["axis"] = 1
                 new_node.attrs['platform'] = node.attrs['platform']
+                new_node.attrs["o_bits"] = node.attrs["o_bits"]
                 new_node.outputs = node.outputs
 
                 # split conv to split_num conv
@@ -375,6 +376,7 @@ def op_split(ori_graph: Graph, set_out_dev: bool = False, is_dump: bool = False,
                 new_node.inputs = []
                 new_node.attrs["axis"] = 1
                 new_node.attrs['platform'] = node.attrs['platform']
+                new_node.attrs["o_bits"] = node.attrs["o_bits"]
                 new_node.outputs = node.outputs
 
                 # split conv to split_num conv
@@ -530,6 +532,7 @@ def op_split(ori_graph: Graph, set_out_dev: bool = False, is_dump: bool = False,
                 new_node.inputs = []
                 new_node.attrs["axis"] = 1
                 new_node.attrs['platform'] = node.attrs['platform']
+                new_node.attrs["o_bits"] = node.attrs["o_bits"]
                 new_node.outputs = node.outputs
 
                 # split conv to split_num conv
@@ -567,6 +570,7 @@ def op_split(ori_graph: Graph, set_out_dev: bool = False, is_dump: bool = False,
 
                     new_node.inputs.append(conv_split_out)
                     new_node.attrs["scale_x_{}".format(g)] = node.attrs["scale_o"]
+                    new_node.attrs["x_{}_bits".format(g)] = node.attrs["o_bits"]
 
                 new_node.attrs["scale_o"] = node.attrs["scale_o"]
                 # remove old nodes and entries from graph
@@ -783,7 +787,7 @@ def op_split(ori_graph: Graph, set_out_dev: bool = False, is_dump: bool = False,
                     new_node1.attrs["max_num"] = N_in_topN
                     new_node1.inputs.append(data_concat_entry)
                     new_node1.attrs["scale_x"] = node.attrs["scale_o"]
-                    new_node1.attrs["scale_x"] = node.attrs["scale_o"]
+                    new_node1.attrs["scale_o"] = node.attrs["scale_o"]
                     new_node1.attrs["platform"] = platform
                     new_node1.outputs = next_node.outputs
                     graph.add_entry(data_concat_entry)
@@ -1025,6 +1029,7 @@ def op_split(ori_graph: Graph, set_out_dev: bool = False, is_dump: bool = False,
                         topn2_node.attrs["max_num"] = N_in_topN
                         topn2_node.inputs.append(data_concat_entry)
                         topn2_node.attrs["scale_x"] = node.attrs["scale_o"]
+                        topn2_node.attrs["scale_o"] = node.attrs["scale_o"]
                         topn2_node.attrs["platform"] = topn_platform
                         if concat_node is None:
                             topn2_node.outputs = next_node.outputs

@@ -13,7 +13,7 @@
 #include "thinker_type.h"
 
 #if THINKER_USE_MTQ
-#include "luna/luna_mtq_math.h"
+#include "core/ops/venusA/luna/luna_mtq_math.h"
 #endif
 
 #if THINKER_USE_VENUSA
@@ -43,9 +43,11 @@
 #define _FE_ROUND FE_TONEAREST                     // Floating point rounding mode
 
 // Function declarations for shape operations
-bool equalShape(tShape *src, tShape *dst);         // Compare two shapes for equality
+bool equalShape(const tShape *src, const tShape *dst);  // Compare two shapes for equality
 size_t getShapeSize(tShape *shape);                // Calculate total elements in a shape
 size_t getTensorSize(const tTensor *tensor);       // Calculate total elements in a tensor considering layout
+size_t getTensorDataSize(const tTensor *tensor);   // Calculate packed tensor payload bytes
+void thinker_psram_write_complete(void *dst, size_t size);
 
 tShape calcStride(const tShape *shape);            // Calculate stride for a given shape
 
@@ -68,8 +70,12 @@ void getWeightData(tDMA_List *dma_list, int32_t channel);  // Get weight data vi
 // Arcs-specific functions
 #ifdef THINKER_USE_ARCS
 #include "ops/arcs/luna/opi_psram_cpy.h"
+void HAL_FlushDCache_by_Addr(uint32_t *addr, uint32_t dsize);
+void HAL_FlushInvalidateDCache_by_Addr(uint32_t *addr, uint32_t dsize);
 void getWeightData(tDMA_List *dma_list, int32_t channel);  // Get weight data via DMA
 void cpu_memcpy(void *dst, const void *src, size_t size);  // CPU memory copy function
+void thinker_psram_cpy_out(void *dst, void *src, int32_t size);
+#define opi_psram_cpy_out thinker_psram_cpy_out
 #endif
 
 // VenusA-specific functions

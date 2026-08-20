@@ -1,8 +1,7 @@
-import math
 from typing import List, Tuple, Dict
 from ._type import *
 from ..graph import Graph, ScalarGraph
-from ..enum_defines import MemType, ALIGN16, TensorType
+from ..enum_defines import MemType, ALIGN4, ALIGN16, TensorType
 from ..graph_analysis.memory import WORKSPACE_NAME, DMA_BUFFER1_NAME, DMA_BUFFER2_NAME
 
 
@@ -40,10 +39,10 @@ def pack_tensor(memory_planer: Dict[int, List[int]]) -> Tuple[List[tTensor], Lis
         else:
             run_mem_id = 0
             offset = param_offset[ctx.entry.tensor.mem_type.value]
-            if tensor.bits == 0.5:
-                param_offset[ctx.entry.tensor.mem_type.value] += math.ceil(tensor.nbytes * tensor.bits)
+            if tensor.data is not None:
+                param_offset[ctx.entry.tensor.mem_type.value] += ALIGN16(len(tensor.data.tobytes()))
             else:
-                param_offset[ctx.entry.tensor.mem_type.value] += tensor.nbytes
+                param_offset[ctx.entry.tensor.mem_type.value] += ALIGN4(tensor.nbytes)
 
         tensor_list.append(tTensor(tensor, run_mem_id, offset, ctx.entry.tensor.mem_type.value))
         tensor_name_list.append(tTensorName(ctx.entry.name))
@@ -73,10 +72,7 @@ def pack_operator(graph: Graph, memory_planer: Dict[int, List[int]], arch=None) 
             for x in node.inputs:
                 if (x.tensor.mem_type != MemType.SHARE_MEM and x.is_constant() and x.tensor.data is not None):
                     param_ids.append(x.index)
-                    if x.tensor.bits != 0.5:
-                        size += x.tensor.nbytes 
-                    else:
-                        size += x.tensor.nbytes//2
+                    size += ALIGN16(len(x.tensor.data.tobytes()))
                     mem_type = x.tensor.mem_type
             if size != 0:
                 if node_index % 2 == 0:
@@ -200,12 +196,9 @@ def pack_param(memory_planer: Dict[int, List[int]]) -> Tuple[List[tParameter], L
                 offset = ALIGN16(len(t.tobytes()))
                 params_buff += t.tobytes() + b"\0" * (offset - len(t.tobytes()))
 
-                if tensor.bits == 0.5:
-                    if (tensor.nbytes * tensor.bits) != len(t.tobytes()):
-                        print(ctx.entry.name, "the size of tensor({}) do not match offset({})!".format(tensor.nbytes * tensor.bits, len(t.tobytes())))
-                else:
-                    if tensor.nbytes != offset:
-                        print(ctx.entry.name, "the size of tensor({}) do not match offset({})!".format(tensor.nbytes, offset))
+                if len(t.tobytes()) > tensor.nbytes:
+                    print(ctx.entry.name, "the serialized tensor payload exceeds its slot ({}, {})!".format(
+                        len(t.tobytes()), tensor.nbytes))
 
         param_list.append(tParameter(memory_list[d].value, 0, params_buff))
         shared_memory_list.append(tMemory(memory_list[d].value, len(params_buff)))

@@ -25,6 +25,10 @@ class ConvTranspose2dIntAttrs(OperatorAttrs):
                     quant_mode = "FLOOR_ADD"
             self.attrs['quant_mode'] = quant_mode
 
+        if self.attrs["quant_mode"] not in {"FLOOR", "FLOOR_ADD"}:
+            # The Luna kernels interpret every nonzero mode as FLOOR_ADD.
+            self.attrs["quant_mode"] = "FLOOR_ADD"
+
         # Check required attributes
         required_attrs = [
             "data_bits",
@@ -45,21 +49,23 @@ class ConvTranspose2dIntAttrs(OperatorAttrs):
         attrs = self.attrs
         if "auto_pad" in attrs and attrs["auto_pad"] != "NOTSET":
             auto_pad = attrs["auto_pad"]
-            raise (f"[ConvTranspose2dInt] Not supported yet: auto_pad:{auto_pad}.")
+            raise AssertionError(f"[ConvTranspose2dInt] Not supported yet: auto_pad:{auto_pad}.")
         if "output_shape" in attrs and tuple(attrs["output_shape"]) != (0, 0):
             output_shape = tuple(attrs["output_shape"])
-            raise (f"[ConvTranspose2dInt] Not supported yet: outputshape:{output_shape}.")
-        if ("output_padding" in attrs and tuple(attrs["output_padding"]) != (0, 0) \
-            and tuple(attrs["output_padding"]) != (0, 0, 0, 0) and tuple(attrs["output_padding"]) != (0, 0, 0, 0, 0, 0)):
-            output_padding = tuple(attrs["output_padding"])
-        else:
-            output_padding = (0, 0, 0, 0, 0, 0)
+            raise AssertionError(f"[ConvTranspose2dInt] Not supported yet: outputshape:{output_shape}.")
+        output_padding = attr2tuple(attrs.get("output_padding"), (0, 0), dim=2)
+        strides = attr2tuple(attrs.get("strides"), (1, 1), dim=2)
+        assert all(0 <= value < stride for value, stride in zip(output_padding, strides)), \
+            "output_padding must be non-negative and smaller than stride"
+        self.attrs["output_padding"] = output_padding + (0, 0, 0, 0)
         # Validate dilations
         dilations = attr2tuple(self.attrs.get("dilations"), (1, 1))
         assert dilations == (1, 1), "Dilations must be (1, 1) for ConvTranspose2dInt"
+        self.attrs["dilations"] = dilations
 
         # Validate kernel shape
         kernels = attr2tuple(self.attrs.get("kernel_shape"), (1, 1))
+        self.attrs["kernel_shape"] = kernels
         if platform == "venus":
             assert 1 <= kernels[0] <= 5, "Kernel width exceeds limit"
             assert 1 <= kernels[1] <= 5, "Kernel height exceeds limit"
@@ -69,6 +75,7 @@ class ConvTranspose2dIntAttrs(OperatorAttrs):
 
         # Validate pads
         pads = attr2tuple(self.attrs.get("pads"), (0, 0, 0, 0))
+        self.attrs["pads"] = pads
         if platform == "venus":
             for pad in pads:
                 assert 0 <= pad <= 4, "Pad exceeds limit for venus platform"
@@ -78,18 +85,35 @@ class ConvTranspose2dIntAttrs(OperatorAttrs):
 
         # Validate strides
         strides = attr2tuple(self.attrs.get("strides"), (1, 1))
+        self.attrs["strides"] = strides
         assert strides[0] in (1, 2, 4), "Stride width exceeds limit"
         assert strides[1] in (1, 2, 4), "Stride height exceeds limit"
 
         # Additional checks
         assert (kernels[-1] >= strides[-1] and kernels[-2] >= strides[-2]), "weight and stride size of Conv2dInt do not match"
-        assert (pads[0] <= kernels[-2] and pads[2] <= kernels[-2]), "pad_h and weight_h size of Conv2dInt do not match"
-        assert (pads[1] <= kernels[-1] and pads[3] <= kernels[-1]), "pad_w and weight_w size of Conv2dInt do not match"
+        assert (pads[0] < kernels[-2] and pads[2] < kernels[-2]), "pad_h must be smaller than kernel_h"
+        assert (pads[1] < kernels[-1] and pads[3] < kernels[-1]), "pad_w must be smaller than kernel_w"
+        if platform == "venusA":
+            for stride, kernel in zip(strides, kernels):
+                if stride == 2:
+                    assert kernel in (2, 3, 4, 5), "VenusA deconv stride=2 only supports kernel 2/3/4/5"
+                elif stride == 4:
+                    assert kernel in (4, 5), "VenusA deconv stride=4 only supports kernel 4/5"
 
         act_type = int(self.attrs.get("act_type", 0))
         self.attrs["act_type"] = act_type
 
-        assert self.attrs.get("o_bits") in (8, 16, 32), "ConvTranspose2dInt output bits must be 8, 16, or 32"
+        if platform == "arcs":
+            assert self.attrs.get("o_bits") == 8, "ConvTranspose2dInt on arcs runtime only supports int8 output"
+            assert self.attrs["group"] == 1, "ConvTranspose2dInt on arcs runtime only supports group=1"
+        elif platform == "venus":
+            assert self.attrs.get("o_bits") in (8, 16, 32), "ConvTranspose2dInt output bits must be 8, 16, or 32"
+        else:
+            assert self.attrs.get("o_bits") == 8, "ConvTranspose2dInt on venusA runtime only supports int8 output"
+        if platform == "venus":
+            assert self.attrs["group"] == 1, "ConvTranspose2dInt on venus only supports group=1"
+        if platform == "venusA":
+            assert self.attrs["group"] == 1, "ConvTranspose2dInt on venusA only supports group=1"
 
     def serialize(self) -> bytes:
         """Serialize the attributes into bytes for the ConvTranspose2dInt operation."""
@@ -118,8 +142,13 @@ class ConvTranspose2dInt(Operator, ConvLayout):
         W = inputs[1]
         assert len(X.shape) == 4, "Input must be 4D"
         assert len(W.shape) == 4, "Weight must be 4D"
+        if self.attrs.get("platform", "venus") == "arcs":
+            batch = calc_expr(str(X.shape[0]), dynamic_shape) if is_sympy(X.shape[0]) else X.shape[0]
+            assert batch == 1, "ConvTranspose2dInt on arcs only supports batch=1"
         if len(inputs) == 3:
             assert inputs[2].dtype in (np.int16, np.int32), "Bias data type must be int16 or int32"
+            assert inputs[2].size == W.shape[1] * self.attrs["group"], \
+                "bias size must match ConvTranspose2dInt output channels"
 
         # Infer shape
         shape = calc_deconv2d_output_shape(
@@ -160,30 +189,25 @@ class ConvTranspose2dInt(Operator, ConvLayout):
         x_h = calc_expr(str(X.shape[2]), dynamic_shape) if is_sympy(X.shape[2]) else X.shape[2]
         x_w = calc_expr(str(X.shape[3]), dynamic_shape) if is_sympy(X.shape[3]) else X.shape[3]
         assert not (x_c == group and group != 1), "Do not support depthwsie Convtranspose"
+        assert x_c == W.shape[0] * group, "Input channel mismatch"
+        assert shape[1] == W.shape[1] * group, "Output channel mismatch"
         assert kernels[-1] >= W.shape[-1] and kernels[-2] >= W.shape[-2], \
             "kernel_size:() must same with input of weight:()".format((kernels[-1], kernels[-2]), (W.shape[-1], W.shape[-2]))
-
-        pads = self.attrs.get("pads")
-        pads = attr2tuple(pads, (0, 0, 0, 0))
-        if len(pads) == 4:
-            assert (x_w + pads[-1] + pads[-3]) >= W.shape[-1] and (x_h + pads[-2] + pads[-4]) >= W.shape[-2], \
-                "input(()) and weight(()) size of Conv2dInt do not match".format((x_w, x_h), (W.shape[-1], W.shape[-2]))
-        elif len(pads) == 2:
-            assert (x_w + pads[-1]) >= W.shape[-1] and (x_h + pads[-2]) >= W.shape[-2], \
-                "input(()) and weight(()) size of Conv2dInt do not match".format((x_w, x_h), (W.shape[-1], W.shape[-2]))
-        else:
-            raise ValueError("Do not support sizeof pads:()".format(len(pads)))
 
         # Infer type and return output
         platform = self.attrs.get("platform", "venus")
         data_bits = self.attrs.get("data_bits")
         parameter_bits = self.attrs.get("parameter_bits")
         output_bits = self.attrs.get("o_bits")
+        assert X.shape[0] == 1, "ConvTranspose2dInt only supports batch=1"
+        shift = X.scale + W.scale - int(temp)
+        assert 0 <= shift <= 63, "ConvTranspose2dInt on arcs shift exceeds Luna CNN limits"
         if platform == "venus":
             assert X.dtype == np.int8
             assert data_bits == 8, f"data type:{X.dtype} must match data bits:{data_bits}"
             assert W.dtype == np.int8
-            assert parameter_bits in (4, 8), f"weight type:{W.dtype} must match weight bits:{parameter_bits}"
+            assert parameter_bits == 8, \
+                "ConvTranspose2dInt on venus only supports audited int8 weights"
             assert output_bits in (8, 16, 32)
             dtype = (
                 np.int8
@@ -197,21 +221,15 @@ class ConvTranspose2dInt(Operator, ConvLayout):
             assert data_bits == 8, f"data type:{X.dtype} must match data bits:{data_bits}"
             assert W.dtype == np.int8
             assert parameter_bits in (4, 8), f"weight type:{W.dtype} must match weight bits:{parameter_bits}"
-            assert output_bits in (8, 32)
-            dtype = np.int8 if output_bits == 8 else np.int32
+            assert output_bits == 8, "ConvTranspose2dInt on arcs runtime only supports int8 output"
+            dtype = np.int8
         elif platform == "venusA":
-            assert X.dtype in (np.int8, np.int16)
-            assert data_bits in (8, 16), f"data type:{X.dtype} must match data bits:{data_bits}"
-            assert W.dtype in (np.int8, np.int16)
-            assert parameter_bits in (4, 8, 16), f"weight type:{W.dtype} must match weight bits:{parameter_bits}"
-            assert output_bits in (8, 16, 32)
-            dtype = (
-                np.int8
-                if output_bits == 8
-                else np.int16
-                if output_bits == 16
-                else np.int32
-            )
+            assert X.dtype == np.int8
+            assert data_bits == 8, f"data type:{X.dtype} must match data bits:{data_bits}"
+            assert W.dtype == np.int8
+            assert parameter_bits in (4, 8), f"weight type:{W.dtype} must match weight bits:{parameter_bits}"
+            assert output_bits == 8, "ConvTranspose2dInt on venusA runtime only supports int8 output"
+            dtype = np.int8
         else:
             raise ValueError("Unsupported platform")
 
@@ -242,7 +260,7 @@ class ConvTranspose2dInt(Operator, ConvLayout):
 
     def pack_params(self):
         """Pack the parameters for the ConvTranspose2dInt operation."""
-        if len(self.inputs) >= 2:
+        if len(self.inputs) >= 3:
             bias = self.inputs[2]
             assert bias.dtype in (np.int16, np.int32)
             if bias.dtype != np.int32:

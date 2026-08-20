@@ -16,6 +16,22 @@
 #include "thinker_status.h"
 
 int32_t concat_luna(tTensor **tensors, int32_t axis, int32_t input_num, tTensor *workspace, tTensor *output) {
+#if THINKER_PARAM_CHECK
+  if (output->dtype_ != Int8 && output->dtype_ != Int32) {
+      return (T_ERR_INVALID_DATATYPE);
+  }
+
+  for (int32_t i = 0; i < input_num; ++i) {
+    if (tensors[i]->dtype_ != output->dtype_) {
+        return (T_ERR_INVALID_DATATYPE);
+    }
+
+    if (output->dtype_ == Int32 &&
+                        tensors[i]->scale_ != output->scale_) {
+        return (T_ERR_INVALID_PARA);
+    }
+  }
+#endif
   int32_t leading = 1, middle = 1, trailing = 1;
   for (int32_t i = 0; i < axis; ++i) 
   {
@@ -30,6 +46,30 @@ int32_t concat_luna(tTensor **tensors, int32_t axis, int32_t input_num, tTensor 
 
   int8_t *dst = (int8_t *)output->dptr_;
   int32_t output_scale = output->scale_;
+  if (Int8 == output->dtype_) {
+    int32_t required_workspace = 0;
+    for (int32_t i = 0; i < input_num; ++i) {
+      int32_t scale_shift = tensors[i]->scale_ - output_scale;
+#if THINKER_PARAM_CHECK
+      if (scale_shift < -6 || scale_shift > 63) {
+          return (T_ERR_INVALID_PARA);
+      }
+#endif
+      if (tensors[i]->scale_ != output_scale &&
+          (tensors[i]->mem_.type_ != 2 || output->mem_.type_ != 2)) {
+        int32_t size = tensors[i]->shape_.dims_[axis] * trailing;
+        if (size > required_workspace) required_workspace = size;
+      }
+    }
+    if (required_workspace > 65536) required_workspace = 65536;
+#if THINKER_RUNTIME_CHECK
+    if (required_workspace != 0 &&
+                          (workspace == NULL || workspace->dptr_ == 0 ||
+                           workspace->shape_.dims_[0] < required_workspace)) {
+        return (T_ERR_NO_WORKSPACE);
+    }
+#endif
+  }
 
   if (Int8 == output->dtype_) {
     int8_t *dst = (int8_t *)output->dptr_;
@@ -208,8 +248,11 @@ int32_t concat_luna(tTensor **tensors, int32_t axis, int32_t input_num, tTensor 
       if (2 == output->mem_.type_) {
         for (int32_t i = 0; i < input_num; ++i)  // 支持多个输入
         {
-          if (Int32 != tensors[i]->dtype_)
-            return T_ERR_INVALID_DATATYPE;
+#if THINKER_PARAM_CHECK
+          if (Int32 != tensors[i]->dtype_) {
+              return (T_ERR_INVALID_DATATYPE);
+          }
+#endif
 
           int32_t *src 		= (int32_t *)tensors[i]->dptr_;
           int32_t input_scale = tensors[i]->scale_;
@@ -229,8 +272,11 @@ int32_t concat_luna(tTensor **tensors, int32_t axis, int32_t input_num, tTensor 
       else {
         for (int32_t i = 0; i < input_num; ++i)  // 支持多个输入
         {
-          if (Int32 != tensors[i]->dtype_)
-            return T_ERR_INVALID_DATATYPE;
+#if THINKER_PARAM_CHECK
+          if (Int32 != tensors[i]->dtype_) {
+              return (T_ERR_INVALID_DATATYPE);
+          }
+#endif
 
           int32_t *src 		= (int32_t *)tensors[i]->dptr_;
           int32_t input_scale = tensors[i]->scale_;
@@ -249,10 +295,14 @@ int32_t concat_luna(tTensor **tensors, int32_t axis, int32_t input_num, tTensor 
       }
     }
     else {                // 中间或者最里层维度拼接
+      int32_t output_offset = 0;
       if (2 == output->mem_.type_) {
         for (int32_t i = 0; i < input_num; ++i) { // 支持多个输入
-          if (Int32 != tensors[i]->dtype_)
-            return T_ERR_INVALID_DATATYPE;
+#if THINKER_PARAM_CHECK
+          if (Int32 != tensors[i]->dtype_) {
+              return (T_ERR_INVALID_DATATYPE);
+          }
+#endif
 
           int32_t *src        = (int32_t *)tensors[i]->dptr_;
           int32_t input_scale = tensors[i]->scale_;
@@ -263,19 +313,23 @@ int32_t concat_luna(tTensor **tensors, int32_t axis, int32_t input_num, tTensor 
           if (input_scale == output_scale) {
             for (int32_t l = 0; l < leading; l++) {
             int32_t *indptr_curr = (int32_t *)src + l * hw_curr;
-            int32_t *output_ptr  = (int32_t *)dst + l * hw + i * hw_curr;
+            int32_t *output_ptr  = (int32_t *)dst + l * hw + output_offset;
             THINKER_RET_CHECK(API_LIB(memcpy_i8o8)((int8_t *)output_ptr, (int8_t *)indptr_curr, hw_curr * 4), "luna_memcpy_i8o8");
             }
           }
           else {
             return T_ERR_INVALID_DATATYPE;
           }
+          output_offset += hw_curr;
         }
       }
       else {
         for (int32_t i = 0; i < input_num; ++i) { // 支持多个输入
-          if (Int32 != tensors[i]->dtype_)
-            return T_ERR_INVALID_DATATYPE;
+#if THINKER_PARAM_CHECK
+          if (Int32 != tensors[i]->dtype_) {
+              return (T_ERR_INVALID_DATATYPE);
+          }
+#endif
 
           int32_t *src        = (int32_t *)tensors[i]->dptr_;
           int32_t input_scale = tensors[i]->scale_;
@@ -286,13 +340,14 @@ int32_t concat_luna(tTensor **tensors, int32_t axis, int32_t input_num, tTensor 
           if (input_scale == output_scale) {
             for (int32_t l = 0; l < leading; l++) {
             int32_t *indptr_curr = (int32_t *)src + l * hw_curr;
-            int32_t *output_ptr  = (int32_t *)dst + l * hw + i * hw_curr;
+            int32_t *output_ptr  = (int32_t *)dst + l * hw + output_offset;
             opi_psram_cpy_out((int8_t *)output_ptr, (int8_t *)indptr_curr, hw_curr * 4);
             }
           }
           else {
             return T_ERR_INVALID_DATATYPE;
           }
+          output_offset += hw_curr;
         }
       }
     }
@@ -303,7 +358,8 @@ int32_t concat_luna(tTensor **tensors, int32_t axis, int32_t input_num, tTensor 
 
 #if !(defined(WIN32) || defined(linux))
   if (2 != output->mem_.type_)
-      HAL_FlushInvalidateDCache_by_Addr((uint32_t *)dst, leading*middle*trailing);
+      HAL_FlushInvalidateDCache_by_Addr((uint32_t *)output->dptr_,
+                                        leading * middle * trailing * output->byte_);
 #endif
 
   return T_SUCCESS;

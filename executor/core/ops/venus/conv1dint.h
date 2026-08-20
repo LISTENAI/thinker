@@ -49,7 +49,10 @@ static int32_t luna_quant_ceil(int32_t x, int32_t shift) {
 }
 
 static int32_t img2col(int8_t *src, int8_t *dst, int32_t channel, int32_t height, int32_t kernel, int32_t stride){
-  THINKER_RET_CHECK(API_LIB(mat_trans_q7)(src, src, channel, height), "luna_mat_trans_q7");
+  if (channel == 1 || height == 1)
+    THINKER_RET_CHECK(API_LIB(memcpy)(src, src, channel * height), "luna_memcpy");
+  else
+    THINKER_RET_CHECK(API_LIB(mat_trans_q7)(src, src, channel, height), "luna_mat_trans_q7");
   int32_t num = (height - kernel) / stride + 1;
   int32_t data_size = channel * kernel;
   int32_t step_size = channel * stride;
@@ -71,6 +74,7 @@ static int32_t calc_conv_luna(int32_t w_dtype, int32_t y_dtype, int8_t *input,
           THINKER_RET_CHECK(API_LIB(conv_intx_int8)((const int8_t *)input, (int8_t *)weight,
                                     (int32_t *)bias, (int8_t *)output,
                                     conv_attrs, 4), "luna_conv_intx_int8");
+          break;
         case Int16:
           THINKER_RET_CHECK(API_LIB(conv_intx_int16)((const int8_t *)input, (int8_t *)weight,
                                      (int32_t *)bias, (int16_t *)output,
@@ -225,7 +229,51 @@ static void conv1dint_para_init(Conv1dIntAttrs *attrs,
 }
 
 int32_t conv1dint_luna(tTensor *X, tTensor *W, tTensor *Bias, tTensor *Y,
-                        tTensor *Temp, Conv1dIntAttrs *attrs) {
+                         tTensor *Temp, Conv1dIntAttrs *attrs) {
+  #if THINKER_PARAM_CHECK
+  if (X->dtype_ != Int8 ||
+                      (W->dtype_ != Int4 && W->dtype_ != Int8) ||
+                      (Y->dtype_ != Int8 && Y->dtype_ != Int16 &&
+                       Y->dtype_ != Int32) ||
+                      (Bias != NULL && Bias->dtype_ != Int32)) {
+      return (T_ERR_INVALID_DATATYPE);
+  }
+  if (attrs->kernel < 1 || attrs->kernel > 5 ||
+                      (attrs->stride != 1 && attrs->stride != 2 &&
+                       attrs->stride != 4) || attrs->kernel < attrs->stride ||
+                      attrs->pad[0] >= attrs->kernel ||
+                      attrs->pad[1] >= attrs->kernel || attrs->group <= 0 ||
+                      X->scale_ + W->scale_ - Y->scale_ < 0 ||
+                      X->scale_ + W->scale_ - Y->scale_ > 63) {
+      return (T_ERR_INVALID_PARA);
+  }
+  #endif
+  #if THINKER_RUNTIME_CHECK
+  if (X->mem_.type_ != 2 || X->dptr_ == 0 || W->dptr_ == 0 ||
+                        Y->dptr_ == 0 ||
+                        (Bias != NULL &&
+                         (Bias->dptr_ == 0 ||
+                          getTensorSize(Bias) !=
+                              (size_t)Y->shape_.dims_[1]))) {
+      return (T_ERR_INVALID_PARA);
+  }
+  #endif
+  tTensor staged_y;
+  tTensor *original_y = Y;
+  int32_t output_size = Y->shape_.dims_[0] * Y->shape_.dims_[1] *
+                        Y->shape_.dims_[2] * Y->byte_;
+  if (Y->mem_.type_ != 2) {
+    #if THINKER_RUNTIME_CHECK
+    if (Temp == NULL || Temp->dptr_ == 0 ||
+                          Temp->mem_.type_ != 2 || Temp->shape_.ndim_ != 1 ||
+                          Temp->shape_.dims_[0] < output_size) {
+        return (T_ERR_NO_WORKSPACE);
+    }
+    #endif
+    staged_y = *Y;
+    staged_y.dptr_ = Temp->dptr_;
+    Y = &staged_y;
+  }
   uint64_t paddr_b = 0;
   int32_t has_bias = 0;
   int32_t bias_idx = 0;
@@ -265,9 +313,11 @@ int32_t conv1dint_luna(tTensor *X, tTensor *W, tTensor *Bias, tTensor *Y,
     kernel_condition = (kernel_condition <= 32 * 1024) ? 1 : 0;
     input_condition = (input_condition <= 64 * 1024) ? 1 : 0;
 
+    #if THINKER_PARAM_CHECK
     if (!ou_c || !ou_h || !ou_w) {
-      return T_ERR_INVALID_PARA;
+        return (T_ERR_INVALID_PARA);
     }
+    #endif
 
     if (1 == attrs->group) {                      // conv
       if (input_condition && kernel_condition) {  // no need split
@@ -786,7 +836,11 @@ int32_t conv1dint_luna(tTensor *X, tTensor *W, tTensor *Bias, tTensor *Y,
       }
       else {  // big martrix split on col
         printf("do not support!\n");
-        return T_ERR_INVALID_PARA;
+        #if THINKER_PARAM_CHECK
+        if (1) {
+            return (T_ERR_INVALID_PARA);
+        }
+        #endif
       }
     }
     else {  // left martrix <= 64KB
@@ -875,7 +929,13 @@ int32_t conv1dint_luna(tTensor *X, tTensor *W, tTensor *Bias, tTensor *Y,
         }
       }      
     }
-    THINKER_RET_CHECK(API_LIB(mat_trans_q7)(p_out, p_out, M, L), "luna_mat_trans_q7");
+    if (M == 1 || L == 1)
+      THINKER_RET_CHECK(API_LIB(memcpy)(p_out, p_out, M * L), "luna_memcpy");
+    else
+      THINKER_RET_CHECK(API_LIB(mat_trans_q7)(p_out, p_out, M, L), "luna_mat_trans_q7");
+  }
+  if (original_y != Y) {
+    memcpy((void *)original_y->dptr_, (void *)Y->dptr_, output_size);
   }
   return T_SUCCESS;
 }

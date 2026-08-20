@@ -86,13 +86,14 @@ tpacker [options]
 | 选项 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `-p, --platform` | 字符串 | 无 | 目标平台，可选 `venus`、`mars`、`arcs`、`venusa` |
-| `-r, --ramsize` | 整数 | `655360` | 最大可用共享内存大小，单位为字节 |
-| `--psramsize` | 整数 | `8388608` | 最大可用 PSRAM 大小，单位为字节 |
+| `-r, --ramsize` | 整数 | 芯片最大值 | 最大可用共享内存大小，单位为字节 |
+| `--psramsize` | 整数 | 芯片最大值 | 最大可用 PSRAM 大小，单位为字节 |
 
 说明：
 
 - 如果显式指定 `--platform`，其取值必须与图中目标平台信息一致，否则会报错。
-- `655360` 字节约等于 `640 KB`，`8388608` 字节约等于 `8 MB`。
+- 未指定容量时使用模型目标芯片定义的最大 SRAM 和 PSRAM 容量。
+- 当前 Venus 的 SRAM 最大值为 `655360` 字节，Mars、ARCS 和 VenusA 为 `393216` 字节；各平台 PSRAM 最大值为 `8388608` 字节。
 
 ### 4.4 内存预分配参数
 
@@ -139,25 +140,55 @@ tpacker --config_file config.json
 tpacker -g model.onnx -c seq_len=32:384:32,yinsu_len=1:80:1 -o model.pkg
 ```
 
-### 5.5 切分子图
+### 5.5 Python API
+
+可通过 `pack_model` 在 Python 中完成打包。接口会写入 `output_path`，并返回内容相同的资源文件字节；打包失败时直接抛出异常，不会终止调用进程。
+
+```python
+from tpacker import pack_model
+
+packed_bytes = pack_model(
+    graph_path="model.onnx",
+    output_path="model.pkg",
+    dump=False,
+    inputs=["input"],
+    dynamic_shape={"seq_len": (32, 384, 32)},
+    memory={"params": "psram"},
+)
+```
+
+Python API 也支持读取和导出配置。显式传入的 Python 参数优先于 `config_file` 中的同名参数：
+
+```python
+packed_bytes = pack_model(
+    config_file="config.json",
+    output_path="model.pkg",
+    dma_prefetch=False,
+    export_config="effective_config.json",
+)
+```
+
+`effective_config.json` 中的 SRAM 和 PSRAM 是设备校正后的实际生效容量。
+
+### 5.6 切分子图
 
 ```bash
 tpacker -g model.onnx --inputs=input1,input2 --outputs=output1 -o subgraph.pkg
 ```
 
-### 5.6 流式切图
+### 5.7 流式切图
 
 ```bash
 tpacker -g model.onnx --isstream split_h -o stream_model.pkg
 ```
 
-### 5.7 手动指定部分节点存储位置
+### 5.8 手动指定部分节点存储位置
 
 ```bash
 tpacker -g model.onnx -m encoder_out:psram,cache:share-mem -o model.pkg
 ```
 
-### 5.8 使用量化去除策略
+### 5.9 使用量化去除策略
 
 ```bash
 tpacker -g model.onnx -s Remove_QuantDequant -o model.pkg

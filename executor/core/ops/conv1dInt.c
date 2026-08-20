@@ -27,10 +27,17 @@
  * @return: Status code indicating success or failure
  */
 int32_t X(Forward)(tOperator* op, tTensor** tensors, int32_t num_tensor, tDMA_List* list) {
-    // Validate tensor count and input requirements
-    CHECK_GE(num_tensor, (op->num_input_ + op->num_output_));
-    CHECK_GE(op->num_input_, 2);
-    CHECK_LE(op->num_input_, 3);
+#if THINKER_PARAM_CHECK
+    if (op == NULL || tensors == NULL || list == NULL) {
+        return (T_ERR_INVALID_PARA);
+    }
+
+    if ((op->num_input_ != 2 && op->num_input_ != 3) ||
+                        op->num_output_ != 1 ||
+                        num_tensor < op->num_input_ + op->num_output_) {
+        return (T_ERR_INVALID_PARA);
+    }
+#endif
     
     // Get convolution attributes
     Conv1dIntAttrs* attrs = (Conv1dIntAttrs*)((int8_t*)op + op->attr_offset_);
@@ -47,6 +54,48 @@ int32_t X(Forward)(tOperator* op, tTensor** tensors, int32_t num_tensor, tDMA_Li
     // Get weight and output tensors
     tTensor* W = ((tTensor**)tensors)[1];
     tTensor* Y = ((tTensor**)tensors)[op->num_input_];
+
+#if THINKER_PARAM_CHECK
+    if (X == NULL || W == NULL || Y == NULL ||
+                        X->shape_.ndim_ != 3 || Y->shape_.ndim_ != 3 ||
+                        X->dtype_ != Int8 ||
+                        (W->dtype_ != Int4 && W->dtype_ != Int8) ||
+                        (Y->dtype_ != Int8 && Y->dtype_ != Int16 &&
+                         Y->dtype_ != Int32) || attrs->group <= 0 ||
+                        attrs->kernel == 0 || attrs->stride == 0) {
+        return (T_ERR_INVALID_PARA);
+    }
+#endif
+    tTensor *Bias = op->num_input_ == 3 ? tensors[2] : NULL;
+#if THINKER_PARAM_CHECK
+    if (Bias != NULL && Bias->dtype_ != Int32) {
+        return (T_ERR_INVALID_DATATYPE);
+    }
+#endif
+
+    int32_t expected_w =
+        (X->shape_.dims_[2] + attrs->pad[0] + attrs->pad[1] - attrs->kernel) /
+            attrs->stride + 1;
+#if THINKER_RUNTIME_CHECK
+    if (X->shape_.dims_[0] <= 0 || X->shape_.dims_[1] <= 0 ||
+                          X->shape_.dims_[2] <= 0 ||
+                          X->shape_.dims_[2] + attrs->pad[0] + attrs->pad[1] <
+                              attrs->kernel ||
+                          X->shape_.dims_[1] % attrs->group != 0 ||
+                          Y->shape_.dims_[1] % attrs->group != 0 ||
+                          Y->shape_.dims_[0] != X->shape_.dims_[0] ||
+                          Y->shape_.dims_[1] <= 0 || expected_w <= 0 ||
+                          Y->shape_.dims_[2] != expected_w || X->dptr_ == 0 ||
+                          W->dptr_ == 0 || Y->dptr_ == 0 || X->dptr_ == Y->dptr_) {
+        return (T_ERR_INVALID_PARA);
+    }
+
+    if (Bias != NULL &&
+                          (Bias->dptr_ == 0 ||
+                           getTensorSize(Bias) != (size_t)Y->shape_.dims_[1])) {
+        return (T_ERR_INVALID_PARA);
+    }
+#endif
     
     // Initialize temporary tensors
     tTensor* Temp = NULL;
@@ -72,13 +121,18 @@ int32_t X(Forward)(tOperator* op, tTensor** tensors, int32_t num_tensor, tDMA_Li
             Weight_temp.dptr_ = (addr_type)dma_temp->dptr_;
             Weight_temp.mem_.type_ = 2;
         }
+#if THINKER_RUNTIME_CHECK
+        if (dma_temp == NULL || dma_temp->dptr_ == 0 ||
+                              dma_temp->mem_.type_ != 2) {
+            return (T_ERR_NO_WORKSPACE);
+        }
+#endif
         
         // Handle bias tensor if present
-        if (3 == op->num_input_) {
-            tTensor* Bias = ((tTensor**)tensors)[op->num_input_ - 1];
+        if (Bias != NULL) {
             tTensor Bias_temp = Bias[0];
             Bias_temp.scale_ = X->scale_ + W->scale_;
-            int32_t size = getShapeSize(&(W->shape_));
+            size_t size = getTensorDataSize(&Weight_temp);
             Bias_temp.dptr_ = (addr_type)((int8_t*)Weight_temp.dptr_ + ALIGN16(size));
             THINKER_RET_CHECK(conv1dint_luna(X, &Weight_temp, &Bias_temp, Y, Temp, attrs), "conv1dint_luna");
         }
@@ -91,10 +145,16 @@ int32_t X(Forward)(tOperator* op, tTensor** tensors, int32_t num_tensor, tDMA_Li
         if (num_tensor == op->num_input_ + op->num_output_ + 1) {
             Temp = ((tTensor**)tensors)[op->num_input_ + op->num_output_];
         }
+#if THINKER_RUNTIME_CHECK
+        if (Temp != NULL &&
+                              (Temp->dptr_ == 0 || Temp->mem_.type_ != 2 ||
+                               Temp->shape_.ndim_ != 1)) {
+            return (T_ERR_NO_WORKSPACE);
+        }
+#endif
         
         // Handle bias tensor if present
-        if (3 == op->num_input_) {
-            tTensor* Bias = ((tTensor**)tensors)[op->num_input_ - 1];
+        if (Bias != NULL) {
             tTensor Bias_temp = Bias[0];
             Bias_temp.scale_ = X->scale_ + W->scale_;
             THINKER_RET_CHECK(conv1dint_luna(X, &Weight_temp, &Bias_temp, Y, Temp, attrs), "conv1dint_luna");
@@ -109,8 +169,9 @@ int32_t X(Forward)(tOperator* op, tTensor** tensors, int32_t num_tensor, tDMA_Li
     uint32_t total_t = (uint32_t)(finish_t - start_t);
     printf("%8s | %u | (", "Conv1dInt", total_t); 
 #endif
+#else
+    return T_ERR_NO_SUPPORT_OP;
 #endif
-
     return T_SUCCESS;
 }
 

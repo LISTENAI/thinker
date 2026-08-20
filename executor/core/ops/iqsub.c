@@ -26,14 +26,16 @@
  * @return: Status code indicating success or failure
  */
 int32_t X(Forward)(tOperator *op, tTensor **tensors, int32_t num_tensor, tDMA_List *list) {
-    // Validate tensor count
-    CHECK_EQ(num_tensor, (op->num_input_ + op->num_output_ + 1));
+    // Workspace is optional when both inputs and the output can be used directly.
+    CHECK_GE(num_tensor, (op->num_input_ + op->num_output_));
     
     // Get binary operation attributes
     iqBinaryAttrs *attrs = (iqBinaryAttrs *)((int8_t *)op + op->attr_offset_);
     
-    // Get temporary workspace tensor
-    tTensor *temp = tensors[op->num_input_ + op->num_output_];
+    tTensor *temp = NULL;
+    if (num_tensor == op->num_input_ + op->num_output_ + 1) {
+        temp = tensors[op->num_input_ + op->num_output_];
+    }
     
 #if THINKER_USE_VENUS || THINKER_USE_ARCS || THINKER_USE_VENUSA
 #if THINKER_PROFILE

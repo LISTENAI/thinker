@@ -7,7 +7,7 @@ VENUSA_CONFIGS = {
     "dma_support": True,
     "supported_operators": [
         "ArgMax", "Conv1dInt", "Conv2dInt", "ConvTranspose2dInt",
-        "Relu", "Prelu", "Clip", "MaxPool", "AvgPool2dInt",
+        "Relu", "PRelu", "Clip", "MaxPool", "AvgPool2dInt",
         "LinearInt", "GRUInt", "LSTMInt", "BmmInt",
         "iqSigmoid", "iqTanh", "Relux", 
         "iqCat", "iqPad", "Transpose", "Reshape",
@@ -15,7 +15,7 @@ VENUSA_CONFIGS = {
         "iqSum", "iqSub", "iqAdd", "iqMul", "iqDiv",
         "Gather", "Quant", "Dequant",
         "SoftmaxInt", "LogSoftmaxInt",
-        "Split", "BatchNorm2dInt", "ReduceMean",
+        "Split", "BatchNorm2dInt",
         "Requant", "LayerNormInt", "iqVar",
         "Cast", "Expand", "Tile", "topN", "topN2",
         "Shape", "Packing", "GluInt", "QGelu", "QSwish",

@@ -22,6 +22,7 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
 	SET(CMAKE_ASM_FLAGS "${CFLAGS} ${ASM_OPTIONS}" )
 
 	if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+	  add_compile_options(-gdwarf-4)
 	  SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -ggdb3 -O0")
 	  SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -ggdb3 -O0")
 	else()

@@ -103,6 +103,18 @@ static int32_t luna_ceil(int32_t x, int32_t shift) {
 static int32_t calc_linearint_luna(tTensor *input, tTensor *weight,
                                    tTensor *bias, tTensor *output,
                                    tTensor *tmp) {
+  #if THINKER_PARAM_CHECK
+  if (input == NULL || weight == NULL || output == NULL ||
+                      input->dptr_ == 0 || weight->dptr_ == 0 || output->dptr_ == 0 ||
+                      input->dtype_ != Int8 || weight->dtype_ != Int8 ||
+                      (output->dtype_ != Int8 && output->dtype_ != Int16 &&
+                       output->dtype_ != Int32) ||
+                      (bias != NULL && (bias->dptr_ == 0 ||
+                       (bias->dtype_ != Int8 && bias->dtype_ != Int16 &&
+                        bias->dtype_ != Int32)))) {
+      return (T_ERR_INVALID_DATATYPE);
+  }
+  #endif
   tShape new_shape;
     // Adjust input shape if necessary
   if (1 == input->shape_.ndim_) {
@@ -148,9 +160,11 @@ static int32_t calc_linearint_luna(tTensor *input, tTensor *weight,
     has_bias = 1;
   }
 
+  #if THINKER_PARAM_CHECK
   if (shift < 0) {
-    return T_ERR_INVALID_PARA;;
+      return (T_ERR_INVALID_PARA);
   }
+  #endif
 
   switch (input->dtype_) {
     case Int8: {
@@ -188,14 +202,18 @@ static int32_t calc_linearint_luna(tTensor *input, tTensor *weight,
 
             if (in_is_psram) {
               p_tmp_in = (int8_t *)tmp->dptr_;
-              tmp_size = (split_left_size > split_out_size) ? split_left_size : split_out_size;
+              tmp_size = ALIGN4(has_bias && ou_is_psram && split_out_size > split_left_size ?
+                                split_out_size : split_left_size);
               memcpy(p_tmp_in, (int8_t *)p_in + in_oft, split_left_size);
             }
 
             if (ou_is_psram) {
               if (has_bias) {
+                if (!in_is_psram) {
+                  p_tmp_ou = (int8_t *)tmp->dptr_;
+                  tmp_size = ALIGN4(split_out_size);
+                }
                 int32_t *p_tmp = (int32_t *)((int8_t *)tmp->dptr_ + tmp_size);
-                p_tmp_ou = p_tmp_in;
                 tmp_size += split_out_size * 4;
                 if (tmp_size > workspace_size)
                     return T_ERR_NO_WORKSPACE;
@@ -268,14 +286,18 @@ static int32_t calc_linearint_luna(tTensor *input, tTensor *weight,
 
             if (in_is_psram) {
               p_tmp_in = (int8_t *)tmp->dptr_;
-              tmp_size = (split_left_size > split_out_size) ? split_left_size : split_out_size;
+              tmp_size = ALIGN4(has_bias && ou_is_psram && split_out_size > split_left_size ?
+                                split_out_size : split_left_size);
               memcpy(p_tmp_in, (int8_t *)p_in + in_oft, split_left_size);
             }
 
             if (ou_is_psram) {
               if (has_bias) {
+                if (!in_is_psram) {
+                  p_tmp_ou = (int8_t *)tmp->dptr_;
+                  tmp_size = ALIGN4(split_out_size);
+                }
                 int32_t *p_tmp = (int32_t *)((int8_t *)tmp->dptr_ + tmp_size);
-                p_tmp_ou = p_tmp_in;
                 tmp_size += split_out_size * 4; //sizeof(int32_t)
                 if (tmp_size > workspace_size)
                   return T_ERR_NO_WORKSPACE;
@@ -326,13 +348,16 @@ static int32_t calc_linearint_luna(tTensor *input, tTensor *weight,
         int32_t tmp_size = 0;
         if (in_is_psram) {
           p_tmp_in = (int8_t *)(int8_t *)tmp->dptr_;
-          tmp_size = M * N;
+          tmp_size = ALIGN4(has_bias && ou_is_psram && M * L > M * N ? M * L : M * N);
           memcpy(p_tmp_in, p_in, M * N);
         }
 
         if (ou_is_psram) {
           if (has_bias) {
-            p_tmp_ou = p_tmp_in;
+            if (!in_is_psram) {
+              p_tmp_ou = (int8_t *)tmp->dptr_;
+              tmp_size = ALIGN4(M * L);
+            }
           }
           else {
             p_tmp_ou = (int8_t *)tmp->dptr_ + tmp_size;
@@ -402,9 +427,11 @@ static int32_t calc_linearint_luna(tTensor *input, tTensor *weight,
     
     case Int16: {
       int32_t int8_condition_l = (luna_ceil(M, 2) << 2) * (luna_ceil(N, 3) << 3) * sizeof(int16_t);  // right:4x8
+      #if THINKER_PARAM_CHECK
       if (int8_condition_l > left_limit) {
-        return T_ERR_INVALID_PARA;
+          return (T_ERR_INVALID_PARA);
       }
+      #endif
       int32_t int8_condition_r =
           (luna_ceil(N, 3) << 3) * (luna_ceil(L, 2) << 2) * sizeof(int16_t);  // right:8x4
       if (int8_condition_r <= right_limit) {

@@ -77,9 +77,9 @@ static void conv2dint_luna_para_init(Conv2dIntAttrs *attrs, conv_struct_t *conv_
     int32_t q_x = (int32_t)X->scale_;
     int32_t q_w = (int32_t)W->scale_;
     int32_t q_y = (int32_t)Y->scale_;
-    conv_attrs->positive_shift_type = ShiftType_FloorX05;
+    conv_attrs->positive_shift_type = attrs->quant_type == 0 ? ShiftType_Floor : ShiftType_FloorX05;
     conv_attrs->positive_shift_value = q_x + q_w - q_y;
-    conv_attrs->negative_shift_type = ShiftType_FloorX05;
+    conv_attrs->negative_shift_type = attrs->quant_type == 0 ? ShiftType_Floor : ShiftType_FloorX05;
     conv_attrs->negative_shift_value = conv_attrs->positive_shift_value;
 
     uint8_t data_mem_type = (X->mem_.type_ & 0x0F) + 1;
@@ -249,9 +249,11 @@ static int32_t conv2dint_luna_split_output_h(
         conv2dint_luna_split_h_info(conv_attrs, ou_h_start, cur_ou_h,
                                      &in_h_start, &cur_in_h,
                                      &pad_h_up, &pad_h_down);
+        #ifdef RUNTIME_PARAM_CHECK
         if (cur_in_h <= 0) {
             return T_ERR_INVALID_PARA;
         }
+        #endif
 
         input_size = conv_attrs->input_c * cur_in_h * conv_attrs->input_w;
         output_size = conv_attrs->output_c * cur_ou_h * conv_attrs->output_w * Y->byte_;
@@ -346,6 +348,7 @@ int32_t conv2dint_luna(tTensor *X, tTensor *W, tTensor *Bias, tTensor *Y, tTenso
             if (ou_is_psram && output_size > workspace_size) {
                 THINKER_RET_CHECK(conv2dint_luna_split_output_h(X, W, Bias, Y, temp,
                                                      workspace_size, &conv_attrs, 0), "conv2dint_luna_split_output_h");
+                return T_SUCCESS;
             }
             else {
                 conv_attrs.reserved = 0;
@@ -363,6 +366,7 @@ int32_t conv2dint_luna(tTensor *X, tTensor *W, tTensor *Bias, tTensor *Y, tTenso
             if (ou_is_psram && output_size > workspace_size) {
                 THINKER_RET_CHECK(conv2dint_luna_split_output_h(X, W, Bias, Y, temp,
                                                      workspace_size, &conv_attrs, 1), "conv2dint_luna_split_output_h");
+                return T_SUCCESS;
             }
             else {
                 conv_attrs.reserved = 0;

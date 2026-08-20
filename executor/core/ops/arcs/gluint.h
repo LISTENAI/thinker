@@ -31,56 +31,76 @@ int32_t gluint_luna(tTensor *X, tTensor *Y, tTensor *workspace, GluIntAttrs *att
     // Calculate tensor dimensions
     int32_t axis = attr->axis;
     axis = (axis < 0) ? (X->shape_.ndim_ + axis) : axis;
-    
-    // Compute matrix dimensions
-    uint32_t M = 1;
-    for (int32_t i = 0; i < axis; i++) {
-        M *= X->shape_.dims_[i];
-    }
-    
-    uint32_t N = X->shape_.dims_[axis];  // Use direct access instead of loop
-    
-    // Memory alignment and size calculations
-    uint32_t align_size = ALIGN8(M) * ALIGN2(N);
-    uint32_t size = M * N;
-    uint32_t half_size = size / 2;
 
-    // Pointer declarations
-    int8_t *input = (int8_t *)(X->dptr_);
-    int8_t *output = (int8_t *)(Y->dptr_);
-    int8_t *transposed_input = (int8_t *)(workspace->dptr_);
-    int8_t *temp_output = (int8_t *)(workspace->dptr_ + size);
+    #if THINKER_PARAM_CHECK
+    if (axis != X->shape_.ndim_ - 1) {
+        return (T_ERR_INVALID_PARA);
+    }
+
+    if (X->dtype_ != Int8 || Y->dtype_ != Int8) {
+        return (T_ERR_INVALID_DATATYPE);
+    }
+#endif
+    uint32_t axis_size = X->shape_.dims_[axis];
+    #if THINKER_PARAM_CHECK
+    if ((axis_size & 1) != 0) {
+        return (T_ERR_INVALID_PARA);
+    }
+#endif
+    size_t output_elements = getTensorSize(Y);
+    #if THINKER_PARAM_CHECK
+    if (output_elements == 0 || output_elements > UINT32_MAX) {
+        return (T_ERR_INVALID_DATA);
+    }
+#endif
+    uint32_t output_size = (uint32_t)output_elements;
+    uint32_t half_axis = axis_size / 2;
+    #if THINKER_PARAM_CHECK
+    if (X->mem_.type_ != 2 || Y->mem_.type_ != 2) {
+        return (T_ERR_INVALID_PLATFROM);
+    }
+#endif
+    #if THINKER_RUNTIME_CHECK
+    if (workspace == NULL || workspace->dptr_ == 0 ||
+                           workspace->mem_.type_ != 2 || workspace->dtype_ != Int8 ||
+                           workspace->byte_ != 1 ||
+                           getTensorDataSize(workspace) < (size_t)half_axis * 8) {
+        return (T_ERR_NO_WORKSPACE);
+    }
+#endif
+
+    int32_t *a_tmp = (int32_t *)workspace->dptr_;
+    int32_t *b_tmp = a_tmp + half_axis;
 
     // Quantization parameters
     int32_t x_q = (int32_t)X->scale_;
     int32_t y_q = (int32_t)Y->scale_;
+    #if THINKER_PARAM_CHECK
+    if (!isfinite(X->scale_) || !isfinite(Y->scale_) ||
+                        floorf(X->scale_) != X->scale_ ||
+                        floorf(Y->scale_) != Y->scale_) {
+        return (T_ERR_INVALID_PARA);
+    }
+#endif
 
-    // Matrix transpose based on size
-    if (align_size <= 16384)
-        THINKER_RET_CHECK(API_LIB(mat_trans_i8o8)(input, transposed_input, M, N), "luna_mat_trans_i8o8");
-    else if (align_size <= 32768)
-        THINKER_RET_CHECK(API_LIB(split_mat_trans_i8o8)(input, transposed_input, M, N), "luna_split_mat_trans_i8o8");
-    else
-        return T_ERR_FAIL;
-
-    // Pointer to input data
-    int32_t *input_data = (int32_t *)(transposed_input + size);
-    int32_t *a = input_data;
-    int32_t *b = input_data + half_size;
-
-    // Data processing steps
-    THINKER_RET_CHECK(API_LIB(scale_i8i8o32)(transposed_input, 1, input_data, size, 0), "luna_scale_i8i8o32");
-    THINKER_RET_CHECK(API_LIB(scale_i32i32o32)(b, 1UL << (Q_SIGMOID_IN - x_q), b, half_size, 0), "luna_scale_i32i32o32");
-    THINKER_RET_CHECK(API_LIB(sigmoid_i32o32)(b, b, half_size), "luna_sigmoid_i32o32");
-    THINKER_RET_CHECK(API_LIB(scale_i32i32o32)(b, 1, b, half_size, Q_SIGMOID_OU + x_q - y_q), "luna_scale_i32i32o32");
-    
-    // Final output transformation
-    if (align_size <= 32768)
-        THINKER_RET_CHECK(API_LIB(mat_trans_i8o8)(temp_output, output, N/2, M), "luna_mat_trans_i8o8");
-    else if (align_size <= 65536)
-        THINKER_RET_CHECK(API_LIB(split_mat_trans_i8o8)(temp_output, output, N/2, M), "luna_split_mat_trans_i8o8");
-    else
-        return T_ERR_FAIL;
+    int32_t sigmoid_shift = Q_SIGMOID_IN - x_q;
+    int32_t mul_shift = 31 + x_q - y_q;
+    #if THINKER_PARAM_CHECK
+    if (sigmoid_shift < 0 || sigmoid_shift > 30 || mul_shift < 0 || mul_shift > 63) {
+        return (T_ERR_INVALID_PARA);
+    }
+#endif
+    uint32_t rows = output_size / half_axis;
+    for (uint32_t row = 0; row < rows; ++row) {
+        int8_t *a = (int8_t *)X->dptr_ + row * axis_size;
+        int8_t *b = a + half_axis;
+        int8_t *out = (int8_t *)Y->dptr_ + row * half_axis;
+        THINKER_RET_CHECK(API_LIB(scale_i8i8o32)(a, 1, a_tmp, half_axis, 0), "luna_scale_i8i8o32");
+        THINKER_RET_CHECK(API_LIB(scale_i8i8o32)(b, 1, b_tmp, half_axis, 0), "luna_scale_i8i8o32");
+        THINKER_RET_CHECK(API_LIB(scale_i32i32o32)(b_tmp, 1UL << sigmoid_shift, b_tmp, half_axis, 0), "luna_scale_i32i32o32");
+        THINKER_RET_CHECK(API_LIB(sigmoid_i32o32)(b_tmp, b_tmp, half_axis), "luna_sigmoid_i32o32");
+        THINKER_RET_CHECK(API_LIB(mul_i32i32o8)(a_tmp, b_tmp, out, half_axis, mul_shift), "luna_mul_i32i32o8");
+    }
 
     return T_SUCCESS;
 }

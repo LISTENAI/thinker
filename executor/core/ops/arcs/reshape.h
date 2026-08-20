@@ -31,19 +31,15 @@ int32_t reshape_luna(tTensor *X, tTensor *Y) {
     if (input != output) {
         size_t size = getTensorSize(X) * X->byte_;
         if (size != 0) {
-            if (Y->mem_.type_ != 2) {
-                // Output is in PSRAM - use PSRAM copy out
+            if (Y->mem_.type_ == 1 && X->mem_.type_ == 1) {
+                return API_LIB(psrammemcpy_i8o8)(output, input, size);
+            } else if (Y->mem_.type_ == 1) {
                 opi_psram_cpy_out(output, input, size);
                 return T_SUCCESS;
-            }
-            else if (X->mem_.type_ != 2) {
-                // Input is in PSRAM - use PSRAM memcpy
-                return API_LIB(psrammemcpy_i8o8)(output, input, size);
-            }
-            else {
-                // Both in fast memory - use regular memcpy
-                return API_LIB(memcpy_i8o8)(output, input, size);
-            }
+            } else if (X->mem_.type_ == 1) {
+                opi_psram_cpy_in(output, input, size);
+                return T_SUCCESS;
+            } else return API_LIB(memcpy_i8o8)(output, input, size);
         }
     }
     

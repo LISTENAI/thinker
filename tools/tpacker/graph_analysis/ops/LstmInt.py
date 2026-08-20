@@ -21,12 +21,11 @@ class LstmIntAttrs(OperatorAttrs):
         self.attrs["layout"] = 1 if batch_first else 0
 
         go_forward = self.attrs.get("go_forward", 1)
+        assert go_forward in (0, 1), "LSTMInt only supports a single forward or reverse direction"
         if go_forward == 0:
             self.attrs["direction"] = 1
-        elif go_forward == 1:
-            self.attrs["direction"] = 0
         else:
-            self.attrs["direction"] = 2
+            self.attrs["direction"] = 0
 
         platform = self.attrs.get("platform", "venus")
         if platform in {"arcs", "venusA"}:
@@ -118,10 +117,44 @@ class LSTMInt(Operator):
         
         assert temp2 == int(temp2), "cell state scale must be a power of 2"
 
+        platform = self.attrs.get("platform", "venus")
+        q_ib = int(X.scale + i2h_w.scale)
+        q_hb = int(int(temp1) + h2h_w.scale)
+        active_q_in = 11 if platform == "venus" else 27
+        for q in (q_ib, q_hb):
+            if q < active_q_in:
+                assert active_q_in - q <= 30, "LSTMInt activation left shift exceeds scalar range"
+            else:
+                assert q - active_q_in <= 63, "LSTMInt activation right shift exceeds Luna limit"
+        assert int(temp2) == 15, "LSTMInt requires Q15 cell state scale"
+        assert -33 <= int(temp1) <= 30, "LSTMInt hidden scale requires 30 - h_q in [0, 63]"
+        assert int(temp) == int(temp1), "LSTMInt requires equal output and hidden scales"
+
         assert X.dtype == i2h_w.dtype == h2h_w.dtype, "Input, i2h_w, and h2h_w must have the same dtype"
+        if platform in {"venus", "venusA"}:
+            assert X.dtype == np.int8, "LSTMInt on venusA runtime only supports int8 input/weights"
         assert len(X.shape) == 3, "Input must be a 3D tensor"
 
         hidden_size = self.attrs["hidden_size"]
+        if platform in ("venus", "arcs", "venusA"):
+            assert self.attrs["layout"] in (0, 1), "LSTMInt layout must be 0 or 1"
+            assert hidden_size > 0 and self.attrs["input_size"] > 0, \
+                "LSTMInt requires positive input and hidden sizes"
+            assert i2h_w.shape == (hidden_size * 4, self.attrs["input_size"]), \
+                "LSTMInt i2h weight shape mismatch"
+            assert h2h_w.shape == (hidden_size * 4, hidden_size), \
+                "LSTMInt h2h weight shape mismatch"
+            i2h_bias = inputs[self.weight_index + 2]
+            h2h_bias = inputs[self.weight_index + 3]
+            assert i2h_bias.dtype == h2h_bias.dtype == np.int32, "LSTMInt requires int32 biases"
+            assert i2h_bias.shape == h2h_bias.shape == (hidden_size * 4,), \
+                "LSTMInt bias shape mismatch"
+            assert X.shape[2] == self.attrs["input_size"], "LSTMInt input_size mismatch"
+        if self.weight_index >= 3:
+            hidden_in = inputs[self.weight_index - 2]
+            cell_in = inputs[self.weight_index - 1]
+            assert hidden_in.dtype == np.int8 and hidden_in.scale == int(temp1), "LSTMInt hidden state must match output dtype and scale"
+            assert cell_in.dtype == np.int32 and cell_in.scale == int(temp2), "LSTMInt cell state must match output dtype and scale"
         # Determine output shape based on layout
         if self.attrs["layout"] == 1:
             T = X.shape[1]
@@ -132,12 +165,14 @@ class LSTMInt(Operator):
             B = X.shape[1]
             yshape = [T, B, hidden_size]
 
+        assert B == 1, "LSTMInt only supports batch size 1"
+
         Y = X.clone(shape=tuple(yshape), scale=int(temp))
         self.outputs = [Y]
 
         # Create hidden state tensors
         hshape = [1, 1, hidden_size]
-        hidden_o = X.clone(shape=hshape, dtype=np.int8, bits=1, scale=int(temp))
+        hidden_o = X.clone(shape=hshape, dtype=np.int8, bits=1, scale=int(temp1))
         self.outputs.append(hidden_o)
 
         cshape = [1, 1, hidden_size]
@@ -155,8 +190,35 @@ class LSTMInt(Operator):
         workspace_size = hidden_size * 4 * 8
         platform = self.attrs.get("platform", "venus")
 
+        if platform == "venus":
+            def matrix_has_valid_split(rows, cols):
+                return any(cols % split == 0 and
+                           ((rows + 7) // 8 * 8) *
+                           (((cols // split) + 3) // 4 * 4) <= 32768
+                           for split in range(1, cols + 1))
+
+            assert self.inputs[0].mem_type == MemType.SHARE_MEM, "LSTMInt on venus requires SHARE_MEM input"
+            assert self.outputs[0].mem_type == MemType.SHARE_MEM, "LSTMInt on venus requires SHARE_MEM output"
+            assert self.outputs[1].mem_type == MemType.SHARE_MEM, "LSTMInt on venus requires SHARE_MEM hidden output"
+            assert self.outputs[2].mem_type == MemType.SHARE_MEM, "LSTMInt on venus requires SHARE_MEM cell output"
+            for state in self.inputs[1:self.weight_index]:
+                assert state.mem_type == MemType.SHARE_MEM, "LSTMInt on venus requires SHARE_MEM state input"
+            for parameter in self.inputs[self.weight_index:self.weight_index + 4]:
+                assert parameter.mem_type == MemType.SHARE_MEM or parameter.has_data(), \
+                    "LSTMInt on venus requires local or DMA-relocatable constant parameters"
+            assert matrix_has_valid_split(self.attrs["input_size"], hidden_size * 4), \
+                "LSTMInt on venus input weight matrix has no valid split"
+            assert matrix_has_valid_split(hidden_size, hidden_size * 4), \
+                "LSTMInt on venus recurrent weight matrix has no valid split"
+
         if platform in {"arcs", "venusA"}:
             workspace_size += h2h_weight.nbytes + i2h_weight.nbytes + i2h_bias.nbytes + h2h_bias.nbytes
+            assert self.inputs[0].mem_type == MemType.SHARE_MEM, "LSTMInt on arcs/venusA requires SHARE_MEM input"
+            assert self.outputs[0].mem_type == MemType.SHARE_MEM, "LSTMInt on arcs/venusA requires SHARE_MEM output"
+            assert self.outputs[1].mem_type == MemType.SHARE_MEM, "LSTMInt on arcs/venusA requires SHARE_MEM hidden output"
+            assert self.outputs[2].mem_type == MemType.SHARE_MEM, "LSTMInt on arcs/venusA requires SHARE_MEM cell output"
+            for state in self.inputs[1:self.weight_index]:
+                assert state.mem_type == MemType.SHARE_MEM, "LSTMInt on arcs/venusA requires SHARE_MEM state input"
 
         if workspace_size != 0:
             return [Tensor.from_shape([workspace_size], np.int8, MemType.SHARE_MEM)]

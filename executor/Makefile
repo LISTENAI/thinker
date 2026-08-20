@@ -55,11 +55,6 @@ CFLAGS  = -I ./include \
           -I ./core \
           -I ./core/comm \
           -I ./core/ops \
-          -I ./core/ops/arcs \
-          -I ./core/ops/arcs/luna \
-          -I ./core/ops/arcs/nnblas \
-          -I ./core/ops/venusA \
-          -I ./core/ops/venusA/luna \
           -I . \
 
 ifneq ($(filter venus VENUS,$(THINKER_TARGET_PLATFORM)),)

@@ -19,15 +19,49 @@
  */
 tStatus slice_luna(tTensor* X, int32_t begin, int32_t end, int32_t axis,
                    int32_t step, tTensor* Y) {
-    int32_t real_axis = (axis + X->shape_.ndim_) % X->shape_.ndim_;
-    int32_t real_begin = begin;
-    if (begin < 0) {
-        real_begin += X->shape_.dims_[real_axis];
+    #if THINKER_PARAM_CHECK
+    if (X == NULL || Y == NULL || X->dptr_ == 0 || Y->dptr_ == 0) {
+        return (T_ERR_INVALID_PARA);
     }
-    real_begin = real_begin % X->shape_.dims_[real_axis];
+    if (step != 1) {
+        return (T_ERR_NO_IMPLEMENTED);
+    }
+    #endif
+    int32_t n_dims = X->shape_.ndim_;
+    #if THINKER_PARAM_CHECK
+    if (n_dims <= 0 || axis < -n_dims || axis >= n_dims ||
+                        Y->shape_.ndim_ != n_dims) {
+        return (T_ERR_INVALID_PARA);
+    }
+    if (X->dtype_ != Y->dtype_ || X->byte_ != Y->byte_) {
+        return (T_ERR_INVALID_DATATYPE);
+    }
+    #endif
+    int32_t real_axis = axis < 0 ? axis + n_dims : axis;
+    int32_t axis_size = X->shape_.dims_[real_axis];
+    #if THINKER_PARAM_CHECK
+    if (axis_size <= 0) {
+        return (T_ERR_INVALID_DATA);
+    }
+    #endif
+    int32_t real_begin = begin < 0 ? begin + axis_size : begin;
+    int32_t real_end = end < 0 ? end + axis_size : end;
+    if (real_begin < 0) real_begin = 0;
+    if (real_begin > axis_size) real_begin = axis_size;
+    if (real_end < 0) real_end = 0;
+    if (real_end > axis_size) real_end = axis_size;
+    int32_t slice_size = real_end > real_begin ? real_end - real_begin : 0;
+    for (int32_t i = 0; i < n_dims; ++i) {
+        int32_t expected = i == real_axis ? slice_size : X->shape_.dims_[i];
+        #if THINKER_PARAM_CHECK
+        if (Y->shape_.dims_[i] != expected) {
+            return (T_ERR_INVALID_DATA);
+        }
+        #endif
+    }
 
     // Calculate the number of elements to copy
-    int32_t num_elements = 0;
+    int32_t num_elements = 1;
     for (size_t i = 0; i < Y->shape_.ndim_; ++i) {
         num_elements *= Y->shape_.dims_[i];
     }

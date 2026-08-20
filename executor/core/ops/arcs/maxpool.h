@@ -82,6 +82,11 @@ static void luna_maxpool_para_init(PoolAttrs* attrs, conv_struct_t *conv_attrs, 
  * @return Operation result status
  */
 int32_t maxpool_luna(const tTensor* X, tTensor* Y, tTensor* Temp, PoolAttrs *attrs) {
+    #if THINKER_PARAM_CHECK
+    if (X->dtype_ != Int8 || Y->dtype_ != Int8) {
+        return (T_ERR_INVALID_DATATYPE);
+    }
+#endif
     conv_struct_t pool_struct_;
     luna_cnn_static_para_t conv_static_para;
     luna_maxpool_para_init(attrs, &pool_struct_, (tTensor *)X, Y);
@@ -237,6 +242,8 @@ int32_t maxpool_luna(const tTensor* X, tTensor* Y, tTensor* Temp, PoolAttrs *att
         else {
             return T_ERR_INVALID_DATATYPE;
         }    
+    } else {
+        return T_ERR_INVALID_DATATYPE;
     }
 
     return T_SUCCESS;

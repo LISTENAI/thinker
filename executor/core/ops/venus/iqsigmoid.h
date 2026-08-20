@@ -28,24 +28,26 @@ int32_t iqsigmoid(tTensor *X, tTensor *Y, tTensor *Temp) {
     int16_t *src = (int16_t *)X->dptr_;
     int32_t shift = Q_INPUT - x_q;
 
-#ifdef RUNTIME_PARAM_CHECK
-    /*Check the storage locations for input and output, 
-    as it is unnecessary because they have already been limited in tpacker.*/
-    if ((X->mem_.type_ != 2) && (Y->mem_.type_ != 2))
-        return T_ERR_INVALID_DATATYPE;
-    if ((X->dtype_ != Int16) || ((Y->dtype_ != Int8) && (Y->dtype_ != Int16))) {
-        return T_ERR_INVALID_DATATYPE;
+#if THINKER_PARAM_CHECK
+if (X->mem_.type_ != 2 || Y->mem_.type_ != 2) {
+    return (T_ERR_NO_SUPPORT_OP);
+}
+        if (X->dtype_ != Int16 || Y->dtype_ != Int8) {
+        return (T_ERR_INVALID_DATATYPE);
     }
-#endif
+    if (shift < -63 || shift > 14) {
+        return (T_ERR_INVALID_PARA);
+    }
+    #endif
     
     uint32_t input_size = getTensorSize(X);
-    uint32_t workspace_size = Temp ? Temp->shape_.dims_[0] : 0;
+    size_t workspace_size = Temp ? getTensorDataSize(Temp) : 0;
 
     if (shift != 0) {
-#ifdef RUNTIME_PARAM_CHECK        
-        if (workspace_size < input_size * 2) {
-            return T_ERR_NO_WORKSPACE;
-        }
+#if THINKER_RUNTIME_CHECK
+if (Temp == NULL || workspace_size < input_size * sizeof(int16_t)) {
+    return (T_ERR_NO_WORKSPACE);
+}
 #endif
         int16_t *dst_temp = (int16_t *)Temp->dptr_;
         uint32_t shift1 = shift > 0 ? shift : 0;

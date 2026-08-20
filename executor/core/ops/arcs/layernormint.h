@@ -178,18 +178,48 @@ static const int16_t calc_sqrt_reciprocal(const int64_t data, int32_t q_x, int32
  * @return Status code indicating success or failure
  */
 int32_t layernormalint_venus(const tTensor *X, const tTensor *W, const tTensor *Bias, tTensor *Y, tTensor *workspace, LayerNormIntAttrs *attrs) {   
+    if (X == NULL || W == NULL || Bias == NULL || Y == NULL || workspace == NULL ||
+        attrs == NULL || X->dptr_ == 0 || W->dptr_ == 0 || Bias->dptr_ == 0 ||
+        Y->dptr_ == 0 || workspace->dptr_ == 0) return T_ERR_INVALID_PARA;
+    #if THINKER_PARAM_CHECK
+    if (X->dtype_ != Int8 || W->dtype_ != Int8 ||
+                        Bias->dtype_ != Int32 || Y->dtype_ != Int8) {
+        return (T_ERR_INVALID_DATATYPE);
+    }
+#endif
     int32_t n_dims = X->shape_.ndim_;
+    #if THINKER_PARAM_CHECK
+    if (n_dims < 2 || !equalShape(&X->shape_, &Y->shape_)) {
+        return (T_ERR_INVALID_DATA);
+    }
+#endif
     int32_t size = getTensorSize(W);
+    #if THINKER_PARAM_CHECK
+    if (size <= 0 || size > 32767 ||
+                        getTensorSize(Bias) != size || X->scale_ < 0 ||
+                        X->scale_ > 15 || 15 + W->scale_ - Y->scale_ < 0 ||
+                        15 + W->scale_ - Y->scale_ > 63) {
+        return (T_ERR_INVALID_PARA);
+    }
+#endif
+    for (int32_t i = 0; i < n_dims - 3; ++i) {
+        #if THINKER_PARAM_CHECK
+        if (X->shape_.dims_[i] != 1) {
+            return (T_ERR_INVALID_DATA);
+        }
+#endif
+    }
     int32_t leading = 1;
     int32_t T = 1;
     
     // Determine sequence length T and batch size leading
     if (size == X->shape_.dims_[n_dims - 1]) {
         T = X->shape_.dims_[n_dims - 1];
-        leading = X->shape_.dims_[n_dims - 3] * X->shape_.dims_[n_dims - 2];
+        leading = X->shape_.dims_[n_dims - 2];
+        if (n_dims >= 3) leading *= X->shape_.dims_[n_dims - 3];
     } else if (size == X->shape_.dims_[n_dims - 1] * X->shape_.dims_[n_dims - 2]) {
         T = X->shape_.dims_[n_dims - 1] * X->shape_.dims_[n_dims - 2];
-        leading = X->shape_.dims_[n_dims - 3];
+        leading = n_dims >= 3 ? X->shape_.dims_[n_dims - 3] : 1;
     }
 
     int32_t input_size = leading * T;
@@ -216,21 +246,31 @@ int32_t layernormalint_venus(const tTensor *X, const tTensor *W, const tTensor *
 
     int64_t q_eps = floor(eps * (1 << (q_x * 2)) * T * T + 0.5f);
 
-    int8_t *p_weight_tmp = (int8_t *)(p_tmp + (2 * T + 2) * sizeof(int32_t));
-    int32_t *p_bias_tmp = (int32_t *)(p_weight_tmp + T * sizeof(int8_t));
+    size_t required_workspace = 8 + (size_t)T * 14 + ALIGN4(T);
+    #if THINKER_RUNTIME_CHECK
+    if (workspace->mem_.type_ != 2 ||
+                          workspace->shape_.ndim_ != 1 ||
+                          getTensorDataSize(workspace) < required_workspace) {
+        return (T_ERR_NO_WORKSPACE);
+    }
+#endif
+    int8_t *p_weight_stage = p_tmp + (2 * T + 2) * sizeof(int32_t);
+    int32_t *p_bias_stage = (int32_t *)(p_weight_stage + ALIGN4(T));
+    int8_t *p_src_tmp = (int8_t *)(p_bias_stage + T);
+    int8_t *p_dst_tmp = p_src_tmp + T;
+    int8_t *p_weight_tmp = p_gamma;
+    int32_t *p_bias_tmp = p_beta;
 
     // Copy weights and biases to temporary buffers if needed
-    if ((1 == W->mem_.type_ || 3 == W->mem_.type_)) {
-        THINKER_RET_CHECK(API_LIB(memcpy_i8o8)(p_weight_tmp, p_gamma, T * sizeof(int8_t)), "luna_memcpy_i8o8");
-        THINKER_RET_CHECK(API_LIB(memcpy_i8o8)((int8_t *)p_bias_tmp, (int8_t *)p_beta, T * sizeof(int32_t)), "luna_memcpy_i8o8");
-    } 
-    else {
-        p_weight_tmp = p_gamma;
-        p_bias_tmp = p_beta;
+    if (W->mem_.type_ != 2) {
+        THINKER_RET_CHECK(API_LIB(memcpy_i8o8)(p_weight_stage, p_gamma, T), "luna_memcpy_i8o8");
+        p_weight_tmp = p_weight_stage;
     }
-
-    int8_t* p_src_tmp = (int8_t*)(p_bias_tmp + T * sizeof(int32_t));
-    int8_t* p_dst_tmp = (int8_t*)(p_src_tmp + T * sizeof(int8_t));
+    if (Bias->mem_.type_ != 2) {
+        THINKER_RET_CHECK(API_LIB(memcpy_i8o8)((int8_t *)p_bias_stage,
+                          (int8_t *)p_beta, T * sizeof(int32_t)), "luna_memcpy_i8o8");
+        p_bias_tmp = p_bias_stage;
+    }
 
     // Process each sequence
     for (int i = 0; i < leading; i++) {
@@ -253,7 +293,8 @@ int32_t layernormalint_venus(const tTensor *X, const tTensor *W, const tTensor *
 
         int32_t sum_x_val = *sum_x;
         int32_t sum_x2_val = *sum_x2;
-        int64_t denominator = (int64_t)(T * sum_x2_val) - (int64_t)(sum_x_val * sum_x_val); // N * sum(x^2) - (sum(x))^2
+        int64_t denominator = (int64_t)T * sum_x2_val -
+                              (int64_t)sum_x_val * sum_x_val;
         denominator = denominator + q_eps;
         int32_t label_shift = 0;
         int32_t *p_weight = p_src2;

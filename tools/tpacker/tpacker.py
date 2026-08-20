@@ -4,12 +4,6 @@
 # All rights reserved.
 # Created by leifang on 2022.09.31
 
-import os
-import json
-import argparse
-import importlib
-import pkgutil
-from typing import Dict, List, Tuple, Optional
 import traceback
 
 from .argument_parser import parse_arguments, parse_parameters, export_configuration
@@ -23,17 +17,104 @@ from .generate_report import generate_memory_report, clean_invalid_files
 from .flops_report import statistical_calculation_amount
 
 def main():
-    # Parse command line arguments and call tpacker function
-    args, parameter_comments = parse_arguments()  # Get just the args object
-    tpacker(args, parameter_comments)
+    try:
+        args, parameter_comments = parse_arguments()
+        tpacker(args, parameter_comments)
+    except Exception as e:
+        error_info = f"{Colors.RED}Error occurred: {str(e)}{Colors.RESET}\n"
+        error_info += f"Traceback:\n{traceback.format_exc()}"
+        print(error_info)
+        raise SystemExit(1)
 
-def tpacker(args, parameter_comments):
+
+def _format_dynamic_shape(dynamic_shape):
+    if isinstance(dynamic_shape, str):
+        return dynamic_shape
+    return ",".join(
+        f"{name}={':'.join(str(value) for value in shape)}"
+        for name, shape in dynamic_shape.items()
+    )
+
+
+def _format_csv(value):
+    if isinstance(value, str):
+        return value
+    return ",".join(value)
+
+
+def _format_memory(memory):
+    if isinstance(memory, str):
+        return memory
+    return ",".join(f"{name}:{location}" for name, location in memory.items())
+
+
+def pack_model(
+    graph_path=None,
+    output_path=None,
+    *,
+    dump=None,
+    inputs=None,
+    outputs=None,
+    dynamic_shape=None,
+    strategy=None,
+    isstream=None,
+    platform=None,
+    ramsize=None,
+    psramsize=None,
+    dma_prefetch=None,
+    memory=None,
+    threshold1=None,
+    threshold2=None,
+    threshold3=None,
+    threshold4=None,
+    config_file=None,
+    export_config=None,
+) -> bytes:
+    """Pack an ONNX model and return the serialized resource bytes.
+
+    Explicit Python arguments override values from ``config_file``. Parameters
+    left as ``None`` use the configuration file value or the CLI default.
+    """
+    argv = []
+    values = {
+        "--graph_path": graph_path,
+        "--output_path": output_path,
+        "--dump": dump,
+        "--inputs": _format_csv(inputs) if inputs is not None else None,
+        "--outputs": _format_csv(outputs) if outputs is not None else None,
+        "--dynamic_shape": (
+            _format_dynamic_shape(dynamic_shape)
+            if dynamic_shape is not None else None
+        ),
+        "--strategy": _format_csv(strategy) if strategy is not None else None,
+        "--isstream": isstream,
+        "--platform": platform,
+        "--ramsize": ramsize,
+        "--psramsize": psramsize,
+        "--dma_prefetch": dma_prefetch,
+        "--memory": _format_memory(memory) if memory is not None else None,
+        "--threshold1": threshold1,
+        "--threshold2": threshold2,
+        "--threshold3": threshold3,
+        "--threshold4": threshold4,
+        "--config_file": config_file,
+        "--export_config": export_config,
+    }
+    for option, value in values.items():
+        if value is not None:
+            argv.extend((option, str(value)))
+
+    try:
+        args, parameter_comments = parse_arguments(argv)
+    except SystemExit as error:
+        raise ValueError("Invalid tpacker arguments") from error
+    return tpacker(args, parameter_comments)
+
+def tpacker(args, parameter_comments) -> bytes:
     BANNER = "=" * 83
-    print(BANNER)
     clean_invalid_files()
     try:
         # Parse parameters
-        print(f"{Colors.BLUE}1. Parse input information{Colors.RESET}")
         model_config, device_config, memory_config = parse_parameters(args)
 
         # Load model and convert ONNX graph to internal IR
@@ -47,6 +128,23 @@ def tpacker(args, parameter_comments):
         # Load target platform information
         print(f"{Colors.BLUE}\n4. Retrieve hardware platform information{Colors.RESET}")
         device = load_device_info(graph.platform, device_config)
+
+        # Export the effective device capacities before model packing can fail.
+        if args.export_config:
+            device_config.ramsize = device.sram_size
+            device_config.psramsize = device.psram_size
+            if not export_configuration(
+                args,
+                model_config,
+                device_config,
+                memory_config,
+                parameter_comments,
+                args.export_config,
+            ):
+                raise RuntimeError(
+                    f"Failed to export configuration file: {args.export_config}"
+                )
+            print(f"{Colors.BLUE}4.3 Config File Export Success{Colors.RESET}")
 
         # Hardware-aware graph adaptation
         print(f"{Colors.BLUE}\n5. Hardware-Aware Computational Graph{Colors.RESET}")
@@ -64,29 +162,18 @@ def tpacker(args, parameter_comments):
         # Serialize the model
         print(f"{Colors.BLUE}\n8. Serialization of Computation Graph{Colors.RESET}")
         packed_model = serialize_model(model, memory_plan, device)
+        packed_bytes = packed_model.to_bytes()
 
         # Save the model
         print(f"{Colors.BLUE}\n9. Save Resource File{Colors.RESET}")
         with open(args.output_path, "wb") as f:
-            f.write(packed_model.to_bytes())
+            f.write(packed_bytes)
 
-        # Export configuration file
-        if args.export_config:
-            export_configuration(args, model_config, device_config, memory_config, parameter_comments, args.export_config)
-            print(f"{Colors.BLUE}\n10. Config File Export Success{Colors.RESET}")
-        else:
-            print(f"{Colors.YELLOW}\n10. Config File Export Skipped{Colors.RESET}")
-
+        return packed_bytes
+    finally:
         print(BANNER)
-
-    except Exception as e:
-        error_info = f"{Colors.RED}Error occurred: {str(e)}{Colors.RESET}\n"
-        error_info += f"Traceback:\n{traceback.format_exc()}"
-        print(error_info)
-        print(BANNER)
-        exit(1)
 
 if __name__ == "__main__":
     main()
 
-__all__ = ['tpacker']
+__all__ = ['pack_model', 'tpacker']

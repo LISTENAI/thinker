@@ -96,9 +96,14 @@ static int32_t luna_ceil(int32_t x, int32_t shift) {
  * @return Operation status
  */
 int32_t bmmint_luna(tTensor *lhs, tTensor *rhs, tTensor *out, tTensor *workspace) {
-    if ((lhs->shape_.ndim_ != rhs->shape_.ndim_) || (lhs->dtype_ != rhs->dtype_)) {
-        return T_ERR_INVALID_PARA;
+    #if THINKER_PARAM_CHECK
+    if (lhs == NULL || rhs == NULL || out == NULL) {
+        return (T_ERR_INVALID_PARA);
     }
+    if (lhs->dtype_ != Int8 || rhs->dtype_ != Int8 || out->dtype_ != Int8) {
+        return (T_ERR_INVALID_PARA);
+    }
+    #endif
 
     const int32_t left_limit = 64 * 1024;
     const int32_t right_limit = 32 * 1024;
@@ -107,11 +112,31 @@ int32_t bmmint_luna(tTensor *lhs, tTensor *rhs, tTensor *out, tTensor *workspace
     int32_t rhs_is_psram = 0;
     int32_t out_is_psram = 0;
     int32_t n_dim = lhs->shape_.ndim_;
-    int32_t in_idx = (lhs->dtype_ & 0xF) >> 1;
-    int32_t ou_idx = (out->dtype_ & 0xF) >> 1;
+    #if THINKER_PARAM_CHECK
+    if (n_dim < 2 || n_dim > 3 || rhs->shape_.ndim_ != n_dim ||
+                        out->shape_.ndim_ != n_dim) {
+        return (T_ERR_INVALID_PARA);
+    }
+    #endif
+    int32_t in_idx = 0;
+    int32_t ou_idx = 0;
     int32_t M = lhs->shape_.dims_[n_dim - 2];
     int32_t N = lhs->shape_.dims_[n_dim - 1];
     int32_t L = rhs->shape_.dims_[n_dim - 1];
+    #if THINKER_RUNTIME_CHECK
+    if (M <= 0 || N <= 0 || L <= 0 ||
+                          rhs->shape_.dims_[n_dim - 2] != N ||
+                          out->shape_.dims_[n_dim - 2] != M ||
+                          out->shape_.dims_[n_dim - 1] != L || lhs->dptr_ == 0 ||
+                          rhs->dptr_ == 0 || out->dptr_ == 0) {
+        return (T_ERR_INVALID_PARA);
+    }
+    #endif
+    #if THINKER_RUNTIME_CHECK
+    if (out->dptr_ == lhs->dptr_ || out->dptr_ == rhs->dptr_) {
+        return (T_ERR_NO_SUPPORT_OP);
+    }
+    #endif
     void *src1 = (void *)lhs->dptr_;
     void *src2 = (void *)rhs->dptr_;
     void *dst = (void *)out->dptr_;
@@ -131,16 +156,20 @@ int32_t bmmint_luna(tTensor *lhs, tTensor *rhs, tTensor *out, tTensor *workspace
     int32_t q_o = (int32_t)out->scale_;
     int32_t shift = q_l + q_r - q_o;
 
-    if ((shift < 0) || (n_dim < 2) || (n_dim > 3)) {
-        return T_ERR_INVALID_PARA;
+    #if THINKER_PARAM_CHECK
+    if (shift < 0 || shift > 63) {
+        return (T_ERR_INVALID_PARA);
     }
-
-    if ((0 != in_idx) || (0 != ou_idx)) {
-        return T_ERR_INVALID_PARA;
-    }
+    #endif
 
     if (3 == n_dim) {
         batch = lhs->shape_.dims_[0];
+        #if THINKER_RUNTIME_CHECK
+        if (batch <= 0 || rhs->shape_.dims_[0] != batch ||
+                              out->shape_.dims_[0] != batch) {
+            return (T_ERR_INVALID_PARA);
+        }
+        #endif
     }
 
     if (2 != rhs->mem_.type_) {
@@ -155,6 +184,41 @@ int32_t bmmint_luna(tTensor *lhs, tTensor *rhs, tTensor *out, tTensor *workspace
         out_is_psram = 1;
     }
 
+    int32_t int8_condition_l = (luna_ceil(M, 2) << 2) * (luna_ceil(N, 3) << 3);
+    int32_t int8_condition_r = (luna_ceil(N, 3) << 3) * (luna_ceil(L, 2) << 2);
+    #if THINKER_RUNTIME_CHECK
+    if ((int8_condition_l > left_limit && (luna_ceil(N, 3) << 3) * 4 > left_limit) ||
+        (int8_condition_r > right_limit && (luna_ceil(N, 3) << 3) * 4 > right_limit)) {
+        return (T_ERR_INVALID_PARA);
+    }
+    #endif
+
+    int32_t workspace_split_M = M;
+    if (int8_condition_l > left_limit) {
+        int32_t split_num = 2;
+        do {
+            workspace_split_M = (M + split_num - 1) / split_num;
+            split_num++;
+        } while ((luna_ceil(workspace_split_M, 2) << 2) *
+                 (luna_ceil(N, 3) << 3) > left_limit);
+    }
+    #if THINKER_RUNTIME_CHECK
+    if (rhs_is_psram && out_is_psram && !lhs_is_psram) {
+        return (T_ERR_NO_SUPPORT_OP);
+    }
+    #endif
+    int32_t required_workspace = rhs_is_psram * N * L;
+    required_workspace += lhs_is_psram * workspace_split_M * N;
+    required_workspace += out_is_psram * workspace_split_M * L;
+    #if THINKER_RUNTIME_CHECK
+    if (required_workspace > 0 &&
+        (workspace == NULL || workspace->dptr_ == 0 || workspace->mem_.type_ != 2 ||
+         workspace->dtype_ != Int8 || workspace->shape_.ndim_ != 1 ||
+         workspace->shape_.dims_[0] < (uint32_t)required_workspace)) {
+        return (T_ERR_NO_WORKSPACE);
+    }
+    #endif
+
     for (int32_t i = 0; i < batch; i++) {
         int8_t *tsrc1 = (int8_t *)src1 + i * src1_offset;
         int8_t *tsrc2 = (int8_t *)src2 + i * src2_offset;
@@ -168,19 +232,18 @@ int32_t bmmint_luna(tTensor *lhs, tTensor *rhs, tTensor *out, tTensor *workspace
             memcpy(p_tmp_src2, (int8_t *)tsrc2, right_size);
         }
 
-        int32_t int8_condition_l = (luna_ceil(M, 2) << 2) * (luna_ceil(N, 3) << 3);
-        int32_t int8_condition_r = (luna_ceil(N, 3) << 3) * (luna_ceil(L, 2) << 2);
-
         if (int8_condition_l > left_limit) {
             int s_num = 2;
             int32_t split_M = (0 == (M % s_num)) ? (M / s_num) : (M / s_num + 1);
             int32_t final_s_M = 0;
-            int8_condition_l = (luna_ceil(split_M, 2) << 2) * (luna_ceil(N, 3) << 3);
+            int32_t split_condition_l =
+                (luna_ceil(split_M, 2) << 2) * (luna_ceil(N, 3) << 3);
 
-            while (int8_condition_l > left_limit) {
+            while (split_condition_l > left_limit) {
                 s_num++;
                 split_M = (0 == (M % s_num)) ? (M / s_num) : (M / s_num + 1);
-                int8_condition_l = (luna_ceil(split_M, 2) << 2) * (luna_ceil(N, 3) << 3);
+                split_condition_l =
+                    (luna_ceil(split_M, 2) << 2) * (luna_ceil(N, 3) << 3);
             }
 
             final_s_M = (0 == (M % s_num)) ? (split_M) : (M - (split_M * (s_num - 1)));
@@ -215,7 +278,7 @@ int32_t bmmint_luna(tTensor *lhs, tTensor *rhs, tTensor *out, tTensor *workspace
                         p_tmp_dst = (int8_t *)tmp_buf + tmp_size;
                         tmp_size += split_out_size;
                         if (tmp_size > workspace_size) {
-                            return -1;
+                            return T_ERR_NO_WORKSPACE;
                         }
                         THINKER_RET_CHECK(luna_mat_mul_api(p_tmp_src1, p_tmp_src2, p_tmp_dst, split_M, N, L, shift), "luna_mat_maul_api");
                         memcpy((int8_t *)tdst + ou_oft, p_tmp_dst, split_out_size);
@@ -226,12 +289,14 @@ int32_t bmmint_luna(tTensor *lhs, tTensor *rhs, tTensor *out, tTensor *workspace
             } else {
                 int32_t split_num = 2;
                 int32_t split_L = L / split_num;
-                int8_condition_r = (luna_ceil(N, 3) << 3) * (luna_ceil(split_L, 2) << 2);
+                int32_t split_condition_r =
+                    (luna_ceil(N, 3) << 3) * (luna_ceil(split_L, 2) << 2);
 
-                while (int8_condition_r > right_limit || (0 != (L % split_num))) {
+                while (split_condition_r > right_limit || (0 != (L % split_num))) {
                     split_num++;
                     split_L = L / split_num;
-                    int8_condition_r = (luna_ceil(N, 3) << 3) * (luna_ceil(split_L, 2) << 2);
+                    split_condition_r =
+                        (luna_ceil(N, 3) << 3) * (luna_ceil(split_L, 2) << 2);
                 }
 
                 BMM_SPLIT_MAT_MUL_LUNA_API luna_mat_mul_api =
@@ -296,12 +361,14 @@ int32_t bmmint_luna(tTensor *lhs, tTensor *rhs, tTensor *out, tTensor *workspace
             } else {
                 int32_t split_num = 2;
                 int32_t split_L = L / split_num;
-                int8_condition_r = (luna_ceil(N, 3) << 3) * (luna_ceil(split_L, 2) << 2);
+                int32_t split_condition_r =
+                    (luna_ceil(N, 3) << 3) * (luna_ceil(split_L, 2) << 2);
 
-                while (int8_condition_r > right_limit || (0 != (L % split_num))) {
+                while (split_condition_r > right_limit || (0 != (L % split_num))) {
                     split_num++;
                     split_L = L / split_num;
-                    int8_condition_r = (luna_ceil(N, 3) << 3) * (luna_ceil(split_L, 2) << 2);
+                    split_condition_r =
+                        (luna_ceil(N, 3) << 3) * (luna_ceil(split_L, 2) << 2);
                 }
 
                 BMM_SPLIT_MAT_MUL_LUNA_API luna_mat_mul_api =

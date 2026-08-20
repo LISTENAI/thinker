@@ -2,6 +2,8 @@
 
 #undef __OP__
 #define __OP__ Relu
+#include "core/comm/thinker_log.h"
+#include "core/comm/utils.h"
 #include "core/operator_register.h"
 #include "thinker_status.h"
 
@@ -26,17 +28,36 @@
  * @return int32_t Execution status
  */
 int32_t X(Forward)(tOperator *op, tTensor **tensors, int32_t num_tensor, tDMA_List *list) {
-    CHECK_GE(num_tensor, (op->num_input_ + op->num_output_));  // Validate tensor count
-    
+#if THINKER_PARAM_CHECK
+    if (op == NULL || tensors == NULL || op->num_input_ != 1 ||
+                        op->num_output_ != 1 || num_tensor < 2 || num_tensor > 3) {
+        return (T_ERR_INVALID_PARA);
+    }
+#endif
+    tTensor *X = tensors[0];
+    tTensor *Y = tensors[1];
+#if THINKER_PARAM_CHECK
+    if (X == NULL || Y == NULL || X->dptr_ == 0 || Y->dptr_ == 0 ||
+                        !equalShape(&X->shape_, &Y->shape_)) {
+        return (T_ERR_INVALID_DATA);
+    }
+#endif
+
     tTensor *Workspace = NULL;
 
     // Get workspace tensor if available
     if (num_tensor > op->num_input_ + op->num_output_) {
         Workspace = tensors[op->num_input_ + op->num_output_];
+#if THINKER_RUNTIME_CHECK
+        if (Workspace == NULL || Workspace->dptr_ == 0 ||
+                              Workspace->mem_.type_ != 2 || Workspace->dtype_ != Int8) {
+            return (T_ERR_NO_WORKSPACE);
+        }
+#endif
     }
 
 #if THINKER_USE_VENUS || THINKER_USE_ARCS || THINKER_USE_VENUSA
-    THINKER_RET_CHECK(relu_luna(tensors[0], tensors[op->num_input_], Workspace), "relu_luna");  // Execute ReLU operation
+    THINKER_RET_CHECK(relu_luna(X, Y, Workspace), "relu_luna");
 #endif
 
     return T_SUCCESS;

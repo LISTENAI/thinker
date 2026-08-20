@@ -41,7 +41,7 @@ int32_t luna_prelu_q15_int32(const q15_t *src, uint32_t slope, int32_t *dst, uin
 int32_t luna_prelu_q31_int8(const q31_t *src, uint32_t slope, int8_t *dst, uint32_t size, uint32_t post_shift);
 int32_t luna_prelu_q31_int16(const q31_t *src, uint32_t slope, int16_t *dst, uint32_t size, uint32_t post_shift);
 int32_t luna_prelu_q31_int32(const q31_t *src, uint32_t slope, int32_t *dst, uint32_t size, uint32_t post_shift);
-int32_t luna_memcpy(void* dst, void* src, int size);
+int32_t luna_memcpy(void *dst, const void *src, int size);
 int32_t luna_memset(void *dst, q7_t value, uint32_t size);
 int32_t luna_memset_int16(void *dst, q15_t value, uint32_t size);
 int32_t luna_memset_int32(void *dst, q31_t value, uint32_t size);

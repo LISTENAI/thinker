@@ -24,21 +24,28 @@
  * @return Execution status
  */
 tStatus relux_luna(tTensor *X, tTensor *Y, ReluxAttrs *attrs) {
-#ifdef RUNTIME_PARAM_CHECK
-    // Check if input and output are in PSRAM
-    if (X->mem_.type_ != 2 || Y->mem_.type_ != 2) {
-        return T_ERR_NO_IMPLEMENTED;
-    }
+#if THINKER_RUNTIME_CHECK
+if (X->mem_.type_ != 2 || Y->mem_.type_ != 2) {
+    return (T_ERR_NO_IMPLEMENTED);
+}
 
-    // Ensure output data type is Int8
-    if (Y->dtype_ != Int8) {
-        return T_ERR_INVALID_DATATYPE;
-    }
+if (X->dtype_ != Int8 || Y->dtype_ != Int8) {
+    return (T_ERR_INVALID_DATATYPE);
+}
 #endif
 
     // Get ReLUX parameters
     int8_t threshold = attrs->threshold;
     int32_t shift = attrs->shift;
+    #if THINKER_PARAM_CHECK
+    if (attrs->threshold < -128 || attrs->threshold > 127) {
+        return (T_ERR_INVALID_PARA);
+    }
+
+if (shift < 0 || shift > 63) {
+    return (T_ERR_INVALID_PARA);
+}
+#endif
     uint32_t size = getTensorSize(X);
 
     // Execute ReLUX operation based on input data type

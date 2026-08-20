@@ -7,6 +7,7 @@
 #include "core/comm/thinker_log.h"
 #include "core/comm/utils.h"
 #include "core/operator_attrs.h"
+#include "thinker_status.h"
 
 /**
  * @brief Channel shuffle operation for NCHW data format
@@ -87,19 +88,32 @@ static void channel_shuffle_nhwc(const tTensor *X, tTensor *Y, int32_t group) {
  * @return int32_t Operation status
  */
 int32_t shufflechannel_venus(tTensor *X, tTensor *Y, ShuffleChannelAttrs *attr) {
-    CHECK_EQ(X->shape_.ndim_, 4);
-    Y->shape_ = X->shape_;
-    Y->dtype_ = X->dtype_;
-    Y->scale_ = X->scale_;
-    CHECK_GE(attr->num_group, 1);
-
+    #if THINKER_PARAM_CHECK
+    if (X == NULL || Y == NULL || attr == NULL || X->dptr_ == 0 ||
+                        Y->dptr_ == 0) {
+        return (T_ERR_INVALID_PARA);
+    }
+    if (X->shape_.ndim_ != 4 || Y->shape_.ndim_ != 4) {
+        return (T_ERR_INVALID_PARA);
+    }
+    if (attr->num_group <= 0 ||
+                        (attr->axis != 1 && attr->axis != 3)) {
+        return (T_ERR_INVALID_PARA);
+    }
+    if (X->shape_.dims_[attr->axis] % attr->num_group != 0) {
+        return (T_ERR_INVALID_PARA);
+    }
+    if (!equalShape(&X->shape_, &Y->shape_)) {
+        return (T_ERR_INVALID_DATA);
+    }
+    if (Y->dtype_ != X->dtype_ || Y->byte_ != X->byte_) {
+        return (T_ERR_INVALID_DATATYPE);
+    }
+    #endif
     if (attr->axis == 1) {  // NCHW format
         channel_shuffle_nchw(X, Y, attr->num_group);
     } else if (attr->axis == 3) {  // NHWC format
         channel_shuffle_nhwc(X, Y, attr->num_group);
-    } else {
-        THINKER_LOG_FATAL("Unsupported axis!");
-        return T_ERR_INVALID_PARA;
     }
 
     return T_SUCCESS;

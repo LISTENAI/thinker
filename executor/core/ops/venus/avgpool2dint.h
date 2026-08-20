@@ -84,7 +84,46 @@ static void luna_meanpool_para_init(PoolAttrs* attrs, s_conv_struct *conv_attrs,
  */
 int32_t avgpool2dint_luna(const tTensor* X, tTensor* Y, tTensor* Temp, PoolAttrs *attrs)
 {
-    if (Int8 == X->dtype_) {
+        #if THINKER_PARAM_CHECK
+        if (X->dtype_ != Int8 || Y->dtype_ != Int8) {
+            return (T_ERR_INVALID_DATATYPE);
+        }
+        if (attrs->layout != 0 || X->shape_.dims_[0] != 1 ||
+                            Y->shape_.dims_[0] != 1) {
+            return (T_ERR_INVALID_PARA);
+        }
+        #endif
+        int32_t is_global_pool =
+            attrs->kernel[0] == X->shape_.dims_[2] + attrs->pad[0] + attrs->pad[2] &&
+            attrs->kernel[1] == X->shape_.dims_[3] + attrs->pad[1] + attrs->pad[3];
+        #if THINKER_PARAM_CHECK
+        if (attrs->kernel[0] < 1 || attrs->kernel[1] < 1 ||
+                            (!is_global_pool &&
+                             (attrs->kernel[0] > 5 || attrs->kernel[1] > 5 ||
+                              (attrs->stride[0] != 1 && attrs->stride[0] != 2 && attrs->stride[0] != 4) ||
+                              (attrs->stride[1] != 1 && attrs->stride[1] != 2 && attrs->stride[1] != 4) ||
+                              attrs->kernel[0] < attrs->stride[0] || attrs->kernel[1] < attrs->stride[1] ||
+                              attrs->pad[0] > 4 || attrs->pad[1] > 4 ||
+                              attrs->pad[2] > 4 || attrs->pad[3] > 4 ||
+                              attrs->pad[0] >= attrs->kernel[0] || attrs->pad[2] >= attrs->kernel[0] ||
+                              attrs->pad[1] >= attrs->kernel[1] || attrs->pad[3] >= attrs->kernel[1]))) {
+            return (T_ERR_INVALID_PARA);
+        }
+        #endif
+        #if THINKER_RUNTIME_CHECK
+        if (Temp == NULL || Temp->dptr_ == 0 ||
+                              Temp->shape_.ndim_ != 1) {
+            return (T_ERR_NO_WORKSPACE);
+        }
+        #endif
+    {
+        #if THINKER_RUNTIME_CHECK
+        if (X->mem_.type_ != 2 || Y->mem_.type_ != 2 ||
+                              X->dptr_ == 0 || Y->dptr_ == 0 ||
+                              X->dptr_ == Y->dptr_) {
+            return (T_ERR_INVALID_PARA);
+        }
+        #endif
         s_conv_struct pool_struct_;
         luna_meanpool_para_init(attrs, &pool_struct_, (tTensor *)X, Y);
         int32_t batch = X->shape_.dims_[0];
@@ -104,9 +143,52 @@ int32_t avgpool2dint_luna(const tTensor* X, tTensor* Y, tTensor* Temp, PoolAttrs
         int32_t log2n_stride_w = (pool_struct_.stride_w >> 1);
         int32_t input_condition = (luna_quant_ceil(in_c, 3) << 3) * in_h * (luna_quant_ceil(in_w, (3 + log2n_stride_w)) << (3 + log2n_stride_w));
         input_condition = (input_condition <= 64 * 1024) ? 1 : 0;
+        #if THINKER_RUNTIME_CHECK
+        if (!input_condition &&
+            (luna_quant_ceil(MIN(8, in_c), 3) << 3) * in_h *
+                (luna_quant_ceil(in_w, 3 + log2n_stride_w) <<
+                 (3 + log2n_stride_w)) > 64 * 1024) {
+            return (T_ERR_INVALID_PARA);
+        }
+        #endif
 
         int32_t shift = 0;
         int32_t one_kernel_size = k_h * k_w;
+        int32_t split_ch = input_condition ? in_c : MIN(8, in_c);
+        int32_t is_power_of_two =
+            (one_kernel_size & (one_kernel_size - 1)) == 0;
+        int32_t is_global_pool =
+            pool_struct_.input_h_after_padding == k_h &&
+            pool_struct_.input_w_after_padding == k_w;
+        int32_t workspace_size;
+
+        if (is_global_pool) {
+            int32_t sum_bytes = split_ch * ou_h * ou_w * 4;
+            if (!is_power_of_two) {
+                workspace_size = input_condition ?
+                    MAX(in_c * in_h * in_w, sum_bytes) + sum_bytes :
+                    sum_bytes * 2;
+            } else if (input_condition) {
+                workspace_size = MAX(in_h * in_w,
+                                     in_c * ou_h * ou_w * 2);
+            } else {
+                workspace_size = MAX(in_h * in_w, sum_bytes);
+            }
+        } else {
+            workspace_size = split_ch * ou_h * ou_w *
+                             (is_power_of_two ? 2 : 8);
+        }
+        #if THINKER_RUNTIME_CHECK
+        if (Temp->shape_.dims_[0] < workspace_size) {
+            return (T_ERR_NO_WORKSPACE);
+        }
+        if ((is_power_of_two && X->scale_ != Y->scale_) ||
+                            (!is_power_of_two &&
+                             (X->scale_ - Y->scale_ < -30 ||
+                              X->scale_ - Y->scale_ > 63))) {
+            return (T_ERR_INVALID_PARA);
+        }
+        #endif
 
         if (input_condition) { // No need to split
             if (0 == (one_kernel_size & (one_kernel_size - 1))) {
@@ -176,8 +258,8 @@ int32_t avgpool2dint_luna(const tTensor* X, tTensor* Y, tTensor* Temp, PoolAttrs
                         THINKER_RET_CHECK(API_LIB(scale_q31_int8)((int32_t *)p_tmp, 1, p_out, 8 * ou_channel_size, shift), "luna_scale_q31_int8");
                     }
                     if (0 != s_num) {
-                        int8_t *p_in = (int8_t *)X->dptr_ + in_channel_size * (split_num - 1) * 8;
-                        int8_t *p_out = (int8_t *)Y->dptr_ + ou_channel_size * (split_num - 1) * 8;
+                        int8_t *p_in = (int8_t *)X->dptr_ + in_channel_size * split_num * 8;
+                        int8_t *p_out = (int8_t *)Y->dptr_ + ou_channel_size * split_num * 8;
                         pool_struct_.input_c = s_num;
                         THINKER_RET_CHECK(API_LIB(memset)(p_tmp, 1, in_h * in_w), "luna_memset");
                         THINKER_RET_CHECK(API_LIB(mat_mul_q7_int32)(p_in, (int8_t *)p_tmp, (int32_t *)p_tmp, s_num, in_h * in_w, 1, 0), "luna_mat_mul_q7_int32");
@@ -192,8 +274,8 @@ int32_t avgpool2dint_luna(const tTensor* X, tTensor* Y, tTensor* Temp, PoolAttrs
                         THINKER_RET_CHECK(API_LIB(scale_q15_int8)(p_tmp, 1, p_out, 8 * ou_channel_size, shift), "luna_scale_q15_int8");
                     }
                     if (0 != s_num) {
-                        int8_t *p_in = (int8_t *)X->dptr_ + in_channel_size * (split_num - 1) * 8;
-                        int8_t *p_out = (int8_t *)Y->dptr_ + ou_channel_size * (split_num - 1) * 8;
+                        int8_t *p_in = (int8_t *)X->dptr_ + in_channel_size * split_num * 8;
+                        int8_t *p_out = (int8_t *)Y->dptr_ + ou_channel_size * split_num * 8;
                         pool_struct_.input_c = s_num;
                         THINKER_RET_CHECK(API_LIB(mean_pooling_int16)(p_in, (int16_t *)p_tmp, &pool_struct_), "luna_mean_pooling_int16");
                         THINKER_RET_CHECK(API_LIB(scale_q15_int8)(p_tmp, 1, p_out, s_num * ou_channel_size, shift), "luna_scale_q15_int8");
@@ -217,8 +299,8 @@ int32_t avgpool2dint_luna(const tTensor* X, tTensor* Y, tTensor* Temp, PoolAttrs
                         THINKER_RET_CHECK(API_LIB(scale_q31_int8)(p_tmp1, 1, p_out, 8 * ou_channel_size, 0), "luna_scale_q31_int8");
                     }
                     if (0 != s_num) {
-                        int8_t *p_in = (int8_t *)X->dptr_ + 8 * in_channel_size * (split_num - 1);
-                        int8_t *p_out = (int8_t *)Y->dptr_ + 8 * ou_channel_size * (split_num - 1);
+                        int8_t *p_in = (int8_t *)X->dptr_ + 8 * in_channel_size * split_num;
+                        int8_t *p_out = (int8_t *)Y->dptr_ + 8 * ou_channel_size * split_num;
                         pool_struct_.input_c = s_num;
                         THINKER_RET_CHECK(API_LIB(memset)(p_tmp1, 1, in_h * in_w), "luna_memset");
                         THINKER_RET_CHECK(API_LIB(mat_mul_q7_int32)(p_in, (int8_t *)p_tmp1, (int32_t *)p_tmp2, s_num, in_h * in_w, 1, 0), "luna_mat_mul_q7_int32");
@@ -242,8 +324,8 @@ int32_t avgpool2dint_luna(const tTensor* X, tTensor* Y, tTensor* Temp, PoolAttrs
                         THINKER_RET_CHECK(API_LIB(scale_q31_int8)(p_tmp1, 1, p_out, 8 * ou_channel_size, 0), "luna_scale_q31_int8");
                     }
                     if (0 != s_num) {
-                        int8_t *p_in = (int8_t *)X->dptr_ + 8 * in_channel_size * (split_num - 1);
-                        int8_t *p_out = (int8_t *)Y->dptr_ + 8 * ou_channel_size * (split_num - 1);
+                        int8_t *p_in = (int8_t *)X->dptr_ + 8 * in_channel_size * split_num;
+                        int8_t *p_out = (int8_t *)Y->dptr_ + 8 * ou_channel_size * split_num;
                         pool_struct_.input_c = s_num;
                         THINKER_RET_CHECK(API_LIB(mean_pooling_int16)(p_in, (int16_t *)p_tmp1, &pool_struct_), "luna_mean_pooling_int16");
                         THINKER_RET_CHECK(API_LIB(scale_q15_int32)((int16_t *)p_tmp1, 1, p_tmp2, s_num * ou_channel_size, 0), "luna_scale_q15_int32");
